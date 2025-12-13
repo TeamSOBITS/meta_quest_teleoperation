@@ -29,12 +29,11 @@
     <li>
     　<a href="#ビルド方法">ビルド方法</a>
       <ul>
-        <li><a href="#Unityアプリをビルド">Unityアプリをビルド</a></li>
-        <li><a href="#Unityアプリを実行">Unityアプリを実行</a></li>
+        <li><a href="#unityとros通信">UnityとROS通信</a></li>
+        <li><a href="#unityアプリをビルド">Unityアプリをビルド</a></li>
         <li><a href="#meta-questとros通信">Meta QuestとROS通信</a></li>
       </ul>
     </li>
-    <li><a href="#参考文献">参考文献</a></li>
     <li><a href="#マイルストーン">マイルストーン</a></li>
     <li><a href="#参考文献">参考文献</a></li>
     <!-- <li><a href="#contributing">Contributing</a></li> -->
@@ -108,14 +107,14 @@ Unity HubはどのOSでも使用できますが，ここではLinux(Ubuntu)にUn
 
 1. 任意のディレクトリに本レポジトリをcloneします．
     ```sh
-    $ git clone https://github.com/TeamSOBITS/meta_quest_teleoperation
+    $ git clone https://github.com/TeamSOBITS/meta_quest_teleoperation.git
     ```
 
-2. Unity Hubの`Projects` -> `ADD` -> `Add project from disk`で本レポジトリ（UnityProject）を選択します．この時点で本レポジトリに合わせたバージョンのUnity Editorがインストールされます．Android Build Supportにチェックを入れ，インストールします．
+2. Unity Hubの`Projects -> ADD -> Add project from disk`で本レポジトリ（UnityProject）を選択します．この時点で本レポジトリに合わせたバージョンのUnity Editorがインストールされます．Android Build Supportにチェックを入れ，インストールします．
 
-3. Unityが起動できたら，`Edit` -> `Project Settings`で`XR Plugin Management`へ移動し，すべての項目でOpenXRのチェックを外し，Oculusにチェックを入れます．
+3. Unityが起動できたら，`Edit -> Project Settings`で`XR Plugin Management`へ移動し，すべての項目でOpenXRのチェックを外し，Oculusにチェックを入れます．
 
-4. `XR Plugin Management` -> O`culus`のTarget Devicesで使用するMeta Questのバージョンを指定します．
+4. `XR Plugin Management -> Oculus`のTarget Devicesで使用するMeta Questのバージョンを指定します．
 
 <p align="right">(<a href="#readme-top">上に戻る</a>)</p>
 
@@ -127,7 +126,7 @@ Unity HubはどのOSでも使用できますが，ここではLinux(Ubuntu)にUn
 
 2. ROS TCP Endpointをcloneします．
     ```sh
-    $ git clone https://github.com/TeamSOBITS/ros_tcp_endpoint
+    $ git clone https://github.com/TeamSOBITS/ros_tcp_endpoint.git
     ```
 
 3. パッケージをコンパイルします．
@@ -140,17 +139,16 @@ Unity HubはどのOSでも使用できますが，ここではLinux(Ubuntu)にUn
 <p align="right">(<a href="#readme-top">上に戻る</a>)</p>
 
 ## ビルド方法
-meta_quest_teleoperationのセットアップが完了したら，ROSと通信できることを確認し，Meta Questデバイスへアプリをビルドします．
+`meta_quest_teleoperation`のセットアップが完了したら，ROSとUnityの通信を確認し，Meta Questデバイスへアプリをビルドします．
 
 <p align="right">(<a href="#readme-top">上に戻る</a>)</p>
 
-### UnityとROSの通信
+### UnityとROS通信
 ROS側でTCP Endpointを起動します．ros_ipにPCのIPを指定してください．
 ```sh
 $ ros2 launch ros_tcp_endpoint endpoint.launch.py ros_ip:=192.168.XXX.XXX
 ```
 次に，Unity側でProjectウィンドウから`Assets -> Scenes`へ移動し，TeleopSceneを選択します．HierarchyウィンドウでROSTCPConnectorを選択し，InspectorウィンドウのROS ConnectionスクリプトにあるROS IP AddressをROSのIPと同じ値を設定します．
-
 Unityのシーン内に表示されている通信の矢印が青くなったら成功です．
 
 <p align="right">(<a href="#readme-top">上に戻る</a>)</p>
@@ -171,17 +169,17 @@ Meta Questのアプリ一覧で「提供元不明のアプリ」にUnityアプ�
 
 <p align="right">(<a href="#readme-top">上に戻る</a>)</p>
 
-## 参考文献
-- [Meta Quest for Teleop Setup Guide](https://docs.picknik.ai/hardware_guides/setting_up_the_meta_quest_for_teleop/)
-
-<p align="right">(<a href="#readme-top">上に戻る</a>)</p>
-
 ## マイルストーン
 
 - [ ] 疑似逆運動学の追加
 - [ ] Meta Questでの逆運動学の追加
 
-現時点のバッグや新規機能の依頼を確[text](../sobit_edu)認するために[Issueページ][issues-url] をご覧ください．
+現時点のバッグや新規機能の依頼を確認するために[Issueページ][issues-url] をご覧ください．
+
+<p align="right">(<a href="#readme-top">上に戻る</a>)</p>
+
+## 参考文献
+- [Meta Quest for Teleop Setup Guide](https://docs.picknik.ai/hardware_guides/setting_up_the_meta_quest_for_teleop/)
 
 <p align="right">(<a href="#readme-top">上に戻る</a>)</p>
 
