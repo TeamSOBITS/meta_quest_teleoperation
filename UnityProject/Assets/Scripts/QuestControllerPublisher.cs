@@ -39,7 +39,7 @@ public class QuestControllerPublisher : MonoBehaviour
         
         _keyboardAction = inputActions.FindAction("OpenKeyboard");
         _keyboardAction.Enable();
-        textInput = GameObject.Find("Text").GetComponent<TextMeshProUGUI>();
+        textInput = GameObject.Find("ROS_IP").GetComponent<TextMeshProUGUI>();
         textInput.text = ros.RosIPAddress;
     }
 

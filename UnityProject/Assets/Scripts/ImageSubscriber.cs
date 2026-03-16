@@ -1,69 +1,57 @@
 using UnityEngine;
 using Unity.Robotics.ROSTCPConnector;
 using RosMessageTypes.Sensor;
+using TMPro;
 
 public class ImageSubscriber : MonoBehaviour
 {
     public ROSConnection ros;
-    public Renderer headImageRenderer;
-    public Renderer handImageRenderer;
-    public Renderer baseFrontImageRenderer;
-    public Renderer baseBackImageRenderer;
+    public Renderer[] imageRenderers;
+    public string[] topicNames;
+    public TextMeshProUGUI[] textInputs;
 
+    private Texture2D[] textures;
+    private Material[] materials;
 
-    public string headTopicName = "/sobit_light/head_camera/color";
-    public string handTopicName = "/sobit_light/hand_camera/color";
-    public string baseFrontTopicName = "/sobit_light/base_front_camera/color";
-    public string baseBackTopicName = "/sobit_light/base_back_camera/color";
-    // private Texture2D tex;
-    private Texture2D head_tex;
-    private Texture2D hand_tex;
-    private Texture2D base_front_tex;
-    private Texture2D base_back_tex;
 
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()
     {
         ros = ROSConnection.instance;
-        ros.Subscribe<ImageMsg>(headTopicName, HeadImageCallback);
-        ros.Subscribe<ImageMsg>(handTopicName, HandImageCallback);
-        ros.Subscribe<ImageMsg>(baseFrontTopicName,BaseFrontImageCallback);
-        ros.Subscribe<ImageMsg>(baseBackTopicName, BaseBackImageCallback);
 
-        // tex = new Texture2D(640, 480, TextureFormat.RGB24, false);
-        head_tex = new Texture2D(640, 480, TextureFormat.RGB24, false);
-        hand_tex = new Texture2D(640, 480, TextureFormat.RGB24, false);
-        base_front_tex = new Texture2D(640, 480, TextureFormat.RGB24, false);
-        base_back_tex = new Texture2D(640, 480, TextureFormat.RGB24, false);
+        int n = topicNames.Length;
+
+        textures = new Texture2D[n];
+        materials = new Material[n];
+
+        for (int i = 0; i < n; i++)
+        {
+            materials[i] = imageRenderers[i].material;
+            textures[i] = new Texture2D(640, 480, TextureFormat.RGB24, false);
+
+            int index = i;
+
+            ros.Subscribe<CompressedImageMsg>(topicNames[i], msg =>
+            {
+                RenderCompressedTexture(msg, materials[index], textures[index]);
+            });
+
+            if (textInputs != null && i < textInputs.Length)
+                textInputs[i].text = topicNames[i];
+        }
     }
-
-    void HeadImageCallback(ImageMsg msg)
+    private void RenderCompressedTexture(CompressedImageMsg msg, Material mat, Texture2D tex)
     {
-        RenderTexture(msg.data, headImageRenderer, head_tex);
-    }
+        if (msg == null || msg.data == null || msg.data.Length == 0)
+            return;
 
-    void HandImageCallback(ImageMsg msg)
-    {
-        RenderTexture(msg.data, handImageRenderer, hand_tex);
-    }
-
-    void BaseFrontImageCallback(ImageMsg msg)
-    {
-        RenderTexture(msg.data, baseFrontImageRenderer, base_front_tex);
-    }
-
-    void BaseBackImageCallback(ImageMsg msg)
-    {
-        RenderTexture(msg.data, baseBackImageRenderer, base_back_tex);
-    }
-
-    private void RenderTexture(byte[] data, Renderer renderer,Texture2D tex)
-    {        
-        // バイト列からtexture2dを生成
-        tex.LoadRawTextureData(data);
-        // テクスチャ割当
-        renderer.material.mainTexture = tex;
-        tex.Apply();
+        bool success = tex.LoadImage(msg.data);
+        if (!success)
+        {
+            Debug.LogWarning($"Failed to decode compressed image. format={msg.format}");
+            return;
+        }
+        mat.mainTexture = tex;
     }
 
     // Update is called once per frame

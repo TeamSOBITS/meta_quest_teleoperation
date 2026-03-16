@@ -76,8 +76,8 @@ public class RosPublishers : MonoBehaviour
     public void Start()
     {
         ros = ROSConnection.GetOrCreateInstance();
-        ros.Disconnect();
-        ros.Connect(PlayerPrefs.GetString("RosIPAddress", "127.0.0.1"), 10000);
+        // ros.Disconnect();
+        // ros.Connect(PlayerPrefs.GetString("RosIPAddress", "127.0.0.1"), 10000);
         ros.RegisterPublisher<OdometryMsg>(topicName);
         ros.RegisterPublisher<TFMessageMsg>(tfTopicName);
         ros.RegisterPublisher<TFMessageMsg>("/tf_test");
@@ -112,7 +112,7 @@ public class RosPublishers : MonoBehaviour
         _startDemoAudioData = GetComponents<AudioSource>()[0];
         _stopDemoAudioData = GetComponents<AudioSource>()[1];
 
-        textInput = GameObject.Find("Text").GetComponent<TextMeshProUGUI>();
+        textInput = GameObject.Find("ROS_IP").GetComponent<TextMeshProUGUI>();
         textInput.text = ros.RosIPAddress;
     }
 

@@ -1,7 +1,7 @@
 {
   "dependencies": {
     "com.unity.burst": {
-      "version": "1.8.21",
+      "version": "1.8.28",
       "depth": 2,
       "source": "registry",
       "dependencies": {
@@ -18,13 +18,14 @@
       "url": "https://packages.unity.com"
     },
     "com.unity.collections": {
-      "version": "2.5.1",
+      "version": "2.6.2",
       "depth": 2,
       "source": "registry",
       "dependencies": {
-        "com.unity.burst": "1.8.17",
-        "com.unity.test-framework": "1.4.5",
-        "com.unity.nuget.mono-cecil": "1.11.4",
+        "com.unity.burst": "1.8.23",
+        "com.unity.mathematics": "1.3.2",
+        "com.unity.test-framework": "1.4.6",
+        "com.unity.nuget.mono-cecil": "1.11.5",
         "com.unity.test-framework.performance": "3.0.3"
       },
       "url": "https://packages.unity.com"
@@ -47,16 +48,16 @@
       "depth": 0,
       "source": "builtin",
       "dependencies": {
-        "com.unity.ide.visualstudio": "2.0.23",
-        "com.unity.ide.rider": "3.0.36",
+        "com.unity.ide.visualstudio": "2.0.27",
+        "com.unity.ide.rider": "3.0.39",
         "com.unity.editorcoroutines": "1.0.0",
-        "com.unity.performance.profile-analyzer": "1.2.3",
-        "com.unity.test-framework": "1.5.1",
-        "com.unity.testtools.codecoverage": "1.2.6"
+        "com.unity.performance.profile-analyzer": "1.3.1",
+        "com.unity.test-framework": "1.6.0",
+        "com.unity.testtools.codecoverage": "1.3.0"
       }
     },
     "com.unity.ide.rider": {
-      "version": "3.0.36",
+      "version": "3.0.39",
       "depth": 1,
       "source": "registry",
       "dependencies": {
@@ -65,11 +66,11 @@
       "url": "https://packages.unity.com"
     },
     "com.unity.ide.visualstudio": {
-      "version": "2.0.23",
+      "version": "2.0.27",
       "depth": 1,
       "source": "registry",
       "dependencies": {
-        "com.unity.test-framework": "1.1.9"
+        "com.unity.test-framework": "1.1.33"
       },
       "url": "https://packages.unity.com"
     },
@@ -108,25 +109,25 @@
       }
     },
     "com.unity.nuget.mono-cecil": {
-      "version": "1.11.4",
+      "version": "1.11.5",
       "depth": 3,
       "source": "registry",
       "dependencies": {},
       "url": "https://packages.unity.com"
     },
     "com.unity.performance.profile-analyzer": {
-      "version": "1.2.3",
+      "version": "1.3.1",
       "depth": 1,
       "source": "registry",
       "dependencies": {},
       "url": "https://packages.unity.com"
     },
     "com.unity.render-pipelines.core": {
-      "version": "17.1.0",
+      "version": "17.0.4",
       "depth": 1,
       "source": "builtin",
       "dependencies": {
-        "com.unity.burst": "1.8.14",
+        "com.unity.burst": "1.8.20",
         "com.unity.mathematics": "1.3.2",
         "com.unity.ugui": "2.0.0",
         "com.unity.collections": "2.4.3",
@@ -137,12 +138,12 @@
       }
     },
     "com.unity.render-pipelines.universal": {
-      "version": "17.1.0",
+      "version": "17.0.4",
       "depth": 0,
       "source": "builtin",
       "dependencies": {
-        "com.unity.render-pipelines.core": "17.1.0",
-        "com.unity.shadergraph": "17.1.0",
+        "com.unity.render-pipelines.core": "17.0.4",
+        "com.unity.shadergraph": "17.0.4",
         "com.unity.render-pipelines.universal-config": "17.0.3"
       }
     },
@@ -186,11 +187,11 @@
       "url": "https://packages.unity.com"
     },
     "com.unity.shadergraph": {
-      "version": "17.1.0",
+      "version": "17.0.4",
       "depth": 1,
       "source": "builtin",
       "dependencies": {
-        "com.unity.render-pipelines.core": "17.1.0",
+        "com.unity.render-pipelines.core": "17.0.4",
         "com.unity.searcher": "4.9.3"
       }
     },
@@ -211,7 +212,7 @@
       "url": "https://packages.unity.com"
     },
     "com.unity.test-framework": {
-      "version": "1.5.1",
+      "version": "1.6.0",
       "depth": 1,
       "source": "builtin",
       "dependencies": {
@@ -221,7 +222,7 @@
       }
     },
     "com.unity.test-framework.performance": {
-      "version": "3.1.0",
+      "version": "3.2.0",
       "depth": 3,
       "source": "registry",
       "dependencies": {
@@ -231,12 +232,12 @@
       "url": "https://packages.unity.com"
     },
     "com.unity.testtools.codecoverage": {
-      "version": "1.2.6",
+      "version": "1.3.0",
       "depth": 1,
       "source": "registry",
       "dependencies": {
-        "com.unity.test-framework": "1.0.16",
-        "com.unity.settings-manager": "1.0.1"
+        "com.unity.test-framework": "1.4.5",
+        "com.unity.settings-manager": "2.0.0"
       },
       "url": "https://packages.unity.com"
     },
@@ -253,7 +254,7 @@
       "url": "https://packages.unity.com"
     },
     "com.unity.toolchain.linux-x86_64": {
-      "version": "2.0.10",
+      "version": "2.0.11",
       "depth": 0,
       "source": "registry",
       "dependencies": {
@@ -272,7 +273,7 @@
       }
     },
     "com.unity.xr.core-utils": {
-      "version": "2.5.2",
+      "version": "2.5.3",
       "depth": 1,
       "source": "registry",
       "dependencies": {
