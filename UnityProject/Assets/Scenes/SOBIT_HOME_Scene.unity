@@ -2531,7 +2531,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   ros: {fileID: 1765857562}
   robotNamespace: sobit_home
-  parent_frame_id: odom
+  parent_frame_id: base_footprint
   headChildFrame: hmd_odom
   rightChildFrame: right_controller_odom
   leftChildFrame: left_controller_odom
