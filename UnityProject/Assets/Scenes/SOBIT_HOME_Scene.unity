@@ -2504,9 +2504,9 @@ MonoBehaviour:
   - {fileID: 1592726556}
   robotNamespace: sobit_home
   cameraTopicSuffixes:
-  - hand_left_camera/color/compressed
-  - head_camera/color/compressed
-  - hand_right_camera/color/compressed
+  - hand_left_camera/color/image_raw/compressed
+  - head_camera/color/image_raw/compressed
+  - hand_right_camera/color/image_raw/compressed
   cameraResolutions:
   - {x: 640, y: 400}
   - {x: 640, y: 480}

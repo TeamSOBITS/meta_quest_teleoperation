@@ -13,9 +13,9 @@ public class ImageSubscriber : MonoBehaviour
     public string robotNamespace = "sobit_home";
 
     // Camera sub-paths relative to the robot namespace, e.g.
-    //   "hand_left_camera/color/compressed"
-    //   "hand_right_camera/color/compressed"
-    //   "head_camera/color/compressed"
+    //   "hand_left_camera/color/image_raw/compressed"
+    //   "hand_right_camera/color/image_raw/compressed"
+    //   "head_camera/color/image_raw/compressed"
     // At runtime these become: /<robotNamespace>/<cameraTopicSuffix>
     public string[] cameraTopicSuffixes;
 
