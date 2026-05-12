@@ -45,6 +45,7 @@ public class RosPublishers : MonoBehaviour
     private AudioSource _stopDemoAudioData;
 
     private TouchScreenKeyboard _keyboard;
+    private string _confirmedIp;
     public TextMeshProUGUI textInput;
 
     private void DoTransform(Pose transformLhs, Pose transformRhs, out Pose newTransform)
@@ -83,7 +84,7 @@ public class RosPublishers : MonoBehaviour
         ros.RegisterPublisher<TFMessageMsg>("/tf_test");
         ros.RegisterPublisher<BoolMsg>(gripperButtonTopicName);
         ros.RegisterPublisher<StringMsg>(demonstrationIndicatorTopic);
-        
+
         _clutchAction = inputActions.FindAction("Clutch");
         _clutchAction.Enable(); // Required before reading input
         _gripperAction = inputActions.FindAction("Gripper");
@@ -114,6 +115,7 @@ public class RosPublishers : MonoBehaviour
 
         textInput = GameObject.Find("ROS_IP").GetComponent<TextMeshProUGUI>();
         textInput.text = ros.RosIPAddress;
+        _confirmedIp = ros.RosIPAddress;
     }
 
 
@@ -126,11 +128,17 @@ public class RosPublishers : MonoBehaviour
                 TouchScreenKeyboardType.NumbersAndPunctuation, false, false, false, false);
         }
         
-        if (!ros.RosIPAddress.Equals(textInput.text))
+        if (_keyboard != null &&
+            _keyboard.status == TouchScreenKeyboard.Status.Done &&
+            !string.IsNullOrEmpty(_keyboard.text) &&
+            !_keyboard.text.Equals(_confirmedIp))
         {
+            _confirmedIp = _keyboard.text;
+            textInput.text = _confirmedIp;
             ros.Disconnect();
-            ros.Connect(textInput.text, 10000);
-            PlayerPrefs.SetString("RosIPAddress", ros.RosIPAddress);
+            ros.Connect(_confirmedIp, 10000);
+            PlayerPrefs.SetString("RosIPAddress", _confirmedIp);
+            _keyboard = null;
         }
 
         if (_clutchAction.WasPressedThisFrame())
@@ -160,6 +168,12 @@ public class RosPublishers : MonoBehaviour
             _currentDiffTransformRight.position.Set(0, 0, 0);
             _currentDiffTransformRight.rotation.Set(0, 0, 0, 1.0f);
         }
+
+        // Stop publishing and reset sim-time state while disconnected so the
+        // new ROS session's /clock is re-detected cleanly on reconnect.
+        // Stop publishing when disconnected — avoids injecting stale TFs into
+        // a freshly-started ROS session.
+        if (ros.HasConnectionError) return;
 
         _timeElapsed += Time.deltaTime;
         if (_timeElapsed > publishFrequency)
@@ -207,17 +221,15 @@ public class RosPublishers : MonoBehaviour
         }
     }
 
-    private static TimeMsg GetRosTime()
+    private TimeMsg GetRosTime()
     {
+        // Always stamp with wall-clock (UTC). sobits_teleop uses a wall-clock TF
+        // buffer so this works correctly in both sim and real-robot scenarios.
         DateTime unixEpoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        DateTime now = DateTime.UtcNow;
-
-        TimeSpan timeSinceEpoch = now - unixEpoch;
-        long totalTicks = timeSinceEpoch.Ticks;
-        long totalNanoseconds = totalTicks * 100;
+        long totalNanoseconds = (DateTime.UtcNow - unixEpoch).Ticks * 100;
         return new TimeMsg
         {
-            sec = (int)(totalNanoseconds / 1_000_000_000),
+            sec     = (int)(totalNanoseconds / 1_000_000_000),
             nanosec = (uint)(totalNanoseconds % 1_000_000_000)
         };
     }

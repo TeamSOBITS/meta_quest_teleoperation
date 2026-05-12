@@ -15,32 +15,51 @@ using UnityEngine.InputSystem;
 public class QuestControllerPublisher : MonoBehaviour
 {
     public ROSConnection ros;
-    public string parent_frame_id = "quest";
+
+    // Robot namespace (e.g. "sobit_home", "sobit_pro").
+    // Controls the joy topic: /<robotNamespace>/joy
+    public string robotNamespace = "sobit_home";
+
+    // TF parent frame — publish directly under base_footprint so the Quest frames
+    // are always expressed relative to the robot, even after the robot drives.
+    public string parent_frame_id = "base_footprint";
     public string headChildFrame = "hmd_odom";
     public string rightChildFrame = "right_controller_odom";
     public string leftChildFrame = "left_controller_odom";
     public string tfTopicName = "/tf";
-    public string joyTopicName = "/joy";
+
+    // TFs are always stamped with wall-clock (UTC) time.
+    // sobits_teleop uses a wall-clock TF buffer so sim/real time mixing is not an issue.
+    public bool useSimTime = false;  // kept for Inspector compatibility, no longer used
     public float publishFrequency = 1.0f / 60.0f;
     public InputActionAsset inputActions;
 
     private float _timeElapsed;
     private InputAction _clutchAction;
     private InputAction _keyboardAction;
+    private string _joyTopicName;
+    private string _confirmedIp;  // IP that was last explicitly connected to
 
     private TouchScreenKeyboard _keyboard;
     public TextMeshProUGUI textInput;
 
     public void Start()
     {
+        // Build namespaced joy topic: /<robotNamespace>/joy
+        _joyTopicName = string.IsNullOrEmpty(robotNamespace)
+            ? "/joy"
+            : "/" + robotNamespace + "/joy";
+
         ros.RegisterPublisher<TFMessageMsg>(tfTopicName);
-        // Publish controller buttons as sensor_msgs/Joy on a single topic for both controllers
-        ros.RegisterPublisher<JoyMsg>(joyTopicName);
+        // Publish controller buttons as sensor_msgs/Joy on the namespaced topic
+        ros.RegisterPublisher<JoyMsg>(_joyTopicName);
+
         
         _keyboardAction = inputActions.FindAction("OpenKeyboard");
         _keyboardAction.Enable();
         textInput = GameObject.Find("ROS_IP").GetComponent<TextMeshProUGUI>();
         textInput.text = ros.RosIPAddress;
+        _confirmedIp = ros.RosIPAddress;  // record what we are already connected to
     }
 
 
@@ -52,13 +71,28 @@ public class QuestControllerPublisher : MonoBehaviour
             _keyboard = TouchScreenKeyboard.Open("",
                 TouchScreenKeyboardType.NumbersAndPunctuation, false, false, false, false);
         }
-        
-        if (!ros.RosIPAddress.Equals(textInput.text))
+
+        // Only reconnect when the user explicitly submits a new IP via the keyboard.
+        // Comparing against _confirmedIp (not ros.RosIPAddress) avoids the startup
+        // race where a transient mismatch between the UI text and ros.RosIPAddress
+        // triggers an extra Disconnect/Connect cycle and causes the
+        // "InvalidHandle: cannot use Destroyable" exception in ros_tcp_endpoint.
+        if (_keyboard != null &&
+            _keyboard.status == TouchScreenKeyboard.Status.Done &&
+            !string.IsNullOrEmpty(_keyboard.text) &&
+            !_keyboard.text.Equals(_confirmedIp))
         {
+            _confirmedIp = _keyboard.text;
+            textInput.text = _confirmedIp;
             ros.Disconnect();
-            ros.Connect(textInput.text, 10000);
-            PlayerPrefs.SetString("RosIPAddress", ros.RosIPAddress);
+            ros.Connect(_confirmedIp, 10000);
+            PlayerPrefs.SetString("RosIPAddress", _confirmedIp);
+            _keyboard = null;
         }
+
+        // Stop publishing when disconnected — avoids injecting stale TFs into
+        // a freshly-started ROS session.
+        if (ros.HasConnectionError) return;
 
         _timeElapsed += Time.deltaTime;
         if (_timeElapsed > publishFrequency)
@@ -76,17 +110,15 @@ public class QuestControllerPublisher : MonoBehaviour
         }
     }
 
-    private static TimeMsg GetRosTime()
+    private TimeMsg GetRosTime()
     {
+        // Always stamp with wall-clock (UTC). sobits_teleop uses a wall-clock TF
+        // buffer so this works correctly in both sim and real-robot scenarios.
         DateTime unixEpoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        DateTime now = DateTime.UtcNow;
-
-        TimeSpan timeSinceEpoch = now - unixEpoch;
-        long totalTicks = timeSinceEpoch.Ticks;
-        long totalNanoseconds = totalTicks * 100;
+        long totalNanoseconds = (DateTime.UtcNow - unixEpoch).Ticks * 100;
         return new TimeMsg
         {
-            sec = (int)(totalNanoseconds / 1_000_000_000),
+            sec     = (int)(totalNanoseconds / 1_000_000_000),
             nanosec = (uint)(totalNanoseconds % 1_000_000_000)
         };
     }
@@ -102,25 +134,34 @@ public class QuestControllerPublisher : MonoBehaviour
     Pose tmpRight = new Pose();
     Pose tmpLeft = new Pose();
 
+    bool headTracked = false;
     if (headDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.devicePosition, out Vector3 headPos) &&
-        headDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.deviceRotation, out Quaternion headRot))
+        headDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.deviceRotation, out Quaternion headRot) &&
+        (headRot.x != 0f || headRot.y != 0f || headRot.z != 0f || headRot.w != 0f))
     {
         tmpHead.position = headPos;
         tmpHead.rotation = headRot;
+        headTracked = true;
     }
 
+    bool rightTracked = false;
     if (rightDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.devicePosition, out Vector3 rightPos) &&
-        rightDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.deviceRotation, out Quaternion rightRot))
+        rightDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.deviceRotation, out Quaternion rightRot) &&
+        (rightRot.x != 0f || rightRot.y != 0f || rightRot.z != 0f || rightRot.w != 0f))
     {
         tmpRight.position = rightPos;
         tmpRight.rotation = rightRot;
+        rightTracked = true;
     }
-    
+
+    bool leftTracked = false;
     if (leftDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.devicePosition, out Vector3 leftPos) &&
-        leftDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.deviceRotation, out Quaternion leftRot))
+        leftDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.deviceRotation, out Quaternion leftRot) &&
+        (leftRot.x != 0f || leftRot.y != 0f || leftRot.z != 0f || leftRot.w != 0f))
     {
         tmpLeft.position = leftPos;
         tmpLeft.rotation = leftRot;
+        leftTracked = true;
     }
 
     // Convert to ROS coordinate system (FLU)
@@ -178,14 +219,16 @@ public class QuestControllerPublisher : MonoBehaviour
         transform = transformMsgLeft
     };
 
-    var tfMessage = new TFMessageMsg(new TransformStampedMsg[]
-    {
-        transformStampedHmd,
-        transformStampedRight,
-        transformStampedLeft
-    });
+    // Only publish transforms for devices that are actively tracked.
+    // If no device is tracked at all, skip publishing entirely.
+    var tfList = new System.Collections.Generic.List<TransformStampedMsg>();
+    if (headTracked)  tfList.Add(transformStampedHmd);
+    if (rightTracked) tfList.Add(transformStampedRight);
+    if (leftTracked)  tfList.Add(transformStampedLeft);
 
-    ros.Publish(tfTopicName, tfMessage);
+    if (tfList.Count == 0) return;
+
+    ros.Publish(tfTopicName, new TFMessageMsg(tfList.ToArray()));
 
     // --- Publish controller button states as sensor_msgs/Joy on a single /joy topic ---
     // Use Unity XR InputDevices to query Meta Quest controller buttons and axes
@@ -233,6 +276,6 @@ public class QuestControllerPublisher : MonoBehaviour
         buttons = buttons
     };
 
-    ros.Publish(joyTopicName, joyMsg);
+    ros.Publish(_joyTopicName, joyMsg);
     }
 }
