@@ -11,6 +11,7 @@ using UnityEngine;
 using Unity.Robotics.ROSTCPConnector;
 using Unity.Robotics.ROSTCPConnector.ROSGeometry;
 using UnityEngine.InputSystem;
+using UnityEngine.SceneManagement;
 
 public class QuestControllerPublisher : MonoBehaviour
 {
@@ -42,6 +43,10 @@ public class QuestControllerPublisher : MonoBehaviour
 
     private TouchScreenKeyboard _keyboard;
     public TextMeshProUGUI textInput;
+
+    // Name of the scene to return to when the user wants to pick a different robot.
+    public string robotSelectionSceneName = "RobotSelectionScene";
+    private bool _prevMenuButtonState;
 
     public void Start()
     {
@@ -88,6 +93,21 @@ public class QuestControllerPublisher : MonoBehaviour
             ros.Connect(_confirmedIp, 10000);
             PlayerPrefs.SetString("RosIPAddress", _confirmedIp);
             _keyboard = null;
+        }
+
+        // Left controller menu button: go back to the robot selection screen, so picking
+        // the wrong robot isn't a dead end. Checked independently of ROS connection state,
+        // so it still works even if the robot connection has an error.
+        var leftDevice = InputDevices.GetDeviceAtXRNode(XRNode.LeftHand);
+        if (leftDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.menuButton, out bool menuButtonPressed))
+        {
+            if (menuButtonPressed && !_prevMenuButtonState)
+            {
+                _prevMenuButtonState = menuButtonPressed;
+                SceneManager.LoadScene(robotSelectionSceneName);
+                return;
+            }
+            _prevMenuButtonState = menuButtonPressed;
         }
 
         // Stop publishing when disconnected — avoids injecting stale TFs into
