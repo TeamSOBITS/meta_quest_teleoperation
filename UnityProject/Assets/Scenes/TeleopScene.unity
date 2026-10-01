@@ -816,10 +816,9 @@ MonoBehaviour:
   defaultProfile: {fileID: 11400000, guid: ceac44d6ee16440080fe0e1fb144c89c, type: 2}
   panelParent: {fileID: 0}
   distance: 4.3
-  maxColumns: 3
   columnGap: 0.15
   rowGap: 0.15
-  minBottom: -1.55
+  minBottom: -1.45
 --- !u!114 &1765857569
 MonoBehaviour:
   m_ObjectHideFlags: 0

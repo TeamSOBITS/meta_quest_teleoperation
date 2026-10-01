@@ -25,7 +25,7 @@ public class ImageSubscriber : MonoBehaviour
     // Area the auto layout may use. minBottom keeps blocks above the HUD bar.
     public float maxWidth = 6.0f;
     public float maxTop = 2.0f;
-    public float minBottom = -1.55f;
+    public float minBottom = -1.45f;
     // Upper limit for how much views grow when cameras are hidden (1 = default size).
     public float maxGrow = 1.6f;
 

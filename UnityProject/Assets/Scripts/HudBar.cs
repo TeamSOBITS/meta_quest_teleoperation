@@ -19,8 +19,9 @@ public class HudBar : MonoBehaviour
     const float HeaderHeightMm = 220f, RowHeightMm = 150f;
     const float JoyColumnMm = 850f, ResetColumnMm = 520f, EditWidthMm = 420f, PillWidthMm = 640f;
     const int CameraColumns = 2;
-    // Space between the lowest camera block and the bar (metres).
-    const float GapBelowCamerasM = 0.07f;
+    // Space between the lowest camera block and the bar (metres). Blocks are turned to face
+    // the eye, which brings their lower outer corners slightly down in view; this gap absorbs it.
+    const float GapBelowCamerasM = 0.17f;
 
     QuestControllerPublisher _publisher;
     TextMeshProUGUI _ip;
