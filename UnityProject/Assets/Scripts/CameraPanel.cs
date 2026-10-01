@@ -1,6 +1,7 @@
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.XR.Interaction.Toolkit.Interactables;
 
 /// <summary>
 /// One camera block: camera name above the view, the camera view, topic name below.
@@ -26,6 +27,9 @@ public class CameraPanel : MonoBehaviour
 
     const float MmPerMetre = HudUi.MmPerMetre;
     static readonly Color WaitingColor = new Color(0.15f, 0.15f, 0.15f, 1f);
+    const float OutlineMarginMm = 30f;
+
+    public enum Highlight { None, Hover, Drag }
 
     public RobotProfile.CameraConfig Config { get; private set; }
     public string Topic { get; private set; }
@@ -39,6 +43,10 @@ public class CameraPanel : MonoBehaviour
     public float BelowViewCentre { get; private set; }
 
     RawImage _view;
+    Image _outline;
+
+    // Ray target for dragging; enabled only while dragging is allowed (see PanelDragger).
+    public XRSimpleInteractable Interactable { get; private set; }
 
     public static CameraPanel Create(Transform parent, RobotProfile.CameraConfig config, string topic)
     {
@@ -56,6 +64,9 @@ public class CameraPanel : MonoBehaviour
 
         var canvas = gameObject.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.WorldSpace;
+
+        // Drawn first, so it sits behind the labels and view.
+        _outline = HudUi.Round(HudUi.Box(transform, "Outline", Color.clear), 2f * OutlineMarginMm);
 
         float viewH = ViewHeight * config.scale * MmPerMetre;
         float viewW = viewH * config.Aspect;
@@ -87,6 +98,14 @@ public class CameraPanel : MonoBehaviour
 
         Place(topicLabel.rectTransform, top, topicH, viewW);
 
+        HudUi.Stretch(_outline.rectTransform, -OutlineMarginMm);
+
+        // Collider over the whole block (canvas units are mm), then the interactable that uses it.
+        var collider = gameObject.AddComponent<BoxCollider>();
+        collider.size = new Vector3(viewW, totalH, 20f);
+        Interactable = gameObject.AddComponent<XRSimpleInteractable>();
+        Interactable.enabled = false;
+
         Width  = viewW  / MmPerMetre;
         Height = totalH / MmPerMetre;
         AboveViewCentre = (nameH + gap + viewH / 2f) / MmPerMetre;
@@ -113,6 +132,17 @@ public class CameraPanel : MonoBehaviour
     {
         get => gameObject.activeSelf;
         set => gameObject.SetActive(value);
+    }
+
+    public void SetHighlight(Highlight state)
+    {
+        var c = HudUi.AccentColor;
+        _outline.color = state switch
+        {
+            Highlight.Hover => new Color(c.r, c.g, c.b, 0.35f),
+            Highlight.Drag  => new Color(c.r, c.g, c.b, 0.7f),
+            _               => Color.clear,
+        };
     }
 
     public void SetTexture(Texture texture)

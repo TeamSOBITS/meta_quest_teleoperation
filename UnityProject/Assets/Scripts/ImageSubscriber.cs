@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Globalization;
 using UnityEngine;
 using Unity.Robotics.ROSTCPConnector;
 using RosMessageTypes.Sensor;
@@ -26,6 +27,7 @@ public class ImageSubscriber : MonoBehaviour
     public float minBottom = -1.55f;
 
     readonly List<CameraPanel> _panels = new List<CameraPanel>();
+    RobotProfile _profile;
     Texture2D[] _textures;
     double[] _lastRenderTime;
 
@@ -35,7 +37,7 @@ public class ImageSubscriber : MonoBehaviour
     {
         ros = ROSConnection.GetOrCreateInstance();
 
-        var profile = RobotProfile.Selected != null ? RobotProfile.Selected : defaultProfile;
+        var profile = _profile = RobotProfile.Selected != null ? RobotProfile.Selected : defaultProfile;
         if (profile == null)
         {
             Debug.LogError("ImageSubscriber: no robot selected and no default profile set.");
@@ -61,10 +63,45 @@ public class ImageSubscriber : MonoBehaviour
         }
 
         Layout();
+        ApplySavedPositions();
     }
 
-    // Put every camera block back at its default place.
-    public void ResetLayout() => Layout();
+    // Put every camera block back at its default place and forget dragged positions.
+    public void ResetLayout()
+    {
+        foreach (var p in _panels)
+            PlayerPrefs.DeleteKey(PositionKey(p));
+        PlayerPrefs.Save();
+        Layout();
+    }
+
+    // Remember where the user dragged a block (head-relative), per robot and camera.
+    public void SavePosition(CameraPanel panel)
+    {
+        var v = panel.transform.localPosition;
+        PlayerPrefs.SetString(PositionKey(panel),
+            string.Format(CultureInfo.InvariantCulture, "{0};{1};{2}", v.x, v.y, v.z));
+        PlayerPrefs.Save();
+    }
+
+    void ApplySavedPositions()
+    {
+        foreach (var p in _panels)
+        {
+            var parts = PlayerPrefs.GetString(PositionKey(p), "").Split(';');
+            if (parts.Length == 3 &&
+                float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float x) &&
+                float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float y) &&
+                float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float z))
+            {
+                var pos = new Vector3(x, y, z);
+                p.transform.localPosition = pos;
+                p.transform.localRotation = Quaternion.LookRotation(pos);
+            }
+        }
+    }
+
+    string PositionKey(CameraPanel p) => $"PanelPosition/{_profile.name}/{p.Config.displayName}";
 
     // Grid of up to maxColumns per row, centred in front of the head, each panel facing the eye.
     // Rows are sized from the actual blocks, so a scaled-up camera pushes its neighbours aside

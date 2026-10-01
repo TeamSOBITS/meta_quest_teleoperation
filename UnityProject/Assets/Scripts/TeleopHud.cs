@@ -1,8 +1,8 @@
 using UnityEngine;
 
 /// <summary>
-/// Creates the head-locked HUD bar (ROS IP + controls). Runs after ImageSubscriber
-/// so the bar can list the camera blocks it created.
+/// Creates the head-locked HUD bar (ROS IP + controls) and the camera block dragger.
+/// Runs after ImageSubscriber so both can use the camera blocks it created.
 /// </summary>
 [DefaultExecutionOrder(100)]
 public class TeleopHud : MonoBehaviour
@@ -19,5 +19,9 @@ public class TeleopHud : MonoBehaviour
             hudParent = Camera.main.transform;
 
         HudBar.Create(hudParent, publisher, images);
+
+        var dragger = gameObject.AddComponent<PanelDragger>();
+        dragger.publisher = publisher;
+        dragger.images = images;
     }
 }
