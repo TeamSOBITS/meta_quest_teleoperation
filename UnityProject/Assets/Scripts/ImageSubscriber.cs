@@ -1,12 +1,17 @@
+using System;
+using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using UnityEngine;
 using Unity.Robotics.ROSTCPConnector;
 using RosMessageTypes.Sensor;
 
 /// <summary>
 /// Builds one <see cref="CameraPanel"/> per camera of the selected robot, lays them
-/// out in front of the user (head-locked) and shows each camera's compressed images.
+/// out in front of the user (head-locked) and shows each camera's images (compressed, or raw
+/// sensor_msgs/Image). For a robot being added (setup mode) the cameras are first discovered
+/// from the ROS topic list.
 /// </summary>
 public class ImageSubscriber : MonoBehaviour
 {
@@ -33,10 +38,23 @@ public class ImageSubscriber : MonoBehaviour
     RobotProfile _profile;
     float _defaultFit;   // best-fit size with every camera visible; sizes are relative to it
     Texture2D[] _textures;
+    byte[][] _rawBuffers;
     double[] _lastRenderTime;
+    bool[] _warnedFormat;
+
+    const float DiscoveryWaitSeconds = 2.5f;
 
     public IReadOnlyList<CameraPanel> Panels => _panels;
     public RobotProfile Profile => _profile;
+
+    // Camera blocks exist (immediately for known robots, after discovery in setup mode).
+    public bool IsReady { get; private set; }
+    public event Action Ready;
+    // Raised when Reset layout changes which cameras are shown.
+    public event Action VisibilityReset;
+
+    public bool InSetup => RobotProfile.SetupMode && _profile != null && _profile.isCustom;
+    public string SetupStatus { get; private set; } = "";
 
     void Start()
     {
@@ -52,24 +70,77 @@ public class ImageSubscriber : MonoBehaviour
         if (panelParent == null && Camera.main != null)
             panelParent = Camera.main.transform;
 
-        int n = profile.cameras.Length;
+        if (InSetup && profile.cameras.Length == 0)
+            StartCoroutine(Discover());
+        else
+            BuildPanels();
+    }
+
+    void BuildPanels()
+    {
+        int n = _profile.cameras.Length;
         _textures = new Texture2D[n];
+        _rawBuffers = new byte[n][];
         _lastRenderTime = new double[n];
+        _warnedFormat = new bool[n];
 
         for (int i = 0; i < n; i++)
         {
-            var cam = profile.cameras[i];
-            string topic = profile.FullTopic(cam);
+            var cam = _profile.cameras[i];
+            string topic = _profile.FullTopic(cam);
             _panels.Add(CameraPanel.Create(panelParent, cam, topic));
             _textures[i] = new Texture2D(cam.resolution.x, cam.resolution.y, TextureFormat.RGB24, false);
 
             int index = i;
-            ros.Subscribe<CompressedImageMsg>(topic, msg => RenderCompressedTexture(msg, index));
+            if (cam.raw)
+                ros.Subscribe<ImageMsg>(topic, msg => RenderRawTexture(msg, index));
+            else
+                ros.Subscribe<CompressedImageMsg>(topic, msg => RenderCompressedTexture(msg, index));
         }
 
-        _defaultFit = BestFit(_panels, out _);
+        ApplySavedVisibility();
+        if (_panels.Count > 0) _defaultFit = BestFit(_panels, out _);
         Layout();
         ApplySavedPositions();
+
+        IsReady = true;
+        Ready?.Invoke();
+    }
+
+    // Setup mode: ask the ROS endpoint for its topic list until camera topics show up.
+    IEnumerator Discover()
+    {
+        var topics = new Dictionary<string, string>();
+        ros.ListenForTopics(t => topics[t.Topic] = t.RosMessageName, notifyAllExistingTopics: true);
+        SetupStatus = "Looking for camera topics\u2026";
+        while (!IsReady)
+        {
+            ros.RefreshTopicsList();
+            yield return new WaitForSeconds(DiscoveryWaitSeconds);
+            if (ConfigureDiscovered(topics.Select(kv => (kv.Key, kv.Value)).ToList())) yield break;
+            SetupStatus = $"No camera topics found on {ros.RosIPAddress} yet. Retrying\u2026";
+        }
+    }
+
+    // Use the camera topics found in `topics` (topic, ROS type) for the robot being set up.
+    // Returns false if there are none yet.
+    public bool ConfigureDiscovered(IEnumerable<(string topic, string type)> topics)
+    {
+        if (IsReady) return true;
+        var found = CameraDiscovery.Select(topics);
+        if (found.Count == 0) return false;
+
+        _profile.robotNamespace = CameraDiscovery.CommonNamespace(found.Select(f => f.topic));
+        _profile.cameras = found.Select(f => new RobotProfile.CameraConfig
+        {
+            displayName = f.displayName,
+            topicSuffix = f.topic,
+            raw = f.raw,
+            resolution = new Vector2Int(640, 480),   // corrected from the first frame
+        }).ToArray();
+        SetupStatus = $"{found.Count} camera{(found.Count == 1 ? "" : "s")} found";
+        BuildPanels();
+        return true;
     }
 
     // True once the user has dragged any block: the layout is then theirs and is left alone.
@@ -88,16 +159,40 @@ public class ImageSubscriber : MonoBehaviour
     public void SetCameraVisible(CameraPanel panel, bool visible)
     {
         panel.Visible = visible;
+        PlayerPrefs.SetInt(VisibleKey(panel), visible ? 1 : 0);
+        PlayerPrefs.Save();
         if (!HasCustomLayout) Layout();
     }
 
-    // Back to the automatic layout (for the cameras currently shown); forget dragged positions.
+    // Back to the default: every camera shown, automatic layout, dragged positions forgotten.
     public void ResetLayout()
     {
         foreach (var p in _panels)
+        {
             PlayerPrefs.DeleteKey(PositionKey(p));
+            PlayerPrefs.DeleteKey(VisibleKey(p));
+            p.Visible = true;
+        }
         PlayerPrefs.Save();
         Layout();
+        VisibilityReset?.Invoke();
+    }
+
+    // Forget a robot's saved positions and shown/hidden cameras (e.g. when it is removed).
+    public static void ForgetLayout(RobotProfile robot)
+    {
+        foreach (var cam in robot.cameras)
+        {
+            PlayerPrefs.DeleteKey(PositionKey(robot, cam));
+            PlayerPrefs.DeleteKey(VisibleKey(robot, cam));
+        }
+        PlayerPrefs.Save();
+    }
+
+    void ApplySavedVisibility()
+    {
+        foreach (var p in _panels)
+            if (PlayerPrefs.GetInt(VisibleKey(p), 1) == 0) p.Visible = false;
     }
 
     // Remember where the user dragged a block (head-relative), per robot and camera.
@@ -126,7 +221,10 @@ public class ImageSubscriber : MonoBehaviour
         }
     }
 
-    string PositionKey(CameraPanel p) => $"PanelPosition/{_profile.name}/{p.Config.displayName}";
+    string PositionKey(CameraPanel p) => PositionKey(_profile, p.Config);
+    string VisibleKey(CameraPanel p) => VisibleKey(_profile, p.Config);
+    static string PositionKey(RobotProfile r, RobotProfile.CameraConfig c) => $"PanelPosition/{r.name}/{c.displayName}";
+    static string VisibleKey(RobotProfile r, RobotProfile.CameraConfig c) => $"PanelVisible/{r.name}/{c.displayName}";
 
     // Automatic layout of the visible cameras: pick the column count that allows the largest
     // views within the layout area, size the views relative to the all-cameras layout (so with
@@ -211,29 +309,64 @@ public class ImageSubscriber : MonoBehaviour
         }
     }
 
+    // Hidden cameras skip decoding entirely; others are limited to their maxFps.
+    bool ShouldRender(int index)
+    {
+        if (!_panels[index].Visible) return false;
+        float fps = _panels[index].Config.maxFps;
+        if (fps <= 0f) return true;
+        double now = Time.timeAsDouble;
+        if (now - _lastRenderTime[index] < 1.0 / fps) return false;
+        _lastRenderTime[index] = now;
+        return true;
+    }
+
     void RenderCompressedTexture(CompressedImageMsg msg, int index)
     {
-        if (msg == null || msg.data == null || msg.data.Length == 0)
+        if (msg == null || msg.data == null || msg.data.Length == 0 || !ShouldRender(index))
             return;
-
-        // Hidden cameras skip JPEG decoding entirely.
-        if (!_panels[index].Visible)
-            return;
-
-        float fps = _panels[index].Config.maxFps;
-        if (fps > 0f)
-        {
-            double now = Time.timeAsDouble;
-            if (now - _lastRenderTime[index] < 1.0 / fps)
-                return;
-            _lastRenderTime[index] = now;
-        }
 
         if (!_textures[index].LoadImage(msg.data))
         {
             Debug.LogWarning($"Failed to decode compressed image on {_panels[index].Topic}. format={msg.format}");
             return;
         }
-        _panels[index].SetTexture(_textures[index]);
+        ShowFrame(index);
+    }
+
+    void RenderRawTexture(ImageMsg msg, int index)
+    {
+        if (msg == null || !ShouldRender(index))
+            return;
+
+        if (!RawImageDecoder.TryDecode(msg, ref _textures[index], ref _rawBuffers[index]))
+        {
+            if (!_warnedFormat[index])
+                Debug.LogWarning($"Unsupported image on {_panels[index].Topic}: encoding={msg.encoding} {msg.width}x{msg.height}");
+            _warnedFormat[index] = true;
+            return;
+        }
+        ShowFrame(index);
+    }
+
+    void ShowFrame(int index)
+    {
+        var panel = _panels[index];
+        var tex = _textures[index];
+        var cam = panel.Config;
+
+        // Added robots learn each camera's real size from its first frame.
+        if (_profile.isCustom && (cam.resolution.x != tex.width || cam.resolution.y != tex.height))
+        {
+            cam.resolution = new Vector2Int(tex.width, tex.height);
+            panel.SetSize(panel.Size);
+            if (!HasCustomLayout)
+            {
+                _defaultFit = BestFit(_panels, out _);
+                Layout();
+            }
+            if (!InSetup) RobotLibrary.Save(_profile);
+        }
+        panel.SetTexture(tex);
     }
 }

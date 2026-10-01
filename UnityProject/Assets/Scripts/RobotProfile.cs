@@ -17,7 +17,11 @@ public class RobotProfile : ScriptableObject
 
         // Topic relative to the robot namespace,
         // e.g. "head_camera/color/image_raw/compressed" -> /<robotNamespace>/head_camera/...
+        // A topic starting with '/' is used as is (added robots store absolute topics).
         public string topicSuffix;
+
+        // sensor_msgs/Image instead of sensor_msgs/CompressedImage.
+        public bool raw;
 
         // Native resolution of the real camera; sets the view's aspect ratio.
         public Vector2Int resolution = new Vector2Int(640, 480);
@@ -42,6 +46,12 @@ public class RobotProfile : ScriptableObject
     // opened directly in the Editor; scripts then fall back to their own defaults.
     public static RobotProfile Selected;
 
+    // True while a newly added robot is being set up (cameras discovered, layout arranged).
+    public static bool SetupMode;
+
+    // Added from the headset (stored as JSON by RobotLibrary) rather than a project asset.
+    [NonSerialized] public bool isCustom;
+
     public string displayName;
 
     // Shown on the robot's card on the selection screen.
@@ -57,6 +67,7 @@ public class RobotProfile : ScriptableObject
 
     public string FullTopic(CameraConfig cam)
     {
+        if (cam.topicSuffix.StartsWith("/")) return cam.topicSuffix;
         string ns = string.IsNullOrEmpty(robotNamespace) ? "" : "/" + robotNamespace;
         return ns + "/" + cam.topicSuffix.TrimStart('/');
     }

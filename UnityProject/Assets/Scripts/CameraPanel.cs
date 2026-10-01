@@ -105,7 +105,7 @@ public class CameraPanel : MonoBehaviour
 
         float body = TopicFontSize * MmPerMetre;
         _waiting = HudUi.Label(_view.transform, "Waiting",
-            $"Waiting for\n<color=#FFFFFF>{config.topicSuffix.Replace("/", "/\u200B")}</color>", body);
+            $"Waiting for\n<color=#FFFFFF>{ShortTopic(config.topicSuffix).Replace("/", "/\u200B")}</color>", body);
         _waiting.color = HudUi.MutedText;
         HudUi.Stretch(_waiting.rectTransform, body);
 
@@ -175,6 +175,14 @@ public class CameraPanel : MonoBehaviour
         viewW = viewH * Config.Aspect;
         nameH  = _name.GetPreferredValues(_name.text, viewW, Mathf.Infinity).y;
         topicH = _topic.GetPreferredValues(_topic.text, viewW, Mathf.Infinity).y;
+    }
+
+    // Topic without its namespace (absolute topics of added robots start with /<ns>/).
+    static string ShortTopic(string topic)
+    {
+        if (!topic.StartsWith("/")) return topic;
+        int slash = topic.IndexOf('/', 1);
+        return slash > 0 ? topic.Substring(slash + 1) : topic.TrimStart('/');
     }
 
     TextMeshProUGUI CreateLabel(string objName, string text, float fontSizeMetres)
