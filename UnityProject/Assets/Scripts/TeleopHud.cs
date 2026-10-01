@@ -15,6 +15,8 @@ public class TeleopHud : MonoBehaviour
 
     void Start()
     {
+        StudioEnvironment.Apply(Camera.main);
+
         if (hudParent == null && Camera.main != null)
             hudParent = Camera.main.transform;
 

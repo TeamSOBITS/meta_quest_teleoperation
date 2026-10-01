@@ -31,7 +31,7 @@ public class RobotSelectionHud : MonoBehaviour
     const float CardWidthMm = 1500f, CardPaddingMm = 60f, CardGapMm = 160f, RadiusMm = 60f;
     const float IpRowWidthMm = 3000f, IpRowHeightMm = 260f, EditWidthMm = 420f, PillWidthMm = 640f;
     const float TitleFontScale = 1.5f, BackdropPaddingMm = 110f;
-    static readonly Color CardColor = new Color(0.17f, 0.18f, 0.22f, 1f);
+    static readonly Color CardColor = new Color(0.21f, 0.23f, 0.28f, 1f);
     const int MaxColumns = 3;
     // Vertical position of the whole screen's centre relative to eye level (metres).
     const float CentreY = 0.1f;
@@ -47,6 +47,7 @@ public class RobotSelectionHud : MonoBehaviour
     void Start()
     {
         _ip = RosIpSettings.Load(defaultIp);
+        StudioEnvironment.Apply(Camera.main);
         var head = Camera.main != null ? Camera.main.transform : transform;
         Build(head);
         Probe();

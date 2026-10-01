@@ -23,7 +23,8 @@ public static class HudUi
     // so without this a large transparent floor sorted later is blended on top of the panels.
     public const int CanvasSortingOrder = 100;
 
-    public static readonly Color PanelColor   = new Color(0.08f, 0.08f, 0.10f, 0.85f);
+    // A step lighter than StudioEnvironment.Background so cards read as surfaces on it.
+    public static readonly Color PanelColor   = new Color(0.14f, 0.16f, 0.20f, 0.92f);
     public static readonly Color ControlColor = new Color(0.25f, 0.27f, 0.32f, 1f);
     public static readonly Color AccentColor  = new Color(0.30f, 0.65f, 1f, 1f);
     public static readonly Color MutedText    = new Color(1f, 1f, 1f, 0.6f);

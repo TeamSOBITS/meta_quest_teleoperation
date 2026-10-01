@@ -75,7 +75,7 @@ Material:
     - _LineThickness: 0.075
     - _Metallic: 0
     - _Mode: 0
-    - _ODistance: 5
+    - _ODistance: 3
     - _OcclusionStrength: 1
     - _Parallax: 0.02
     - _SmoothnessTextureChannel: 0
@@ -83,7 +83,7 @@ Material:
     - _SrcBlend: 1
     - _SubdivisionTransparency: 0.5
     - _Subdivisions: 8
-    - _TDistance: 15
+    - _TDistance: 9
     - _UVSec: 0
     - _ZWrite: 1
     m_Colors:
@@ -92,7 +92,7 @@ Material:
     - _Color: {r: 1, g: 1, b: 1, a: 1}
     - _EmissionColor: {r: 0, g: 0, b: 0, a: 1}
     - _GridCenter: {r: 0, g: 0, b: 0, a: 1}
-    - _GridColour: {r: 1, g: 1, b: 1, a: 0.2}
+    - _GridColour: {r: 1, g: 1, b: 1, a: 0.12}
     - _GridSpacing: {r: 1, g: 1, b: 1, a: 1}
   m_BuildTextureStacks: []
   m_AllowLocking: 1
