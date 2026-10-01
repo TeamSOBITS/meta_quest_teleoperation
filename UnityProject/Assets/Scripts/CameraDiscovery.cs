@@ -69,6 +69,17 @@ public static class CameraDiscovery
         return firsts.Count == 1 ? firsts[0] : "";
     }
 
+    // ROS infrastructure topics that say nothing about which robot this is.
+    static readonly HashSet<string> SystemTopics = new HashSet<string>
+    {
+        "/tf", "/tf_static", "/rosout", "/parameter_events", "/clock", "/joy",
+    };
+
+    // Namespace for a robot without cameras: the first segment shared by all its namespaced
+    // topics (e.g. /my_robot/joint_states, /my_robot/odom -> my_robot), or "" if they differ.
+    public static string RobotNamespace(IEnumerable<string> topics)
+        => CommonNamespace(topics.Where(t => !SystemTopics.Contains(t) && t.Trim('/').Contains('/')));
+
     static bool IsDepth(string topic)
         => topic.Split('/').Any(s => s.Contains("depth")) || topic.EndsWith("compressedDepth");
 

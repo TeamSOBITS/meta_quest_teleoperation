@@ -9,7 +9,7 @@ using UnityEngine.UI;
 /// robot screens (head-locked, same distance, fonts and cards):
 ///
 ///                         Choose a robot
-///        ROS IP  192.168.11.20     ( PC reachable )   [ Edit ]
+///        ROS IP  192.168.11.20                      [ Edit ]
 ///     +----------------------+   +----------------------+
 ///     |       [picture]      |   |       [picture]      |
 ///     |  SOBIT HOME          |   |  SOBIT LIGHT         |
@@ -19,8 +19,8 @@ using UnityEngine.UI;
 ///
 /// The robot chosen last time carries a "Last used" tag.
 /// Each card is a button: pointing at it darkens it, pulling the trigger opens that robot.
-/// The ROS IP row pings the ROS PC to show whether it is on the network; the ROS connection
-/// itself is opened (and its state shown) by the robot screen.
+/// The ROS IP row only sets the IP; the ROS connection is opened (and its state shown) by the
+/// robot screen. (A reachability ping was dropped: UnityEngine.Ping does not work on Quest.)
 /// </summary>
 public class RobotSelectionHud : MonoBehaviour
 {
@@ -32,11 +32,12 @@ public class RobotSelectionHud : MonoBehaviour
 
     // Sizes in mm on a canvas at HudUi.ReferenceDistance (same scale as the robot screens).
     const float CardWidthMm = 1500f, CardPaddingMm = 60f, CardGapMm = 160f, RadiusMm = 60f;
-    const float IpRowWidthMm = 3000f, IpRowHeightMm = 260f, EditWidthMm = 420f, PillWidthMm = 640f;
+    const float IpRowWidthMm = 3000f, IpRowHeightMm = 260f, EditWidthMm = 420f;
     const float TitleFontScale = 1.5f, BackdropPaddingMm = 110f;
     public const string LastRobotKey = "LastRobot";
     const string HintText = "Point at a robot and pull the trigger";
     const float MessageSeconds = 4f, RemoveConfirmSeconds = 3f;
+    const string AddRobotTitle = "Add robot";
     static readonly Color CardColor = new Color(0.21f, 0.23f, 0.28f, 1f);
     const int MaxColumns = 3;
     // Vertical position of the whole screen's centre relative to eye level (metres).
@@ -50,11 +51,7 @@ public class RobotSelectionHud : MonoBehaviour
     TextMeshProUGUI _hint;
     float _hintUntil;
     string _ip;
-    TextMeshProUGUI _ipLabel, _pillText;
-    Image _pill;
-    enum Reach { Checking, Reachable, Unreachable }
-    Reach _reach = Reach.Checking;
-    int _probeId;
+    TextMeshProUGUI _ipLabel, _addName;
 
     void Start()
     {
@@ -62,7 +59,6 @@ public class RobotSelectionHud : MonoBehaviour
         StudioEnvironment.Apply(Camera.main);
         _head = Camera.main != null ? Camera.main.transform : transform;
         Build();
-        Probe();
     }
 
     // (Re)build the whole screen: built-in robots, robots added on the headset, "Add robot".
@@ -158,8 +154,10 @@ public class RobotSelectionHud : MonoBehaviour
         HudUi.Stretch(plus.rectTransform);
         top += pictureH + 40f;
 
-        var name = HudUi.Label(bg.transform, "Name", "Add robot", title, TextAlignmentOptions.Left);
+        var name = _addName = HudUi.Label(bg.transform, "Name", AddRobotTitle, title, TextAlignmentOptions.Left);
         name.fontStyle = FontStyles.Bold;
+        name.textWrappingMode = TextWrappingModes.NoWrap;
+        name.overflowMode = TextOverflowModes.Ellipsis;
         HudUi.Place(name.rectTransform, CardPaddingMm, top, pictureW, title * 1.3f);
         top += title * 1.3f;
 
@@ -193,22 +191,14 @@ public class RobotSelectionHud : MonoBehaviour
         HudUi.Place(caption.rectTransform, pad, 0f, captionW, h);
 
         float editLeft = IpRowWidthMm - pad - EditWidthMm;
-        var edit = HudUi.Button(row, "Edit", body, () => _keyboard.Open(_ip));
+        var edit = HudUi.Button(row, "Edit", body, () => _keyboard.Open(_ip));   // starts empty
         HudUi.Place((RectTransform)edit.transform, editLeft, 50f, EditWidthMm, h - 100f);
-
-        float pillH = body * 1.7f;
-        float pillLeft = editLeft - gap - PillWidthMm;
-        _pill = HudUi.Round(HudUi.Box(row, "Status", Color.clear), pillH / 2f);
-        HudUi.Place(_pill.rectTransform, pillLeft, (h - pillH) / 2f, PillWidthMm, pillH);
-        _pillText = HudUi.Label(_pill.transform, "Label", "", body);
-        HudUi.Stretch(_pillText.rectTransform);
 
         float ipLeft = pad + captionW + gap;
         _ipLabel = HudUi.Label(row, "IP", _ip, title, TextAlignmentOptions.Left);
         _ipLabel.textWrappingMode = TextWrappingModes.NoWrap;
         _ipLabel.overflowMode = TextOverflowModes.Ellipsis;
-        HudUi.Place(_ipLabel.rectTransform, ipLeft, 0f, pillLeft - gap - ipLeft, h);
-        ShowReach();
+        HudUi.Place(_ipLabel.rectTransform, ipLeft, 0f, editLeft - gap - ipLeft, h);
     }
 
     Button BuildCard(RectTransform parent, RobotProfile robot, float pictureW, float pictureH, float body, float title)
@@ -315,7 +305,10 @@ public class RobotSelectionHud : MonoBehaviour
 
     void Update()
     {
-        _ipLabel.text = _keyboard.IsOpen ? _keyboard.Text : _ip;
+        // The Quest overlay keyboard has no text field, so show what is being typed on the screen.
+        _ipLabel.text = _keyboard.IsOpen ? QuestControllerPublisher.TypingDisplay(_keyboard.Text, "Type the ROS PC IP\u2026") : _ip;
+        if (_addName != null)
+            _addName.text = _nameKeyboard.IsOpen ? QuestControllerPublisher.TypingDisplay(_nameKeyboard.Text, "Type a name\u2026") : AddRobotTitle;
 
         string newName = _nameKeyboard.Poll();
         if (newName != null) StartSetup(newName);
@@ -331,38 +324,6 @@ public class RobotSelectionHud : MonoBehaviour
         {
             _ip = newIp;
             RosIpSettings.Save(_ip);
-            Probe();
         }
-    }
-
-    // Ping the ROS PC (not the ROS endpoint, see RosIpSettings.PingAsync). Only the latest check updates the UI.
-    async void Probe()
-    {
-        int id = ++_probeId;
-        _reach = Reach.Checking;
-        ShowReach();
-        bool ok = await RosIpSettings.PingAsync(_ip);
-        if (this == null || id != _probeId) return;
-        _reach = ok ? Reach.Reachable : Reach.Unreachable;
-        ShowReach();
-    }
-
-    void ShowReach()
-    {
-        if (_pill == null) return;
-        var c = _reach switch
-        {
-            Reach.Reachable   => HudUi.GoodColor,
-            Reach.Unreachable => HudUi.BadColor,
-            _                 => HudUi.MutedText,
-        };
-        _pill.color = new Color(c.r, c.g, c.b, 0.18f);
-        _pillText.color = c;
-        _pillText.text = _reach switch
-        {
-            Reach.Reachable   => "PC reachable",
-            Reach.Unreachable => "PC not reachable",
-            _                 => "checking…",
-        };
     }
 }

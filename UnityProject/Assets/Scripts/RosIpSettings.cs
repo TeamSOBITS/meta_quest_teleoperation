@@ -1,4 +1,3 @@
-using System.Threading.Tasks;
 using UnityEngine;
 
 /// <summary>
@@ -24,24 +23,6 @@ public static class RosIpSettings
         PlayerPrefs.SetString(PrefsKey, ip);
         PlayerPrefs.Save();  // flush now; the app may be killed from the Quest menu without a clean quit
     }
-
-    // True if the PC at `ip` answers a ping within `timeoutSeconds`.
-    // Deliberately not a TCP connection to the ROS endpoint: ros_tcp_endpoint hands its single
-    // outgoing (ROS -> Unity) stream to the newest connection, so even a brief probe would cut
-    // camera images off from any other Unity client connected to the same endpoint.
-    public static async Task<bool> PingAsync(string ip, float timeoutSeconds = 1.5f)
-    {
-        Ping ping;
-        try { ping = new Ping(ip); }
-        catch { return false; }
-
-        float deadline = Time.realtimeSinceStartup + timeoutSeconds;
-        while (!ping.isDone && Time.realtimeSinceStartup < deadline)
-            await Task.Yield();
-        bool ok = ping.isDone && ping.time >= 0;
-        ping.DestroyPing();
-        return ok;
-    }
 }
 
 /// <summary>
@@ -62,7 +43,9 @@ public class TextKeyboard
     // What the user is typing while the keyboard is open.
     public string Text => _keyboard?.text;
 
-    public void Open(string current, string fallbackWithoutKeyboard = null)
+    // `current` is the value being replaced (confirming it unchanged counts as cancel);
+    // the keyboard starts empty unless `initialText` is given.
+    public void Open(string current, string fallbackWithoutKeyboard = null, string initialText = "")
     {
         _current = current;
         if (!TouchScreenKeyboard.isSupported && fallbackWithoutKeyboard != null)
@@ -71,7 +54,7 @@ public class TextKeyboard
             return;
         }
         TouchScreenKeyboard.hideInput = false;
-        _keyboard = TouchScreenKeyboard.Open(current, _type, false, false, false, false);
+        _keyboard = TouchScreenKeyboard.Open(initialText ?? "", _type, false, false, false, false);
     }
 
     public string Poll()

@@ -7,7 +7,8 @@ using UnityEngine;
 /// "lazy follow" mode. Runs after ImageSubscriber so it can use the blocks it created.
 ///
 /// For a robot being added (setup mode) it first shows a "Setting up" card while the
-/// cameras are discovered, keeps Joy off (layout mode) and offers Save robot / Cancel.
+/// cameras are discovered (Search again / Continue without cameras / Cancel), keeps Joy off
+/// (layout mode) and offers Save robot / Cancel.
 /// </summary>
 [DefaultExecutionOrder(100)]
 public class TeleopHud : MonoBehaviour
@@ -52,6 +53,7 @@ public class TeleopHud : MonoBehaviour
         if (_waiting != null) Destroy(_waiting);
 
         _bar = HudBar.Create(hudParent, publisher, images, this).transform;
+        images.CamerasAdded += RebuildBar;
 
         var dragger = gameObject.AddComponent<PanelDragger>();
         dragger.publisher = publisher;
@@ -63,12 +65,26 @@ public class TeleopHud : MonoBehaviour
             SetLazyFollow(true);
     }
 
-    // Shown in setup mode until camera topics have been found.
+    // "Find cameras" added blocks: rebuild the bar so it lists their toggles too.
+    void RebuildBar()
+    {
+        var parent = _bar.parent;
+        Destroy(_bar.gameObject);
+        _bar = HudBar.Create(hudParent, publisher, images, this).transform;
+        _bar.SetParent(parent, false);
+    }
+
+    void OnDestroy()
+    {
+        if (images != null) images.CamerasAdded -= RebuildBar;
+    }
+
+    // Shown in setup mode until camera topics have been found or the user continues without.
     void ShowWaiting()
     {
         float title = HudUi.TitleFontSize * HudUi.MmPerMetre;
         float body = HudUi.BodyFontSize * HudUi.MmPerMetre;
-        const float w = 2600f, h = 760f, pad = 80f;
+        const float w = 3300f, h = 760f, pad = 80f, buttonW = 980f, buttonH = 150f, gap = 50f;
 
         var root = HudUi.CreateCanvas("Setup Status", hudParent, new Vector3(0f, 0.2f, HudUi.ReferenceDistance),
             new Vector2(w, h), interactive: true);
@@ -83,8 +99,14 @@ public class TeleopHud : MonoBehaviour
         _waitingStatus.color = HudUi.MutedText;
         HudUi.Place(_waitingStatus.rectTransform, pad, pad + title * 1.6f, w - 2 * pad, body * 3f);
 
+        // Search again | Continue without cameras (e.g. a robot driven by Joy only) | Cancel
+        float left = (w - 3f * buttonW - 2f * gap) / 2f, top = h - pad - buttonH;
+        var again = HudUi.Button(root, "Search again", body, images.SearchAgain);
+        HudUi.Place((RectTransform)again.transform, left, top, buttonW, buttonH);
+        var without = HudUi.Button(root, "Continue without cameras", body, images.ContinueWithoutCameras);
+        HudUi.Place((RectTransform)without.transform, left + buttonW + gap, top, buttonW, buttonH);
         var cancel = HudUi.Button(root, "Cancel", body, CancelSetup);
-        HudUi.Place((RectTransform)cancel.transform, (w - 560f) / 2f, h - pad - 150f, 560f, 150f);
+        HudUi.Place((RectTransform)cancel.transform, left + 2f * (buttonW + gap), top, buttonW, buttonH);
     }
 
     void Update()

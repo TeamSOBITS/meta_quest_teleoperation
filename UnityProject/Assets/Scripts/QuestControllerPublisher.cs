@@ -72,7 +72,11 @@ public class QuestControllerPublisher : MonoBehaviour
     }
 
     // IP to show in the HUD: what is being typed while the keyboard is open, else the connected one.
-    public string DisplayedIp => _keyboard.IsOpen ? _keyboard.Text : _confirmedIp;
+    public string DisplayedIp => _keyboard.IsOpen ? TypingDisplay(_keyboard.Text, "Type the ROS PC IP\u2026") : _confirmedIp;
+
+    // What to show while the (overlay) keyboard is open: the text so far, or a prompt.
+    public static string TypingDisplay(string typed, string prompt)
+        => string.IsNullOrEmpty(typed) ? prompt : typed + "|";
 
     public bool HasConnectionError => ros.HasConnectionError;
 

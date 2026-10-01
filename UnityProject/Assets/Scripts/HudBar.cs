@@ -45,7 +45,9 @@ public class HudBar : MonoBehaviour
         // Button column: Reset layout + Back, or in setup mode Reset layout + Save robot + Cancel.
         int buttonRows = images.InSetup ? 3 : 2;
         // The left column holds three toggles (Publish Joy, Lazy follow, Passthrough).
-        int controlRows = Mathf.Max(LeftColumnRows, buttonRows, Mathf.CeilToInt(images.Panels.Count / (float)CameraColumns));
+        // Added robots get a "Find cameras" button in the next free slot of the camera toggles.
+        int cameraSlots = images.Panels.Count + (images.Profile.isCustom ? 1 : 0);
+        int controlRows = Mathf.Max(LeftColumnRows, buttonRows, Mathf.CeilToInt(cameraSlots / (float)CameraColumns));
         float controlsH = controlRows * RowHeightMm + (controlRows - 1) * GapMm;
         float heightMm = PaddingMm + HeaderHeightMm + GapMm + 4f + GapMm + controlsH + PaddingMm;
 
@@ -151,6 +153,29 @@ public class HudBar : MonoBehaviour
                 colW, RowHeightMm);
         }
 
+        if (images.Profile.isCustom)
+        {
+            int i = images.Panels.Count;
+            var find = HudUi.Button(root, FindCamerasText, body, null);
+            var findLabel = find.GetComponentInChildren<TextMeshProUGUI>();
+            find.onClick.AddListener(() =>
+            {
+                if (findLabel.text != FindCamerasText) return;   // a search is already running
+                findLabel.text = "Searching\u2026";
+                images.FindNewCameras(added =>
+                {
+                    // When cameras were added the bar is rebuilt (TeleopHud); otherwise say so briefly.
+                    if (this == null || added > 0) return;
+                    findLabel.text = "No new cameras";
+                    StartCoroutine(ResetLabelLater(findLabel));
+                });
+            });
+            HudUi.Place((RectTransform)find.transform,
+                camLeft + (i % CameraColumns) * (colW + GapMm),
+                top + (i / CameraColumns) * (RowHeightMm + GapMm),
+                colW, RowHeightMm);
+        }
+
         float buttonsLeft = WidthMm - PaddingMm - ButtonColumnMm;
         var reset = HudUi.Button(root, "Reset layout", body, images.ResetLayout);
         HudUi.Place((RectTransform)reset.transform, buttonsLeft, top, ButtonColumnMm, RowHeightMm);
@@ -170,10 +195,18 @@ public class HudBar : MonoBehaviour
         }
     }
 
+    const string FindCamerasText = "Find cameras";
+
+    System.Collections.IEnumerator ResetLabelLater(TextMeshProUGUI label)
+    {
+        yield return new WaitForSeconds(3f);
+        if (label != null) label.text = FindCamerasText;
+    }
+
     static string SetupChipText(ImageSubscriber images)
     {
         string ns = images.Profile.robotNamespace;
-        return $"SETUP · /{ns}";
+        return string.IsNullOrEmpty(ns) ? "SETUP · no namespace" : $"SETUP · /{ns}";
     }
 
     // Reset layout shows every camera again; keep the toggles in step without re-triggering them.

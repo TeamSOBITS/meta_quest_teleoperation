@@ -37,10 +37,15 @@ public class ImageSubscriber : MonoBehaviour
     readonly List<CameraPanel> _panels = new List<CameraPanel>();
     RobotProfile _profile;
     float _defaultFit;   // best-fit size with every camera visible; sizes are relative to it
-    Texture2D[] _textures;
-    byte[][] _rawBuffers;
-    double[] _lastRenderTime;
-    bool[] _warnedFormat;
+    // Per camera, same index as _panels (lists, because cameras can be added later).
+    readonly List<Texture2D> _textures = new List<Texture2D>();
+    readonly List<byte[]> _rawBuffers = new List<byte[]>();
+    readonly List<double> _lastRenderTime = new List<double>();
+    readonly List<bool> _warnedFormat = new List<bool>();
+
+    // ROS topic list as reported by the endpoint (topic -> type), filled once discovery starts.
+    readonly Dictionary<string, string> _topics = new Dictionary<string, string>();
+    bool _listening, _searchNow;
 
     const float DiscoveryWaitSeconds = 2.5f;
 
@@ -52,6 +57,8 @@ public class ImageSubscriber : MonoBehaviour
     public event Action Ready;
     // Raised when Reset layout changes which cameras are shown.
     public event Action VisibilityReset;
+    // Raised when "Find cameras" added camera blocks.
+    public event Action CamerasAdded;
 
     public bool InSetup => RobotProfile.SetupMode && _profile != null && _profile.isCustom;
     public string SetupStatus { get; private set; } = "";
@@ -78,25 +85,8 @@ public class ImageSubscriber : MonoBehaviour
 
     void BuildPanels()
     {
-        int n = _profile.cameras.Length;
-        _textures = new Texture2D[n];
-        _rawBuffers = new byte[n][];
-        _lastRenderTime = new double[n];
-        _warnedFormat = new bool[n];
-
-        for (int i = 0; i < n; i++)
-        {
-            var cam = _profile.cameras[i];
-            string topic = _profile.FullTopic(cam);
-            _panels.Add(CameraPanel.Create(panelParent, cam, topic));
-            _textures[i] = new Texture2D(cam.resolution.x, cam.resolution.y, TextureFormat.RGB24, false);
-
-            int index = i;
-            if (cam.raw)
-                ros.Subscribe<ImageMsg>(topic, msg => RenderRawTexture(msg, index));
-            else
-                ros.Subscribe<CompressedImageMsg>(topic, msg => RenderCompressedTexture(msg, index));
-        }
+        foreach (var cam in _profile.cameras)
+            AddPanel(cam);
 
         ApplySavedVisibility();
         if (_panels.Count > 0) _defaultFit = BestFit(_panels, out _);
@@ -107,19 +97,62 @@ public class ImageSubscriber : MonoBehaviour
         Ready?.Invoke();
     }
 
-    // Setup mode: ask the ROS endpoint for its topic list until camera topics show up.
+    void AddPanel(RobotProfile.CameraConfig cam)
+    {
+        string topic = _profile.FullTopic(cam);
+        int index = _panels.Count;
+        _panels.Add(CameraPanel.Create(panelParent, cam, topic));
+        _textures.Add(new Texture2D(cam.resolution.x, cam.resolution.y, TextureFormat.RGB24, false));
+        _rawBuffers.Add(null);
+        _lastRenderTime.Add(0.0);
+        _warnedFormat.Add(false);
+
+        if (cam.raw)
+            ros.Subscribe<ImageMsg>(topic, msg => RenderRawTexture(msg, index));
+        else
+            ros.Subscribe<CompressedImageMsg>(topic, msg => RenderCompressedTexture(msg, index));
+    }
+
+    // Keep the endpoint's topic list in _topics and ask for a fresh copy.
+    void RequestTopics()
+    {
+        if (!_listening)
+        {
+            ros.ListenForTopics(t => _topics[t.Topic] = t.RosMessageName, notifyAllExistingTopics: true);
+            _listening = true;
+        }
+        ros.RefreshTopicsList();
+    }
+
+    List<(string, string)> TopicList() => _topics.Select(kv => (kv.Key, kv.Value)).ToList();
+
+    // Wait for the topic list, or less if SearchAgain() was pressed.
+    IEnumerator WaitForTopics()
+    {
+        _searchNow = false;
+        float until = Time.time + DiscoveryWaitSeconds;
+        while (Time.time < until && !_searchNow) yield return null;
+    }
+
+    // Setup mode: ask the ROS endpoint for its topic list until camera topics show up
+    // (or the user continues without cameras).
     IEnumerator Discover()
     {
-        var topics = new Dictionary<string, string>();
-        ros.ListenForTopics(t => topics[t.Topic] = t.RosMessageName, notifyAllExistingTopics: true);
         SetupStatus = "Looking for camera topics\u2026";
         while (!IsReady)
         {
-            ros.RefreshTopicsList();
-            yield return new WaitForSeconds(DiscoveryWaitSeconds);
-            if (ConfigureDiscovered(topics.Select(kv => (kv.Key, kv.Value)).ToList())) yield break;
-            SetupStatus = $"No camera topics found on {ros.RosIPAddress} yet. Retrying\u2026";
+            RequestTopics();
+            yield return WaitForTopics();
+            if (IsReady || ConfigureDiscovered(TopicList())) yield break;
+            SetupStatus = $"No camera topics found on {ros.RosIPAddress} yet. Searching again every few seconds.";
         }
+    }
+
+    // Setup mode: search immediately instead of waiting for the next retry.
+    public void SearchAgain()
+    {
+        SetupStatus = "Looking for camera topics\u2026";
+        _searchNow = true;
     }
 
     // Use the camera topics found in `topics` (topic, ROS type) for the robot being set up.
@@ -127,21 +160,77 @@ public class ImageSubscriber : MonoBehaviour
     public bool ConfigureDiscovered(IEnumerable<(string topic, string type)> topics)
     {
         if (IsReady) return true;
-        var found = CameraDiscovery.Select(topics);
+        var list = topics.ToList();
+        var found = CameraDiscovery.Select(list);
         if (found.Count == 0) return false;
 
         _profile.robotNamespace = CameraDiscovery.CommonNamespace(found.Select(f => f.topic));
-        _profile.cameras = found.Select(f => new RobotProfile.CameraConfig
-        {
-            displayName = f.displayName,
-            topicSuffix = f.topic,
-            raw = f.raw,
-            resolution = new Vector2Int(640, 480),   // corrected from the first frame
-        }).ToArray();
+        _profile.cameras = found.Select(ToConfig).ToArray();
         SetupStatus = $"{found.Count} camera{(found.Count == 1 ? "" : "s")} found";
         BuildPanels();
         return true;
     }
+
+    // Setup mode: keep the robot without cameras (e.g. to drive it with the controllers only).
+    // The Joy namespace then comes from the robot's other topics, if they share one.
+    public void ContinueWithoutCameras()
+    {
+        if (IsReady) return;
+        _profile.robotNamespace = CameraDiscovery.RobotNamespace(_topics.Keys);
+        _profile.cameras = Array.Empty<RobotProfile.CameraConfig>();
+        SetupStatus = "No cameras";
+        BuildPanels();
+    }
+
+    // "Find cameras": search the topic list again and add cameras this robot does not have yet.
+    // Existing blocks keep their place; `done` receives how many cameras were added.
+    public void FindNewCameras(Action<int> done) => StartCoroutine(FindNewCamerasRoutine(done));
+
+    IEnumerator FindNewCamerasRoutine(Action<int> done)
+    {
+        RequestTopics();
+        yield return WaitForTopics();
+
+        var known = new HashSet<string>(_profile.cameras.Select(c => _profile.FullTopic(c)));
+        var fresh = CameraDiscovery.Select(TopicList()).Where(f => !known.Contains(f.topic)).ToList();
+        if (fresh.Count > 0)
+        {
+            var names = new HashSet<string>(_profile.cameras.Select(c => c.displayName));
+            var added = fresh.Select(ToConfig).ToList();
+            foreach (var c in added)
+                while (names.Contains(c.displayName)) c.displayName += " 2";   // keep layout keys unique
+            if (string.IsNullOrEmpty(_profile.robotNamespace) && _profile.cameras.Length == 0)
+                _profile.robotNamespace = CameraDiscovery.CommonNamespace(fresh.Select(f => f.topic));
+            _profile.cameras = _profile.cameras.Concat(added).ToArray();
+            foreach (var c in added) AddPanel(c);
+
+            _defaultFit = BestFit(_panels, out _);
+            if (!HasCustomLayout) Layout();
+            else foreach (var p in _panels.Skip(_panels.Count - added.Count)) PlaceNewPanel(p);
+            if (!InSetup) RobotLibrary.Save(_profile);
+            CamerasAdded?.Invoke();
+        }
+        done?.Invoke(fresh.Count);
+    }
+
+    // Custom (dragged) layout: put a newly found camera just above the others instead of
+    // re-arranging blocks the user placed by hand.
+    void PlaceNewPanel(CameraPanel p)
+    {
+        float top = _panels.Where(o => o != p && o.Visible).Select(o => o.transform.localPosition.y + o.Height / 2f)
+                           .DefaultIfEmpty(0f).Max();
+        var pos = new Vector3(0f, top + rowGap + p.Height / 2f, distance);
+        p.transform.localPosition = pos;
+        p.transform.localRotation = Quaternion.LookRotation(pos);
+    }
+
+    static RobotProfile.CameraConfig ToConfig(CameraDiscovery.Found f) => new RobotProfile.CameraConfig
+    {
+        displayName = f.displayName,
+        topicSuffix = f.topic,
+        raw = f.raw,
+        resolution = new Vector2Int(640, 480),   // corrected from the first frame
+    };
 
     // True once the user has dragged any block: the layout is then theirs and is left alone.
     public bool HasCustomLayout
@@ -339,7 +428,12 @@ public class ImageSubscriber : MonoBehaviour
         if (msg == null || !ShouldRender(index))
             return;
 
-        if (!RawImageDecoder.TryDecode(msg, ref _textures[index], ref _rawBuffers[index]))
+        var tex = _textures[index];
+        var buf = _rawBuffers[index];
+        bool ok = RawImageDecoder.TryDecode(msg, ref tex, ref buf);
+        _textures[index] = tex;
+        _rawBuffers[index] = buf;
+        if (!ok)
         {
             if (!_warnedFormat[index])
                 Debug.LogWarning($"Unsupported image on {_panels[index].Topic}: encoding={msg.encoding} {msg.width}x{msg.height}");
