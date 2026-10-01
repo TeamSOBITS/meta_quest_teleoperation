@@ -10,7 +10,11 @@ using UnityEngine.UI;
 ///   |-----------------------------------------------------------------------------|
 ///   | [x] Publish Joy | [x] Head Camera    [x] Hand Camera    | [ Reset layout ]   |
 ///   | [ ] Lazy follow | [x] Front Camera   [ ] Back Camera    | [ <- Robots    ]   |
+///   | [ ] Passthrough |                                       |                    |
 ///   +-----------------------------------------------------------------------------+
+///
+/// Passthrough swaps the dark studio background for the real room (see PassthroughMode);
+/// the choice is saved and also applies to the robot selection screen.
 ///
 /// While Joy is published the bar also gets an amber outline, so it is obvious at a
 /// glance that the controllers are driving the robot.
@@ -21,7 +25,7 @@ public class HudBar : MonoBehaviour
     const float WidthMm = 4200f, PaddingMm = 50f, GapMm = 40f, RadiusMm = 60f, OutlineMm = 22f;
     const float HeaderHeightMm = 220f, RowHeightMm = 150f;
     const float JoyColumnMm = 850f, ButtonColumnMm = 560f, EditWidthMm = 420f, PillWidthMm = 640f;
-    const int CameraColumns = 2;
+    const int CameraColumns = 2, LeftColumnRows = 3;
     // Space between the lowest camera block and the bar (metres). Blocks are turned to face
     // the eye, which brings their lower outer corners slightly down in view; this gap absorbs it.
     const float GapBelowCamerasM = 0.17f;
@@ -40,7 +44,8 @@ public class HudBar : MonoBehaviour
     {
         // Button column: Reset layout + Back, or in setup mode Reset layout + Save robot + Cancel.
         int buttonRows = images.InSetup ? 3 : 2;
-        int controlRows = Mathf.Max(buttonRows, Mathf.CeilToInt(images.Panels.Count / (float)CameraColumns));
+        // The left column holds three toggles (Publish Joy, Lazy follow, Passthrough).
+        int controlRows = Mathf.Max(LeftColumnRows, buttonRows, Mathf.CeilToInt(images.Panels.Count / (float)CameraColumns));
         float controlsH = controlRows * RowHeightMm + (controlRows - 1) * GapMm;
         float heightMm = PaddingMm + HeaderHeightMm + GapMm + 4f + GapMm + controlsH + PaddingMm;
 
@@ -124,6 +129,13 @@ public class HudBar : MonoBehaviour
         HudUi.Place((RectTransform)joy.transform, PaddingMm, top, JoyColumnMm, RowHeightMm);
         var lazy = HudUi.Toggle(root, "Lazy follow", body, hud.LazyFollow, hud.SetLazyFollow);
         HudUi.Place((RectTransform)lazy.transform, PaddingMm, top + RowHeightMm + GapMm, JoyColumnMm, RowHeightMm);
+
+        var passthrough = HudUi.Toggle(root, "Passthrough", body, PassthroughMode.Enabled, on =>
+        {
+            PassthroughMode.Enabled = on;
+            PassthroughMode.Apply(Camera.main, on);
+        });
+        HudUi.Place((RectTransform)passthrough.transform, PaddingMm, top + 2f * (RowHeightMm + GapMm), JoyColumnMm, RowHeightMm);
 
         float camLeft = PaddingMm + JoyColumnMm + GapMm;
         float camWidth = inner - JoyColumnMm - GapMm - ButtonColumnMm - GapMm;

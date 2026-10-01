@@ -5,7 +5,9 @@ using UnityEngine.Rendering;
 /// Calm, dark "studio" surroundings shared by the robot selection and robot screens:
 /// a flat slate background instead of the bright sky (which competes with camera images
 /// and tires the eyes over long sessions) and soft, even ambient light. The scenes keep
-/// their dark grid floor for a sense of ground.
+/// their dark grid floor for a sense of ground. Applying it also honours the saved
+/// passthrough setting (see <see cref="PassthroughMode"/>), which swaps the background for
+/// the real room and hides the floor, so both screens show the same view.
 /// </summary>
 public static class StudioEnvironment
 {
@@ -24,5 +26,7 @@ public static class StudioEnvironment
             camera.clearFlags = CameraClearFlags.SolidColor;
             camera.backgroundColor = Background;
         }
+
+        PassthroughMode.Apply(camera, PassthroughMode.Enabled);
     }
 }
