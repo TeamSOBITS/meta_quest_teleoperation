@@ -8,7 +8,7 @@ using UnityEngine.UI;
 /// robot screens (head-locked, same distance, fonts and cards):
 ///
 ///                         Choose a robot
-///        ROS IP  192.168.11.20        ( reachable )   [ Edit ]
+///        ROS IP  192.168.11.20     ( PC reachable )   [ Edit ]
 ///     +----------------------+   +----------------------+
 ///     |       [picture]      |   |       [picture]      |
 ///     |  SOBIT HOME          |   |  SOBIT LIGHT         |
@@ -18,8 +18,8 @@ using UnityEngine.UI;
 ///
 /// The robot chosen last time carries a "Last used" tag.
 /// Each card is a button: pointing at it darkens it, pulling the trigger opens that robot.
-/// The ROS IP row checks whether the ROS endpoint answers on that IP, without opening a
-/// ROS connection (the robot screen owns the connection).
+/// The ROS IP row pings the ROS PC to show whether it is on the network; the ROS connection
+/// itself is opened (and its state shown) by the robot screen.
 /// </summary>
 public class RobotSelectionHud : MonoBehaviour
 {
@@ -221,13 +221,13 @@ public class RobotSelectionHud : MonoBehaviour
         }
     }
 
-    // Check whether the ROS endpoint answers on the current IP. Only the latest check updates the UI.
+    // Ping the ROS PC (not the ROS endpoint, see RosIpSettings.PingAsync). Only the latest check updates the UI.
     async void Probe()
     {
         int id = ++_probeId;
         _reach = Reach.Checking;
         ShowReach();
-        bool ok = await RosIpSettings.ProbeAsync(_ip);
+        bool ok = await RosIpSettings.PingAsync(_ip);
         if (this == null || id != _probeId) return;
         _reach = ok ? Reach.Reachable : Reach.Unreachable;
         ShowReach();
@@ -246,8 +246,8 @@ public class RobotSelectionHud : MonoBehaviour
         _pillText.color = c;
         _pillText.text = _reach switch
         {
-            Reach.Reachable   => "reachable",
-            Reach.Unreachable => "not reachable",
+            Reach.Reachable   => "PC reachable",
+            Reach.Unreachable => "PC not reachable",
             _                 => "checking…",
         };
     }

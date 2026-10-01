@@ -1,4 +1,3 @@
-using System.Net.Sockets;
 using System.Threading.Tasks;
 using UnityEngine;
 
@@ -26,21 +25,22 @@ public static class RosIpSettings
         PlayerPrefs.Save();  // flush now; the app may be killed from the Quest menu without a clean quit
     }
 
-    // True if something accepts TCP connections on ip:Port within `timeoutSeconds`.
-    // Used to show whether the ROS endpoint is reachable without opening a ROS connection.
-    public static async Task<bool> ProbeAsync(string ip, float timeoutSeconds = 1.5f)
+    // True if the PC at `ip` answers a ping within `timeoutSeconds`.
+    // Deliberately not a TCP connection to the ROS endpoint: ros_tcp_endpoint hands its single
+    // outgoing (ROS -> Unity) stream to the newest connection, so even a brief probe would cut
+    // camera images off from any other Unity client connected to the same endpoint.
+    public static async Task<bool> PingAsync(string ip, float timeoutSeconds = 1.5f)
     {
-        using var client = new TcpClient();
-        try
-        {
-            var connect = client.ConnectAsync(ip, Port);
-            var done = await Task.WhenAny(connect, Task.Delay((int)(timeoutSeconds * 1000)));
-            return done == connect && !connect.IsFaulted && client.Connected;
-        }
-        catch
-        {
-            return false;
-        }
+        Ping ping;
+        try { ping = new Ping(ip); }
+        catch { return false; }
+
+        float deadline = Time.realtimeSinceStartup + timeoutSeconds;
+        while (!ping.isDone && Time.realtimeSinceStartup < deadline)
+            await Task.Yield();
+        bool ok = ping.isDone && ping.time >= 0;
+        ping.DestroyPing();
+        return ok;
     }
 }
 
