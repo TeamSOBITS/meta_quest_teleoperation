@@ -11,7 +11,7 @@ using UnityEngine.UI;
 ///      Camera Name        name label, fixed font, wraps within the view width
 ///      [gap]
 ///   +--------------+
-///   |  camera view |      height fixed, width = height x camera aspect ratio
+///   |  camera view |      height = standard height x camera scale, width = height x aspect ratio
 ///   +--------------+
 ///      [gap]
 ///   /ns/topic/name      topic label, smaller fixed font, wraps within the view width
@@ -34,6 +34,10 @@ public class CameraPanel : MonoBehaviour
     public float Width  { get; private set; }
     public float Height { get; private set; }
 
+    // Distance from the view's centre to the top / bottom edge of the block (metres).
+    public float AboveViewCentre { get; private set; }
+    public float BelowViewCentre { get; private set; }
+
     RawImage _view;
 
     public static CameraPanel Create(Transform parent, RobotProfile.CameraConfig config, string topic)
@@ -53,8 +57,8 @@ public class CameraPanel : MonoBehaviour
         var canvas = gameObject.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.WorldSpace;
 
-        float viewW = ViewHeight * config.Aspect * MmPerMetre;
-        float viewH = ViewHeight * MmPerMetre;
+        float viewH = ViewHeight * config.scale * MmPerMetre;
+        float viewW = viewH * config.Aspect;
         float gap   = LabelGap * MmPerMetre;
 
         // Labels: same width as the view; text wraps instead of widening the block.
@@ -85,6 +89,8 @@ public class CameraPanel : MonoBehaviour
 
         Width  = viewW  / MmPerMetre;
         Height = totalH / MmPerMetre;
+        AboveViewCentre = (nameH + gap + viewH / 2f) / MmPerMetre;
+        BelowViewCentre = (viewH / 2f + gap + topicH) / MmPerMetre;
     }
 
     TextMeshProUGUI CreateLabel(string objName, string text, float fontSizeMetres, float width)

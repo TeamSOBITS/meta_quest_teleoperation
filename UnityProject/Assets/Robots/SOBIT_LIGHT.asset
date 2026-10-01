@@ -20,15 +20,27 @@ MonoBehaviour:
     topicSuffix: head_camera/color/image_raw/compressed
     resolution: {x: 1280, y: 720}
     maxFps: 15
+    flipVertical: 0
+    flipHorizontal: 0
+    scale: 1
   - displayName: Hand Camera
     topicSuffix: hand_camera/color/image_raw/compressed
     resolution: {x: 848, y: 480}
     maxFps: 15
+    flipVertical: 0
+    flipHorizontal: 0
+    scale: 1
   - displayName: Base Front Camera
     topicSuffix: front_camera/image_raw/compressed
     resolution: {x: 640, y: 480}
     maxFps: 15
+    flipVertical: 0
+    flipHorizontal: 0
+    scale: 1
   - displayName: Base Back Camera
     topicSuffix: back_camera/image_raw/compressed
     resolution: {x: 640, y: 480}
     maxFps: 15
+    flipVertical: 0
+    flipHorizontal: 0
+    scale: 1

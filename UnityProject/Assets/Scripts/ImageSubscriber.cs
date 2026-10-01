@@ -64,6 +64,8 @@ public class ImageSubscriber : MonoBehaviour
     }
 
     // Grid of up to maxColumns per row, centred in front of the head, each panel facing the eye.
+    // Rows are sized from the actual blocks, so a scaled-up camera pushes its neighbours aside
+    // instead of overlapping them. Views in a row share a horizontal centre line.
     void Layout()
     {
         int n = _panels.Count;
@@ -73,32 +75,35 @@ public class ImageSubscriber : MonoBehaviour
         if (n > cols) cols = Mathf.CeilToInt(n / Mathf.Ceil(n / (float)cols));  // balance rows, e.g. 4 -> 2x2
         int rows = Mathf.CeilToInt(n / (float)cols);
 
-        var rowHeights = new float[rows];
+        var rowAbove = new float[rows];
+        var rowBelow = new float[rows];
         var rowWidths = new float[rows];
         for (int i = 0; i < n; i++)
         {
             int r = i / cols;
-            rowHeights[r] = Mathf.Max(rowHeights[r], _panels[i].Height);
+            rowAbove[r] = Mathf.Max(rowAbove[r], _panels[i].AboveViewCentre);
+            rowBelow[r] = Mathf.Max(rowBelow[r], _panels[i].BelowViewCentre);
             rowWidths[r] += _panels[i].Width + (i % cols > 0 ? columnGap : 0f);
         }
 
         float totalH = (rows - 1) * rowGap;
-        foreach (var h in rowHeights) totalH += h;
+        for (int r = 0; r < rows; r++) totalH += rowAbove[r] + rowBelow[r];
         float top = Mathf.Max(totalH / 2f, minBottom + totalH);
 
         for (int r = 0, i = 0; r < rows; r++)
         {
+            float viewCentreY = top - rowAbove[r];
             float x = -rowWidths[r] / 2f;
             for (int c = 0; c < cols && i < n; c++, i++)
             {
-                // Top-align within the row so names and views line up even if topics wrap differently.
                 var p = _panels[i];
-                var pos = new Vector3(x + p.Width / 2f, top - p.Height / 2f, distance);
+                float blockCentreY = viewCentreY + p.AboveViewCentre - p.Height / 2f;
+                var pos = new Vector3(x + p.Width / 2f, blockCentreY, distance);
                 p.transform.localPosition = pos;
                 p.transform.localRotation = Quaternion.LookRotation(pos);
                 x += p.Width + columnGap;
             }
-            top -= rowHeights[r] + rowGap;
+            top -= rowAbove[r] + rowBelow[r] + rowGap;
         }
     }
 

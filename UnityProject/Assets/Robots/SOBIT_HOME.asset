@@ -20,11 +20,20 @@ MonoBehaviour:
     topicSuffix: hand_left_camera/color/image_raw/compressed
     resolution: {x: 640, y: 480}
     maxFps: 15
+    flipVertical: 0
+    flipHorizontal: 0
+    scale: 1
   - displayName: Head Camera
     topicSuffix: head_camera/color/image_raw/compressed
     resolution: {x: 640, y: 480}
     maxFps: 15
+    flipVertical: 0
+    flipHorizontal: 0
+    scale: 1.5
   - displayName: Right Hand Camera
     topicSuffix: hand_right_camera/color/image_raw/compressed
     resolution: {x: 640, y: 480}
     maxFps: 15
+    flipVertical: 0
+    flipHorizontal: 0
+    scale: 1

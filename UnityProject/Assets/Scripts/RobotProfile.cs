@@ -25,6 +25,10 @@ public class RobotProfile : ScriptableObject
         // Maximum display rate. 0 = show every frame.
         public float maxFps = 15f;
 
+        // Size of the camera view relative to the standard view height.
+        // Labels keep the shared font sizes; neighbouring blocks move to make room.
+        [Min(0.1f)] public float scale = 1f;
+
         // For cameras mounted rotated or mirrored.
         public bool flipVertical;
         public bool flipHorizontal;
