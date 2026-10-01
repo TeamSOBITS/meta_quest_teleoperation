@@ -1,112 +1,126 @@
+using System.Collections.Generic;
 using UnityEngine;
 using Unity.Robotics.ROSTCPConnector;
 using RosMessageTypes.Sensor;
-using TMPro;
 
+/// <summary>
+/// Builds one <see cref="CameraPanel"/> per camera of the selected robot, lays them
+/// out in front of the user (head-locked) and shows each camera's compressed images.
+/// </summary>
 public class ImageSubscriber : MonoBehaviour
 {
     public ROSConnection ros;
-    public Renderer[] imageRenderers;
 
-    // Robot namespace (e.g. "sobit_home", "sobit_pro").
-    // Leave empty to use absolute topicNames as-is.
-    public string robotNamespace = "sobit_home";
+    // Used when the scene is opened directly in the Editor (no robot selected).
+    public RobotProfile defaultProfile;
 
-    // Camera sub-paths relative to the robot namespace, e.g.
-    //   "hand_left_camera/color/image_raw/compressed"
-    //   "hand_right_camera/color/image_raw/compressed"
-    //   "head_camera/color/image_raw/compressed"
-    // At runtime these become: /<robotNamespace>/<cameraTopicSuffix>
-    public string[] cameraTopicSuffixes;
+    // Panels follow this transform; defaults to the main camera.
+    public Transform panelParent;
 
-    // Per-camera texture resolution. Must match cameraTopicSuffixes length.
-    // Default (0,0) falls back to 640×480.
-    public Vector2Int[] cameraResolutions;
+    [Header("Layout (metres, relative to the head)")]
+    public float distance = 4.3f;
+    public int maxColumns = 3;
+    public float columnGap = 0.15f;
+    public float rowGap = 0.15f;
+    // Keep panels above the ROS IP block at the bottom of the view.
+    public float minBottom = -1.55f;
 
-    // Maximum display rate (frames per second) per camera.
-    // Incoming messages that arrive faster than this are silently dropped.
-    // Set to 0 to disable throttling for that camera (pass every frame).
-    // A single-element array applies the same limit to all cameras.
-    public float[] maxFps = new float[] { 15f };
+    readonly List<CameraPanel> _panels = new List<CameraPanel>();
+    Texture2D[] _textures;
+    double[] _lastRenderTime;
 
-    public TextMeshProUGUI[] textInputs;
-
-    private Texture2D[] textures;
-    private Material[] materials;
-    private double[] lastRenderTime;
+    public IReadOnlyList<CameraPanel> Panels => _panels;
 
     void Start()
     {
         ros = ROSConnection.GetOrCreateInstance();
 
-        if (RobotProfile.Selected != null)
-            robotNamespace = RobotProfile.Selected.robotNamespace;
+        var profile = RobotProfile.Selected != null ? RobotProfile.Selected : defaultProfile;
+        if (profile == null)
+        {
+            Debug.LogError("ImageSubscriber: no robot selected and no default profile set.");
+            return;
+        }
 
-        int n = cameraTopicSuffixes.Length;
+        if (panelParent == null && Camera.main != null)
+            panelParent = Camera.main.transform;
 
-        textures       = new Texture2D[n];
-        materials      = new Material[n];
-        lastRenderTime = new double[n];
+        int n = profile.cameras.Length;
+        _textures = new Texture2D[n];
+        _lastRenderTime = new double[n];
 
         for (int i = 0; i < n; i++)
         {
-            // Build the full topic: /<robotNamespace>/<suffix>
-            string ns = string.IsNullOrEmpty(robotNamespace) ? "" : "/" + robotNamespace;
-            string fullTopic = ns + "/" + cameraTopicSuffixes[i].TrimStart('/');
-
-            int w = (cameraResolutions != null && i < cameraResolutions.Length && cameraResolutions[i].x > 0)
-                    ? cameraResolutions[i].x : 640;
-            int h = (cameraResolutions != null && i < cameraResolutions.Length && cameraResolutions[i].y > 0)
-                    ? cameraResolutions[i].y : 480;
-
-            materials[i]      = imageRenderers[i].material;
-            materials[i].mainTextureScale = new Vector2(1, -1);
-            materials[i].mainTextureOffset = new Vector2(0, 1);
-            textures[i]       = new Texture2D(w, h, TextureFormat.RGB24, false);
-            lastRenderTime[i] = 0.0;
+            var cam = profile.cameras[i];
+            string topic = profile.FullTopic(cam);
+            _panels.Add(CameraPanel.Create(panelParent, cam, topic));
+            _textures[i] = new Texture2D(cam.resolution.x, cam.resolution.y, TextureFormat.RGB24, false);
 
             int index = i;
-            ros.Subscribe<CompressedImageMsg>(fullTopic, msg =>
-            {
-                RenderCompressedTexture(msg, materials[index], textures[index], index);
-            });
+            ros.Subscribe<CompressedImageMsg>(topic, msg => RenderCompressedTexture(msg, index));
+        }
 
-            if (textInputs != null && i < textInputs.Length)
-                textInputs[i].text = fullTopic;
+        Layout();
+    }
+
+    // Grid of up to maxColumns per row, centred in front of the head, each panel facing the eye.
+    void Layout()
+    {
+        int n = _panels.Count;
+        if (n == 0) return;
+
+        int cols = Mathf.Min(n, Mathf.Max(1, maxColumns));
+        if (n > cols) cols = Mathf.CeilToInt(n / Mathf.Ceil(n / (float)cols));  // balance rows, e.g. 4 -> 2x2
+        int rows = Mathf.CeilToInt(n / (float)cols);
+
+        var rowHeights = new float[rows];
+        var rowWidths = new float[rows];
+        for (int i = 0; i < n; i++)
+        {
+            int r = i / cols;
+            rowHeights[r] = Mathf.Max(rowHeights[r], _panels[i].Height);
+            rowWidths[r] += _panels[i].Width + (i % cols > 0 ? columnGap : 0f);
+        }
+
+        float totalH = (rows - 1) * rowGap;
+        foreach (var h in rowHeights) totalH += h;
+        float top = Mathf.Max(totalH / 2f, minBottom + totalH);
+
+        for (int r = 0, i = 0; r < rows; r++)
+        {
+            float x = -rowWidths[r] / 2f;
+            for (int c = 0; c < cols && i < n; c++, i++)
+            {
+                // Top-align within the row so names and views line up even if topics wrap differently.
+                var p = _panels[i];
+                var pos = new Vector3(x + p.Width / 2f, top - p.Height / 2f, distance);
+                p.transform.localPosition = pos;
+                p.transform.localRotation = Quaternion.LookRotation(pos);
+                x += p.Width + columnGap;
+            }
+            top -= rowHeights[r] + rowGap;
         }
     }
 
-    private void RenderCompressedTexture(CompressedImageMsg msg, Material mat, Texture2D tex, int index)
+    void RenderCompressedTexture(CompressedImageMsg msg, int index)
     {
         if (msg == null || msg.data == null || msg.data.Length == 0)
             return;
 
-        // Throttle: resolve per-camera maxFps (last element applies to all remaining cameras)
-        float fps = (maxFps != null && maxFps.Length > 0)
-            ? maxFps[Mathf.Min(index, maxFps.Length - 1)]
-            : 0f;
-
+        float fps = _panels[index].Config.maxFps;
         if (fps > 0f)
         {
             double now = Time.timeAsDouble;
-            double minInterval = 1.0 / fps;
-            if (now - lastRenderTime[index] < minInterval)
+            if (now - _lastRenderTime[index] < 1.0 / fps)
                 return;
-            lastRenderTime[index] = now;
+            _lastRenderTime[index] = now;
         }
 
-        bool success = tex.LoadImage(msg.data);
-        if (!success)
+        if (!_textures[index].LoadImage(msg.data))
         {
-            Debug.LogWarning($"Failed to decode compressed image. format={msg.format}");
+            Debug.LogWarning($"Failed to decode compressed image on {_panels[index].Topic}. format={msg.format}");
             return;
         }
-        mat.mainTexture = tex;
-    }
-
-    // Update is called once per frame
-    void Update()
-    {
-
+        _panels[index].SetTexture(_textures[index]);
     }
 }

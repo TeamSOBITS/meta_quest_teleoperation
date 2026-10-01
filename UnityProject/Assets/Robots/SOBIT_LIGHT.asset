@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   displayName: SOBIT LIGHT
   robotNamespace: sobit_light
-  sceneName: SOBIT_LIGHT_Scene
+  sceneName: TeleopScene
   cameras:
   - displayName: Head Camera
     topicSuffix: head_camera/color/image_raw/compressed

@@ -14,7 +14,7 @@ MonoBehaviour:
   m_EditorClassIdentifier: 
   displayName: SOBIT HOME
   robotNamespace: sobit_home
-  sceneName: SOBIT_HOME_Scene
+  sceneName: TeleopScene
   cameras:
   - displayName: Left Hand Camera
     topicSuffix: hand_left_camera/color/image_raw/compressed

@@ -9,11 +9,8 @@ EditorBuildSettings:
     path: Assets/Scenes/RobotSelectionScene.unity
     guid: 272dbe43dc9fdd1239fdc97d23aa3643
   - enabled: 1
-    path: Assets/Scenes/SOBIT_LIGHT_Scene.unity
-    guid: d9b4778680a1d1102accb8bdd86db847
-  - enabled: 1
-    path: Assets/Scenes/SOBIT_HOME_Scene.unity
-    guid: 4a1f7328b4ba2bb6da8794258cbf69ec
+    path: Assets/Scenes/TeleopScene.unity
+    guid: a00baf36d7e84fe6957f62e04802a2e2
   m_configObjects:
     Unity.XR.Oculus.Settings: {fileID: 11400000, guid: bfa1182bd221b4ca89619141f66f1260, type: 2}
     Unity.XR.WindowsMR.Settings: {fileID: 11400000, guid: dc5a169419fa04987b057f65238cf3ba, type: 2}

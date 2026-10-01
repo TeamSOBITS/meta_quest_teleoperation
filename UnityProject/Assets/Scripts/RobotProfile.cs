@@ -25,6 +25,10 @@ public class RobotProfile : ScriptableObject
         // Maximum display rate. 0 = show every frame.
         public float maxFps = 15f;
 
+        // For cameras mounted rotated or mirrored.
+        public bool flipVertical;
+        public bool flipHorizontal;
+
         public float Aspect => resolution.x > 0 && resolution.y > 0
             ? (float)resolution.x / resolution.y
             : 4f / 3f;
