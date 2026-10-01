@@ -119,6 +119,7 @@ public static class HudUi
         Round(bg, fontSize * 0.35f);
         var button = bg.gameObject.AddComponent<Button>();
         button.targetGraphic = bg;
+        button.colors = HoverColors;
         button.onClick.AddListener(onClick);
         var label = Label(bg.transform, "Label", text, fontSize);
         Stretch(label.rectTransform);
@@ -129,7 +130,7 @@ public static class HudUi
     public static Toggle Toggle(Transform parent, string text, float fontSize, bool isOn, Action<bool> onChanged)
     {
         var row = Box(parent, "Toggle " + text, new Color(0f, 0f, 0f, 0f), raycastTarget: true);
-        var toggle = row.gameObject.AddComponent<Toggle>();
+        var toggle = row.gameObject.AddComponent<HudToggle>();
 
         float boxSize = fontSize * 1.1f;
         var box = Round(Box(row.transform, "Box", ControlColor), boxSize * 0.2f);
@@ -148,10 +149,26 @@ public static class HudUi
 
         toggle.targetGraphic = box;
         toggle.graphic = check;
+        toggle.colors = HoverColors;
+        // Instant on/off: a fading check mark would be cut short by HudToggle's hover tint fade.
+        toggle.toggleTransition = UnityEngine.UI.Toggle.ToggleTransition.None;
         toggle.isOn = isOn;
         toggle.onValueChanged.AddListener(v => onChanged(v));
         return toggle;
     }
+
+    // Darken controls while the controller ray points at them (and more while pressed).
+    // Selected = normal, so a control doesn't stay tinted after it has been clicked.
+    public static readonly ColorBlock HoverColors = new ColorBlock
+    {
+        normalColor      = Color.white,
+        highlightedColor = new Color(0.62f, 0.62f, 0.62f, 1f),
+        pressedColor     = new Color(0.45f, 0.45f, 0.45f, 1f),
+        selectedColor    = Color.white,
+        disabledColor    = new Color(0.6f, 0.6f, 0.6f, 0.5f),
+        colorMultiplier  = 1f,
+        fadeDuration     = 0.08f,
+    };
 
     // Fill the parent rect, optionally inset by `inset` on every side.
     public static void Stretch(RectTransform rt, float inset = 0f)
