@@ -6,11 +6,9 @@ using RosMessageTypes.Std;
 using RosMessageTypes.Tf2;
 using RosMessageTypes.Sensor;
 using UnityEngine.XR;
-using TMPro;
 using UnityEngine;
 using Unity.Robotics.ROSTCPConnector;
 using Unity.Robotics.ROSTCPConnector.ROSGeometry;
-using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
 
 public class QuestControllerPublisher : MonoBehaviour
@@ -33,16 +31,16 @@ public class QuestControllerPublisher : MonoBehaviour
     // sobits_teleop uses a wall-clock TF buffer so sim/real time mixing is not an issue.
     public bool useSimTime = false;  // kept for Inspector compatibility, no longer used
     public float publishFrequency = 1.0f / 60.0f;
-    public InputActionAsset inputActions;
+
+    // Send controller buttons/axes to the robot as sensor_msgs/Joy. TF is always published.
+    // Toggled from the control panel; turning it off also enables dragging camera blocks.
+    public bool publishJoy = true;
 
     private float _timeElapsed;
-    private InputAction _clutchAction;
-    private InputAction _keyboardAction;
     private string _joyTopicName;
     private string _confirmedIp;  // IP that was last explicitly connected to
 
     private TouchScreenKeyboard _keyboard;
-    public TextMeshProUGUI textInput;
 
     // Name of the scene to return to when the user wants to pick a different robot.
     public string robotSelectionSceneName = "RobotSelectionScene";
@@ -74,24 +72,25 @@ public class QuestControllerPublisher : MonoBehaviour
         // Publish controller buttons as sensor_msgs/Joy on the namespaced topic
         ros.RegisterPublisher<JoyMsg>(_joyTopicName);
 
-        
-        _keyboardAction = inputActions.FindAction("OpenKeyboard");
-        _keyboardAction.Enable();
-        textInput = GameObject.Find("ROS_IP").GetComponent<TextMeshProUGUI>();
-        textInput.text = ros.RosIPAddress;
         _confirmedIp = ros.RosIPAddress;  // record what we are already connected to
+    }
+
+    // IP to show in the HUD: what is being typed while the keyboard is open, else the connected one.
+    public string DisplayedIp => _keyboard != null ? _keyboard.text : _confirmedIp;
+
+    public bool HasConnectionError => ros.HasConnectionError;
+
+    // Opens the Quest system keyboard; the typed IP is applied when the user confirms.
+    public void OpenIpKeyboard()
+    {
+        TouchScreenKeyboard.hideInput = false;
+        _keyboard = TouchScreenKeyboard.Open(_confirmedIp,
+            TouchScreenKeyboardType.NumbersAndPunctuation, false, false, false, false);
     }
 
 
     public void Update()
     {
-        if (_keyboardAction.WasPressedThisFrame())
-        {
-            TouchScreenKeyboard.hideInput = false;
-            _keyboard = TouchScreenKeyboard.Open("",
-                TouchScreenKeyboardType.NumbersAndPunctuation, false, false, false, false);
-        }
-
         // Only reconnect when the user explicitly submits a new IP via the keyboard.
         // Comparing against _confirmedIp (not ros.RosIPAddress) avoids the startup
         // race where a transient mismatch between the UI text and ros.RosIPAddress
@@ -103,12 +102,15 @@ public class QuestControllerPublisher : MonoBehaviour
             !_keyboard.text.Equals(_confirmedIp))
         {
             _confirmedIp = _keyboard.text;
-            textInput.text = _confirmedIp;
             ros.Disconnect();
             ros.Connect(_confirmedIp, 10000);
             PlayerPrefs.SetString(RosIpPrefsKey, _confirmedIp);
             PlayerPrefs.Save();  // flush now; the app may be killed from the Quest menu without a clean quit
             _keyboard = null;
+        }
+        else if (_keyboard != null && _keyboard.status != TouchScreenKeyboard.Status.Visible)
+        {
+            _keyboard = null;  // cancelled, or confirmed without a change
         }
 
         // Left controller menu button: go back to the robot selection screen, so picking
@@ -138,14 +140,6 @@ public class QuestControllerPublisher : MonoBehaviour
         }
     }
     
-    void OnGUI()
-    {
-        if (_keyboard != null)
-        {
-            textInput.text = _keyboard.text;
-        }
-    }
-
     private TimeMsg GetRosTime()
     {
         // Always stamp with wall-clock (UTC). sobits_teleop uses a wall-clock TF
@@ -265,6 +259,8 @@ public class QuestControllerPublisher : MonoBehaviour
     if (tfList.Count == 0) return;
 
     ros.Publish(tfTopicName, new TFMessageMsg(tfList.ToArray()));
+
+    if (!publishJoy) return;
 
     // --- Publish controller button states as sensor_msgs/Joy on a single /joy topic ---
     // Use Unity XR InputDevices to query Meta Quest controller buttons and axes

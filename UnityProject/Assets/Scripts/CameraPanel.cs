@@ -20,11 +20,11 @@ public class CameraPanel : MonoBehaviour
 {
     // Shared look for all camera blocks (metres).
     public const float ViewHeight     = 1.2f;
-    public const float NameFontSize   = 0.14f;
-    public const float TopicFontSize  = 0.09f;
+    public const float NameFontSize   = HudUi.TitleFontSize;
+    public const float TopicFontSize  = HudUi.BodyFontSize;
     public const float LabelGap       = 0.05f;
 
-    const float MmPerMetre = 1000f;
+    const float MmPerMetre = HudUi.MmPerMetre;
     static readonly Color WaitingColor = new Color(0.15f, 0.15f, 0.15f, 1f);
 
     public RobotProfile.CameraConfig Config { get; private set; }
@@ -95,14 +95,7 @@ public class CameraPanel : MonoBehaviour
 
     TextMeshProUGUI CreateLabel(string objName, string text, float fontSizeMetres, float width)
     {
-        var label = new GameObject(objName, typeof(RectTransform)).AddComponent<TextMeshProUGUI>();
-        label.transform.SetParent(transform, false);
-        label.text = text;
-        label.fontSize = fontSizeMetres * MmPerMetre;
-        label.alignment = TextAlignmentOptions.Center;
-        label.textWrappingMode = TextWrappingModes.Normal;
-        label.overflowMode = TextOverflowModes.Overflow;
-        label.raycastTarget = false;
+        var label = HudUi.Label(transform, objName, text, fontSizeMetres * MmPerMetre);
         label.rectTransform.sizeDelta = new Vector2(width, 0f);
         return label;
     }
@@ -114,6 +107,12 @@ public class CameraPanel : MonoBehaviour
         rt.pivot = new Vector2(0.5f, 1f);
         rt.sizeDelta = new Vector2(width, height);
         rt.anchoredPosition = new Vector2(0f, top);
+    }
+
+    public bool Visible
+    {
+        get => gameObject.activeSelf;
+        set => gameObject.SetActive(value);
     }
 
     public void SetTexture(Texture texture)

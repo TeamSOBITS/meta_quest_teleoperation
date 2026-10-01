@@ -63,6 +63,9 @@ public class ImageSubscriber : MonoBehaviour
         Layout();
     }
 
+    // Put every camera block back at its default place.
+    public void ResetLayout() => Layout();
+
     // Grid of up to maxColumns per row, centred in front of the head, each panel facing the eye.
     // Rows are sized from the actual blocks, so a scaled-up camera pushes its neighbours aside
     // instead of overlapping them. Views in a row share a horizontal centre line.
@@ -110,6 +113,10 @@ public class ImageSubscriber : MonoBehaviour
     void RenderCompressedTexture(CompressedImageMsg msg, int index)
     {
         if (msg == null || msg.data == null || msg.data.Length == 0)
+            return;
+
+        // Hidden cameras skip JPEG decoding entirely.
+        if (!_panels[index].Visible)
             return;
 
         float fps = _panels[index].Config.maxFps;
