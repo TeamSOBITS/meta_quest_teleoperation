@@ -9,7 +9,7 @@ using UnityEngine.UI;
 ///   | SOBIT LIGHT  (JOY ON)                 ROS IP 192.168.11.20 (connected) [Edit]|
 ///   |-----------------------------------------------------------------------------|
 ///   | [x] Publish Joy | [x] Head Camera    [x] Hand Camera    | [ Reset layout ]   |
-///   |                 | [x] Front Camera   [ ] Back Camera    | [ <- Robots    ]   |
+///   | [ ] Lazy follow | [x] Front Camera   [ ] Back Camera    | [ <- Robots    ]   |
 ///   +-----------------------------------------------------------------------------+
 ///
 /// While Joy is published the bar also gets an amber outline, so it is obvious at a
@@ -33,7 +33,7 @@ public class HudBar : MonoBehaviour
     Image _pill, _joyChip, _outline;
     bool? _shownConnected, _shownJoy;
 
-    public static HudBar Create(Transform parent, QuestControllerPublisher publisher, ImageSubscriber images)
+    public static HudBar Create(Transform parent, QuestControllerPublisher publisher, ImageSubscriber images, TeleopHud hud)
     {
         int controlRows = Mathf.Max(2, Mathf.CeilToInt(images.Panels.Count / (float)CameraColumns));
         float controlsH = controlRows * RowHeightMm + (controlRows - 1) * GapMm;
@@ -46,11 +46,11 @@ public class HudBar : MonoBehaviour
         var root = HudUi.CreateCanvas("HUD Bar", parent, position, new Vector2(WidthMm, heightMm), interactive: true);
         var bar = root.gameObject.AddComponent<HudBar>();
         bar._publisher = publisher;
-        bar.Build(root, images, heightMm);
+        bar.Build(root, images, hud, heightMm);
         return bar;
     }
 
-    void Build(RectTransform root, ImageSubscriber images, float heightMm)
+    void Build(RectTransform root, ImageSubscriber images, TeleopHud hud, float heightMm)
     {
         float title = HudUi.TitleFontSize * HudUi.MmPerMetre;
         float body  = HudUi.BodyFontSize  * HudUi.MmPerMetre;
@@ -113,6 +113,8 @@ public class HudBar : MonoBehaviour
         // --- Controls: Publish Joy | camera toggles | Reset layout / Back to robots ---
         var joy = HudUi.Toggle(root, "Publish Joy", body, _publisher.publishJoy, on => _publisher.publishJoy = on);
         HudUi.Place((RectTransform)joy.transform, PaddingMm, top, JoyColumnMm, RowHeightMm);
+        var lazy = HudUi.Toggle(root, "Lazy follow", body, hud.LazyFollow, hud.SetLazyFollow);
+        HudUi.Place((RectTransform)lazy.transform, PaddingMm, top + RowHeightMm + GapMm, JoyColumnMm, RowHeightMm);
 
         float camLeft = PaddingMm + JoyColumnMm + GapMm;
         float camWidth = inner - JoyColumnMm - GapMm - ButtonColumnMm - GapMm;

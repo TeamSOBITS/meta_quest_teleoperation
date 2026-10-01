@@ -14,7 +14,9 @@ using UnityEngine.UI;
 ///     |  SOBIT HOME          |   |  SOBIT LIGHT         |
 ///     |  /sobit_home · 3 cam |   |  /sobit_light · 4 cam|
 ///     +----------------------+   +----------------------+
+///              Point at a robot and pull the trigger
 ///
+/// The robot chosen last time carries a "Last used" tag.
 /// Each card is a button: pointing at it darkens it, pulling the trigger opens that robot.
 /// The ROS IP row checks whether the ROS endpoint answers on that IP, without opening a
 /// ROS connection (the robot screen owns the connection).
@@ -31,6 +33,8 @@ public class RobotSelectionHud : MonoBehaviour
     const float CardWidthMm = 1500f, CardPaddingMm = 60f, CardGapMm = 160f, RadiusMm = 60f;
     const float IpRowWidthMm = 3000f, IpRowHeightMm = 260f, EditWidthMm = 420f, PillWidthMm = 640f;
     const float TitleFontScale = 1.5f, BackdropPaddingMm = 110f;
+    const string LastRobotKey = "LastRobot";
+    const string HintText = "Point at a robot and pull the trigger";
     static readonly Color CardColor = new Color(0.21f, 0.23f, 0.28f, 1f);
     const int MaxColumns = 3;
     // Vertical position of the whole screen's centre relative to eye level (metres).
@@ -73,7 +77,8 @@ public class RobotSelectionHud : MonoBehaviour
         float pad = BackdropPaddingMm;
         float contentW = Mathf.Max(gridW, IpRowWidthMm);
         float widthMm = contentW + 2f * pad;
-        float heightMm = pad + headingH + 60f + IpRowHeightMm + 120f + gridH + pad;
+        float hintH = body * 2.2f;
+        float heightMm = pad + headingH + 60f + IpRowHeightMm + 120f + gridH + 40f + hintH + pad;
 
         var root = HudUi.CreateCanvas("Robot Selection Screen", head,
             new Vector3(0f, CentreY, HudUi.ReferenceDistance), new Vector2(widthMm, heightMm), interactive: true);
@@ -105,6 +110,11 @@ public class RobotSelectionHud : MonoBehaviour
             var card = BuildCard(root, robots[i], pictureW, pictureH, body, title);
             HudUi.Place((RectTransform)card.transform, left, top + r * (cardH + CardGapMm), CardWidthMm, cardH);
         }
+        top += gridH + 40f;
+
+        var hint = HudUi.Label(root, "Hint", HintText, body);
+        hint.color = HudUi.MutedText;
+        HudUi.Place(hint.rectTransform, 0f, top, widthMm, hintH);
     }
 
     void BuildIpRow(RectTransform row, float body, float title)
@@ -162,6 +172,19 @@ public class RobotSelectionHud : MonoBehaviour
             prt.anchorMin = prt.anchorMax = new Vector2(0.5f, 0.5f);
             prt.sizeDelta = new Vector2(w, h);
         }
+        if (robot.name == PlayerPrefs.GetString(LastRobotKey, ""))
+        {
+            float tagH = body * 1.6f;
+            var tag = HudUi.Round(HudUi.Box(frame.transform, "Last used",
+                new Color(HudUi.AccentColor.r, HudUi.AccentColor.g, HudUi.AccentColor.b, 0.9f)), tagH / 2f);
+            var tagText = HudUi.Label(tag.transform, "Label", "Last used", body * 0.9f);
+            tagText.fontStyle = FontStyles.Bold;
+            tagText.color = new Color(0.05f, 0.08f, 0.12f, 1f);
+            tagText.textWrappingMode = TextWrappingModes.NoWrap;
+            HudUi.Stretch(tagText.rectTransform);
+            float tagW = tagText.GetPreferredValues("Last used").x + 1.6f * body;
+            HudUi.Place(tag.rectTransform, pictureW - tagW - 30f, 30f, tagW, tagH);
+        }
         top += pictureH + 40f;
 
         var name = HudUi.Label(bg.transform, "Name", robot.displayName, title, TextAlignmentOptions.Left);
@@ -179,6 +202,8 @@ public class RobotSelectionHud : MonoBehaviour
 
     void Select(RobotProfile robot)
     {
+        PlayerPrefs.SetString(LastRobotKey, robot.name);
+        PlayerPrefs.Save();
         RobotProfile.Selected = robot;
         SceneManager.LoadScene(robot.sceneName);
     }
