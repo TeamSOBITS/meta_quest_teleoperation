@@ -55,6 +55,9 @@ public class QuestControllerPublisher : MonoBehaviour
     // connection already goes to the saved IP, with no Disconnect/Connect cycle.
     public void Awake()
     {
+        if (RobotProfile.Selected != null)
+            robotNamespace = RobotProfile.Selected.robotNamespace;
+
         string savedIp = PlayerPrefs.GetString(RosIpPrefsKey, "");
         if (!string.IsNullOrEmpty(savedIp))
             ros.RosIPAddress = savedIp;

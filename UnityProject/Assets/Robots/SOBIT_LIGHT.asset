@@ -1,0 +1,34 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1927103ba94d4e0c87f6598558be81b6, type: 3}
+  m_Name: SOBIT_LIGHT
+  m_EditorClassIdentifier: 
+  displayName: SOBIT LIGHT
+  robotNamespace: sobit_light
+  sceneName: SOBIT_LIGHT_Scene
+  cameras:
+  - displayName: Head Camera
+    topicSuffix: head_camera/color/image_raw/compressed
+    resolution: {x: 1280, y: 720}
+    maxFps: 15
+  - displayName: Hand Camera
+    topicSuffix: hand_camera/color/image_raw/compressed
+    resolution: {x: 848, y: 480}
+    maxFps: 15
+  - displayName: Base Front Camera
+    topicSuffix: front_camera/image_raw/compressed
+    resolution: {x: 640, y: 480}
+    maxFps: 15
+  - displayName: Base Back Camera
+    topicSuffix: back_camera/image_raw/compressed
+    resolution: {x: 640, y: 480}
+    maxFps: 15

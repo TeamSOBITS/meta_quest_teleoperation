@@ -3,8 +3,9 @@ using UnityEngine.SceneManagement;
 
 public class RobotSelector : MonoBehaviour
 {
-    public void LoadScene(string sceneName)
+    public void Select(RobotProfile profile)
     {
-        SceneManager.LoadScene(sceneName);
+        RobotProfile.Selected = profile;
+        SceneManager.LoadScene(profile.sceneName);
     }
 }

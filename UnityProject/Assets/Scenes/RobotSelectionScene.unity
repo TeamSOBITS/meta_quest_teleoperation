@@ -316,14 +316,14 @@ MonoBehaviour:
       m_Calls:
       - m_Target: {fileID: 1384641944}
         m_TargetAssemblyTypeName: RobotSelector, Assembly-CSharp
-        m_MethodName: LoadScene
-        m_Mode: 5
+        m_MethodName: Select
+        m_Mode: 2
         m_Arguments:
-          m_ObjectArgument: {fileID: 0}
-          m_ObjectArgumentAssemblyTypeName: 
+          m_ObjectArgument: {fileID: 11400000, guid: 3af47c2e42eb46bdb5c6b32c060d1d6d, type: 2}
+          m_ObjectArgumentAssemblyTypeName: RobotProfile, Assembly-CSharp
           m_IntArgument: 0
           m_FloatArgument: 0
-          m_StringArgument: SOBIT_LIGHT_Scene
+          m_StringArgument: 
           m_BoolArgument: 0
         m_CallState: 2
 --- !u!114 &131081963
@@ -573,14 +573,14 @@ MonoBehaviour:
       m_Calls:
       - m_Target: {fileID: 1384641944}
         m_TargetAssemblyTypeName: RobotSelector, Assembly-CSharp
-        m_MethodName: LoadScene
-        m_Mode: 5
+        m_MethodName: Select
+        m_Mode: 2
         m_Arguments:
-          m_ObjectArgument: {fileID: 0}
-          m_ObjectArgumentAssemblyTypeName: 
+          m_ObjectArgument: {fileID: 11400000, guid: ceac44d6ee16440080fe0e1fb144c89c, type: 2}
+          m_ObjectArgumentAssemblyTypeName: RobotProfile, Assembly-CSharp
           m_IntArgument: 0
           m_FloatArgument: 0
-          m_StringArgument: SOBIT_HOME_Scene
+          m_StringArgument: 
           m_BoolArgument: 0
         m_CallState: 2
 --- !u!114 &545091257

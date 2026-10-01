@@ -39,6 +39,9 @@ public class ImageSubscriber : MonoBehaviour
     {
         ros = ROSConnection.GetOrCreateInstance();
 
+        if (RobotProfile.Selected != null)
+            robotNamespace = RobotProfile.Selected.robotNamespace;
+
         int n = cameraTopicSuffixes.Length;
 
         textures       = new Texture2D[n];
