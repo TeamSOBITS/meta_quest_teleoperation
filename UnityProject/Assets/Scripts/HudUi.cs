@@ -22,6 +22,13 @@ public static class HudUi
     public static readonly Color PanelColor   = new Color(0.08f, 0.08f, 0.10f, 0.85f);
     public static readonly Color ControlColor = new Color(0.25f, 0.27f, 0.32f, 1f);
     public static readonly Color AccentColor  = new Color(0.30f, 0.65f, 1f, 1f);
+    public static readonly Color MutedText    = new Color(1f, 1f, 1f, 0.6f);
+    public static readonly Color GoodColor    = new Color(0.38f, 0.88f, 0.50f, 1f);
+    public static readonly Color BadColor     = new Color(1f, 0.38f, 0.38f, 1f);
+
+    // Rounded-rectangle sprite for sliced Images; corner radius is set per Image via Round().
+    const int RoundedSpriteSize = 64, RoundedSpriteBorder = 16;
+    static Sprite _roundedSprite;
 
     // Canvas sized width x height mm, placed at localPosition under parent and facing the parent's origin.
     // Interactive canvases get a raycaster so XR controller rays can press their controls.
@@ -73,9 +80,43 @@ public static class HudUi
         return image;
     }
 
+    // Give an Image rounded corners of `radius` canvas units (mm).
+    public static Image Round(Image image, float radius)
+    {
+        image.sprite = RoundedSprite();
+        image.type = Image.Type.Sliced;
+        // Corner size in canvas units = sprite border px / multiplier (sprite and canvas both 100 px per unit).
+        image.pixelsPerUnitMultiplier = RoundedSpriteBorder / Mathf.Max(radius, 0.01f);
+        return image;
+    }
+
+    static Sprite RoundedSprite()
+    {
+        if (_roundedSprite != null) return _roundedSprite;
+
+        int n = RoundedSpriteSize; float r = RoundedSpriteBorder;
+        var tex = new Texture2D(n, n, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp };
+        var pixels = new Color32[n * n];
+        for (int y = 0; y < n; y++)
+        for (int x = 0; x < n; x++)
+        {
+            // Distance outside the rounded rectangle, anti-aliased over one pixel.
+            float dx = Mathf.Max(r - (x + 0.5f), (x + 0.5f) - (n - r), 0f);
+            float dy = Mathf.Max(r - (y + 0.5f), (y + 0.5f) - (n - r), 0f);
+            float a = Mathf.Clamp01(r - Mathf.Sqrt(dx * dx + dy * dy) + 0.5f);
+            pixels[y * n + x] = new Color32(255, 255, 255, (byte)(a * 255));
+        }
+        tex.SetPixels32(pixels);
+        tex.Apply(false, true);
+        _roundedSprite = Sprite.Create(tex, new Rect(0, 0, n, n), new Vector2(0.5f, 0.5f), 100f, 0,
+                                       SpriteMeshType.FullRect, new Vector4(r, r, r, r));
+        return _roundedSprite;
+    }
+
     public static Button Button(Transform parent, string text, float fontSize, UnityAction onClick)
     {
         var bg = Box(parent, "Button " + text, ControlColor, raycastTarget: true);
+        Round(bg, fontSize * 0.35f);
         var button = bg.gameObject.AddComponent<Button>();
         button.targetGraphic = bg;
         button.onClick.AddListener(onClick);
@@ -91,14 +132,14 @@ public static class HudUi
         var toggle = row.gameObject.AddComponent<Toggle>();
 
         float boxSize = fontSize * 1.1f;
-        var box = Box(row.transform, "Box", ControlColor);
+        var box = Round(Box(row.transform, "Box", ControlColor), boxSize * 0.2f);
         var boxRt = box.rectTransform;
         boxRt.anchorMin = boxRt.anchorMax = new Vector2(0f, 0.5f);
         boxRt.pivot = new Vector2(0f, 0.5f);
         boxRt.sizeDelta = new Vector2(boxSize, boxSize);
         boxRt.anchoredPosition = Vector2.zero;
 
-        var check = Box(box.transform, "Check", AccentColor);
+        var check = Round(Box(box.transform, "Check", AccentColor), boxSize * 0.12f);
         Stretch(check.rectTransform, boxSize * 0.2f);
 
         var label = Label(row.transform, "Label", text, fontSize, TextAlignmentOptions.Left);
@@ -119,6 +160,15 @@ public static class HudUi
         rt.anchorMax = Vector2.one;
         rt.offsetMin = new Vector2(inset, inset);
         rt.offsetMax = new Vector2(-inset, -inset);
+    }
+
+    // Place a child by its top-left corner, in mm from the parent's top-left corner.
+    public static void Place(RectTransform rt, float left, float top, float width, float height)
+    {
+        rt.anchorMin = rt.anchorMax = new Vector2(0f, 1f);
+        rt.pivot = new Vector2(0f, 1f);
+        rt.sizeDelta = new Vector2(width, height);
+        rt.anchoredPosition = new Vector2(left, -top);
     }
 
     // Place a child as a full-width row whose top edge is `top` mm below the parent's top edge.

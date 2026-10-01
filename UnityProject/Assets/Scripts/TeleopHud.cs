@@ -1,8 +1,8 @@
 using UnityEngine;
 
 /// <summary>
-/// Creates the head-locked ROS IP block and control panel. Runs after ImageSubscriber
-/// so the control panel can list the camera blocks it created.
+/// Creates the head-locked HUD bar (ROS IP + controls). Runs after ImageSubscriber
+/// so the bar can list the camera blocks it created.
 /// </summary>
 [DefaultExecutionOrder(100)]
 public class TeleopHud : MonoBehaviour
@@ -18,7 +18,6 @@ public class TeleopHud : MonoBehaviour
         if (hudParent == null && Camera.main != null)
             hudParent = Camera.main.transform;
 
-        RosIpPanel.Create(hudParent, publisher);
-        ControlPanel.Create(hudParent, publisher, images);
+        HudBar.Create(hudParent, publisher, images);
     }
 }
