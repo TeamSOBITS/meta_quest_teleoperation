@@ -42,6 +42,23 @@ public class ImageSubscriber : MonoBehaviour
     readonly List<byte[]> _rawBuffers = new List<byte[]>();
     readonly List<double> _lastRenderTime = new List<double>();
     readonly List<bool> _warnedFormat = new List<bool>();
+    // Latest-frame decode: the subscription callbacks only keep the newest message per camera;
+    // LateUpdate decodes it (once per frame at most). An older message that is replaced before it
+    // was decoded counts as dropped, so a backlog never makes the app show stale frames.
+    readonly List<CompressedImageMsg> _pendingCompressed = new List<CompressedImageMsg>();
+    readonly List<ImageMsg> _pendingRaw = new List<ImageMsg>();
+    readonly List<int> _dropped = new List<int>();
+    readonly List<float> _decodeMs = new List<float>();
+    readonly List<double> _lastFrameTime = new List<double>();   // Time.unscaledTime of the last shown frame
+    readonly List<float> _fps = new List<float>();
+    readonly List<int> _framesInWindow = new List<int>();
+    readonly List<float> _fpsWindowStart = new List<float>();
+    readonly List<int> _loggedDropped = new List<int>();
+    readonly List<int> _received = new List<int>(), _loggedReceived = new List<int>();
+    float _lastDropLog;
+    readonly System.Diagnostics.Stopwatch _decodeWatch = new System.Diagnostics.Stopwatch();
+    const float FpsWindowSeconds = 1f, LogSeconds = 10f;
+    float _nextLog;
 
     // ROS topic list as reported by the endpoint (topic -> type), filled once discovery starts.
     readonly Dictionary<string, string> _topics = new Dictionary<string, string>();
@@ -125,11 +142,22 @@ public class ImageSubscriber : MonoBehaviour
         _rawBuffers.Add(null);
         _lastRenderTime.Add(0.0);
         _warnedFormat.Add(false);
+        _pendingCompressed.Add(null);
+        _pendingRaw.Add(null);
+        _dropped.Add(0);
+        _decodeMs.Add(0f);
+        _lastFrameTime.Add(-1.0);
+        _fps.Add(0f);
+        _framesInWindow.Add(0);
+        _fpsWindowStart.Add(Time.unscaledTime);
+        _loggedDropped.Add(0);
+        _received.Add(0);
+        _loggedReceived.Add(0);
 
         if (cam.raw)
-            ros.Subscribe<ImageMsg>(topic, msg => RenderRawTexture(msg, index));
+            ros.Subscribe<ImageMsg>(topic, msg => OnRawMessage(msg, index));
         else
-            ros.Subscribe<CompressedImageMsg>(topic, msg => RenderCompressedTexture(msg, index));
+            ros.Subscribe<CompressedImageMsg>(topic, msg => OnCompressedMessage(msg, index));
     }
 
     // Keep the endpoint's topic list in _topics and ask for a fresh copy.
@@ -560,22 +588,104 @@ public class ImageSubscriber : MonoBehaviour
     }
 
     // Hidden cameras skip decoding entirely; others are limited to their maxFps.
+    bool IsWanted(int index) => _panels[index].Visible || _forceDecode.Contains(index);
+
     bool ShouldRender(int index)
     {
-        if (!_panels[index].Visible && !_forceDecode.Contains(index)) return false;
         float fps = _panels[index].Config.maxFps;
         if (fps <= 0f) return true;
-        double now = Time.timeAsDouble;
+        double now = Time.unscaledTimeAsDouble;
         if (now - _lastRenderTime[index] < 1.0 / fps) return false;
         _lastRenderTime[index] = now;
         return true;
     }
 
+    // Callbacks only store the newest message; decoding happens in LateUpdate.
+    void OnCompressedMessage(CompressedImageMsg msg, int index)
+    {
+        if (this == null || !isActiveAndEnabled) return;
+        if (msg == null || msg.data == null || msg.data.Length == 0 || index >= _panels.Count || !IsWanted(index)) return;
+        _received[index]++;
+        if (_pendingCompressed[index] != null) _dropped[index]++;
+        _pendingCompressed[index] = msg;
+    }
+
+    void OnRawMessage(ImageMsg msg, int index)
+    {
+        if (this == null || !isActiveAndEnabled) return;
+        if (msg == null || index >= _panels.Count || !IsWanted(index)) return;
+        _received[index]++;
+        if (_pendingRaw[index] != null) _dropped[index]++;
+        _pendingRaw[index] = msg;
+    }
+
+    void LateUpdate()
+    {
+        for (int i = 0; i < _panels.Count; i++)
+        {
+            var compressed = _pendingCompressed[i];
+            var raw = _pendingRaw[i];
+            if (compressed == null && raw == null) continue;
+            if (!IsWanted(i))
+            {
+                _pendingCompressed[i] = null;   // hidden meanwhile: nothing to decode
+                _pendingRaw[i] = null;
+                continue;
+            }
+            if (!ShouldRender(i)) continue;     // keep the newest for the next allowed frame
+            _pendingCompressed[i] = null;
+            _pendingRaw[i] = null;
+
+            _decodeWatch.Restart();
+            if (compressed != null) RenderCompressedTexture(compressed, i);
+            else RenderRawTexture(raw, i);
+            _decodeWatch.Stop();
+            _decodeMs[i] = (float)_decodeWatch.Elapsed.TotalMilliseconds;
+        }
+
+        float now = Time.unscaledTime;
+        for (int i = 0; i < _panels.Count; i++)
+            if (now - _fpsWindowStart[i] >= FpsWindowSeconds)
+            {
+                _fps[i] = _framesInWindow[i] / (now - _fpsWindowStart[i]);
+                _framesInWindow[i] = 0;
+                _fpsWindowStart[i] = now;
+            }
+
+        if (now >= _nextLog)
+        {
+            _nextLog = now + LogSeconds;
+            for (int i = 0; i < _panels.Count; i++)
+            {
+                // Drops beyond the maxFps thinning mean the backlog really grew. Otherwise log at most once a minute.
+                int drops = _dropped[i] - _loggedDropped[i];
+                int received = _received[i] - _loggedReceived[i];
+                float maxFps = _panels[i].Config.maxFps;
+                float expected = maxFps > 0f ? Mathf.Max(0f, received - maxFps * LogSeconds) : 0f;
+                bool grew = drops > expected + 5f;
+                bool minuteDue = drops > 0 && now - _lastDropLog >= 60f;
+                _loggedDropped[i] = _dropped[i];
+                _loggedReceived[i] = _received[i];
+                if (grew || minuteDue)
+                {
+                    _lastDropLog = now;
+                    Debug.Log($"[ImageSubscriber] cam {i}: fps {_fps[i]:F1}, dropped {_dropped[i]}, decode {_decodeMs[i]:F1} ms");
+                }
+            }
+        }
+    }
+
+    // Messages replaced before they were decoded (includes maxFps thinning), since start.
+    public int DroppedFrames(int index) => index >= 0 && index < _dropped.Count ? _dropped[index] : 0;
+    // Duration of the last decode (ms).
+    public float DecodeMs(int index) => index >= 0 && index < _decodeMs.Count ? _decodeMs[index] : 0f;
+    // Time.unscaledTime of the last shown frame, -1 before the first.
+    public double LastFrameTime(int index) => index >= 0 && index < _lastFrameTime.Count ? _lastFrameTime[index] : -1.0;
+    // Shown frames per second over the last second.
+    public float Fps(int index) => index >= 0 && index < _fps.Count ? _fps[index] : 0f;
+
     void RenderCompressedTexture(CompressedImageMsg msg, int index)
     {
-        if (msg == null || msg.data == null || msg.data.Length == 0 || !ShouldRender(index))
-            return;
-
         if (!_textures[index].LoadImage(msg.data))
         {
             Debug.LogWarning($"Failed to decode compressed image on {_panels[index].Topic}. format={msg.format}");
@@ -586,9 +696,6 @@ public class ImageSubscriber : MonoBehaviour
 
     void RenderRawTexture(ImageMsg msg, int index)
     {
-        if (msg == null || !ShouldRender(index))
-            return;
-
         var tex = _textures[index];
         var buf = _rawBuffers[index];
         bool ok = RawImageDecoder.TryDecode(msg, ref tex, ref buf);
@@ -623,6 +730,8 @@ public class ImageSubscriber : MonoBehaviour
             if (!InSetup) RobotLibrary.Save(_profile);
         }
         panel.SetTexture(tex);
+        _lastFrameTime[index] = Time.unscaledTime;
+        _framesInWindow[index]++;
         FrameReady?.Invoke(index, tex);
     }
 }

@@ -74,15 +74,16 @@ public class RobotSelectionHud : MonoBehaviour
     // Autonomous tests start the app with intent extras, e.g.
     //   am start -n <pkg>/<activity> --es robot SOBIT_HOME --es viewmode firstperson --es capture 1
     // robot = profile asset name (opens it), viewmode = firstperson | blocks, capture = 1 (save a
-    // screenshot of the robot screen, see TeleopHud). Read once per app run, so "Back to robots"
-    // does not open the robot again.
+    // screenshot of the robot screen, see TeleopHud), exp = "key=1,key=0" experiment toggles
+    // (ExperimentSettings; saved like a click in the Experiments panel). Read once per app run, so
+    // "Back to robots" does not open the robot again.
     static bool _extrasHandled;
 
     void ApplyLaunchExtras()
     {
         if (_extrasHandled) return;
         _extrasHandled = true;
-        string robot = null, viewMode = null, capture = null;
+        string robot = null, viewMode = null, capture = null, exp = null;
         int record = 0, fps = 15, switchAt = -1;
         try
         {
@@ -95,6 +96,7 @@ public class RobotSelectionHud : MonoBehaviour
                     robot = intent.Call<string>("getStringExtra", "robot");
                     viewMode = intent.Call<string>("getStringExtra", "viewmode");
                     capture = intent.Call<string>("getStringExtra", "capture");
+                    exp = intent.Call<string>("getStringExtra", "exp");              // --es exp "deadman=1,headlock=0"
                     record = intent.Call<int>("getIntExtra", "record", 0);          // --ei record 60
                     fps = intent.Call<int>("getIntExtra", "fps", 15);
                     switchAt = intent.Call<int>("getIntExtra", "switchat", -1);
@@ -106,7 +108,8 @@ public class RobotSelectionHud : MonoBehaviour
             Debug.LogWarning($"FPV: could not read intent extras: {e.Message}");
             return;
         }
-        Debug.Log($"FPV: intent robot={robot} viewmode={viewMode} capture={capture} record={record} fps={fps} switchat={switchAt}");
+        Debug.Log($"FPV: intent robot={robot} viewmode={viewMode} capture={capture} record={record} fps={fps} switchat={switchAt} exp={exp}");
+        ApplyExperimentExtras(exp);
 
         // DebugCapture must not linger: set only by this launch, cleared when no extra is present.
         if (capture == "1") PlayerPrefs.SetInt("DebugCapture", 1);
@@ -129,6 +132,19 @@ public class RobotSelectionHud : MonoBehaviour
                 seconds = record, fps = Mathf.Clamp(fps, 1, 60), switchAt = switchAt >= 0 ? switchAt : record / 2f,
             };
         Select(profile);
+    }
+
+    // "key=1,key=0,...": sets each experiment toggle (persists, as from the Experiments panel).
+    static void ApplyExperimentExtras(string exp)
+    {
+        if (string.IsNullOrEmpty(exp)) return;
+        ExperimentSettings.RegisterAll();
+        foreach (var pair in exp.Split(','))
+        {
+            var kv = pair.Split('=');
+            if (kv.Length != 2 || string.IsNullOrWhiteSpace(kv[0])) continue;
+            ExperimentSettings.Set(kv[0].Trim(), kv[1].Trim() == "1");
+        }
     }
 #endif
 

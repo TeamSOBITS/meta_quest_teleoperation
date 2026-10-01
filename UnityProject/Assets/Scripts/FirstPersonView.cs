@@ -38,7 +38,7 @@ public class FirstPersonView : MonoBehaviour
     public static string ViewModeOverride;
     // Replaces the headset pose for Recenter (the demo recorder films from a fixed, level head).
     public static Transform HeadOverride;
-    static Transform Head => HeadOverride != null ? HeadOverride : Camera.main != null ? Camera.main.transform : null;
+    public static Transform Head => HeadOverride != null ? HeadOverride : Camera.main != null ? Camera.main.transform : null;
 
     public static string ViewModeKey(RobotProfile r) => ViewModeKey(r.name);
     public static string ViewModeKey(string robotName) => $"ViewMode/{robotName}";
@@ -65,8 +65,13 @@ public class FirstPersonView : MonoBehaviour
     double _fx, _fy, _cx, _cy, _infoW, _infoH;
     float _textureAspect = 4f / 3f;
 
+    // Experiment "headlock": the image hangs under the headset instead of the robot's camera frame.
+    public bool HeadLocked { get; private set; }
+
     public RobotModel Model => _model;
     public int FramesReceived => _frames;
+    // Index of the head camera in ImageSubscriber (-1 if the robot has none).
+    public int CameraIndex => _cameraIndex;
 
     public static FirstPersonView Create(ImageSubscriber images, RobotProfile profile)
     {
@@ -106,6 +111,8 @@ public class FirstPersonView : MonoBehaviour
         }
 
         BuildQuad();
+        ExperimentSettings.Changed += OnExperimentChanged;
+        ApplyHeadLock();
         UseTexture();
         SubscribeCameraInfo();
 
@@ -120,6 +127,7 @@ public class FirstPersonView : MonoBehaviour
 
     void OnDestroy()
     {
+        ExperimentSettings.Changed -= OnExperimentChanged;
         foreach (var s in _inputs)
             if (s != null) s.trackingOriginUpdated -= OnTrackingOriginUpdated;
         if (_images != null)
@@ -229,6 +237,28 @@ public class FirstPersonView : MonoBehaviour
         HudUi.Stretch(_waiting.rectTransform);
 
         ApplyQuadSize();
+    }
+
+    void OnExperimentChanged(string key, bool on)
+    {
+        if (this == null) return;
+        if (key == ExperimentSettings.HeadLock) ApplyHeadLock();
+    }
+
+    // Re-parents the image quad (size and intrinsics untouched): under the head while "headlock" is
+    // on, else under the robot's camera frame. Same local offset either way.
+    void ApplyHeadLock()
+    {
+        if (_canvasRt == null) return;
+        var head = Head;
+        bool want = ExperimentSettings.IsOn(ExperimentSettings.HeadLock) && head != null;
+        Transform parent = want ? head : _camFrame != null ? _camFrame : _model.Root;
+        HeadLocked = want;
+        _canvasRt.SetParent(parent, false);
+        _canvasRt.localPosition = new Vector3(0f, 0f, QuadDistance);
+        _canvasRt.localRotation = Quaternion.identity;
+        _canvasRt.localScale = Vector3.one / HudUi.MmPerMetre;
+        Debug.Log($"FPV: image {(want ? "follows the head" : "on the robot camera frame")}");
     }
 
     // Size and offset from the camera intrinsics, or the default field of view until they arrive.

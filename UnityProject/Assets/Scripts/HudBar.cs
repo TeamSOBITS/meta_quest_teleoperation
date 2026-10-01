@@ -31,7 +31,7 @@ public class HudBar : MonoBehaviour
     // the eye, which brings their lower outer corners slightly down in view; this gap absorbs it.
     const float GapBelowCamerasM = 0.17f;
 
-    const string JoyOnText = "CONTROL ON", JoyOffText = "LAYOUT MODE";
+    const string JoyOnText = "CONTROL ON", JoyHoldText = "HOLD GRIP", JoyOffText = "LAYOUT MODE";
 
     ImageSubscriber _images;
     readonly System.Collections.Generic.List<(CameraPanel panel, Toggle toggle)> _cameraToggles = new();
@@ -44,6 +44,7 @@ public class HudBar : MonoBehaviour
     TextMeshProUGUI _ip, _pillText, _joyText;
     Image _pill, _joyChip, _outline;
     bool? _shownConnected, _shownJoy;
+    bool _shownHold;
 
     public static HudBar Create(Transform parent, QuestControllerPublisher publisher, ImageSubscriber images, TeleopHud hud)
     {
@@ -330,6 +331,7 @@ public class HudBar : MonoBehaviour
         }
 
         bool joy = _publisher.controlRobot;
+        bool hold = joy && _publisher.deadmanEnabled && !_publisher.DeadmanHeld;
         if (_images.InSetup)
         {
             if (_shownJoy == null)
@@ -341,13 +343,14 @@ public class HudBar : MonoBehaviour
                 _joyText.text = SetupChipText(_images);
             }
         }
-        else if (_shownJoy != joy)
+        else if (_shownJoy != joy || _shownHold != hold)
         {
             _shownJoy = joy;
+            _shownHold = hold;
             var c = joy ? HudUi.WarnColor : HudUi.AccentColor;
             _joyChip.color = new Color(c.r, c.g, c.b, 0.18f);
             _joyText.color = c;
-            _joyText.text = joy ? JoyOnText : JoyOffText;
+            _joyText.text = joy ? (hold ? JoyHoldText : JoyOnText) : JoyOffText;
             _outline.color = joy ? new Color(c.r, c.g, c.b, 0.6f) : Color.clear;
         }
     }

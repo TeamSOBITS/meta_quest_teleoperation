@@ -37,6 +37,12 @@ public class TeleopHud : MonoBehaviour
     // Raised when the view mode changes (the bar syncs its toggle and buttons).
     public event Action ViewModeChanged;
     FirstPersonView _fpv;
+    // Experiments (see Experiments/): round-trip latency probe and the first-person status strip.
+    RoundTrip _roundTrip;
+    StatusStrip _strip;
+    HandCamPip _handCams;
+    ArmTargets _targets;
+    BaseVelocity _baseVel;
 
     const string CaptureKey = "DebugCapture";
     const float CaptureDelaySeconds = 10f;
@@ -66,7 +72,12 @@ public class TeleopHud : MonoBehaviour
         images.Ready -= BuildHud;
         if (_waiting != null) Destroy(_waiting);
 
+        ExperimentSettings.RegisterAll();
+        ExperimentSettings.Changed += OnExperimentChanged;
         _bar = HudBar.Create(hudParent, publisher, images, this).transform;
+        ExperimentsPanel.Create(_bar);
+        UpdateRoundTrip();
+        SyncDeadman();
         images.CamerasAdded += RebuildBar;
 
         var dragger = gameObject.AddComponent<PanelDragger>();
@@ -79,6 +90,7 @@ public class TeleopHud : MonoBehaviour
             SetLazyFollow(true);
 
         var profile = images.Profile;
+        if (profile != null && profile.HasModel) StudioEnvironment.EnsureModelKeyLight();
         string modeOverride = FirstPersonView.ViewModeOverride;
         FirstPersonView.ViewModeOverride = null;   // one robot screen only
         if (profile != null && profile.HasModel)
@@ -134,14 +146,21 @@ public class TeleopHud : MonoBehaviour
         if (on)
         {
             _fpv = FirstPersonView.Create(images, profile);
+            UpdateStatusStrip();
+            UpdateFpvExperiments();
             images.SetBlocksShown(false);
             if (_bar != null) _bar.gameObject.SetActive(false);   // menu / hand gesture brings it back
+            PlaceBar();
         }
         else
         {
+            if (_strip != null) Destroy(_strip.gameObject);
+            _strip = null;
+            UpdateFpvExperiments();   // destroys them
             if (_fpv != null) Destroy(_fpv.gameObject);
             _fpv = null;
             images.SetBlocksShown(true);
+            PlaceBar();
             if (_bar != null) _bar.gameObject.SetActive(true);
         }
         Debug.Log($"FPV: view mode -> {(on ? "firstperson" : "blocks")}");
@@ -205,10 +224,66 @@ public class TeleopHud : MonoBehaviour
         Destroy(_bar.gameObject);
         _bar = HudBar.Create(hudParent, publisher, images, this).transform;
         _bar.SetParent(parent, false);
+        ExperimentsPanel.Create(_bar);
+        BarCompact = false;   // the new bar is at its normal pose
+        PlaceBar();
+    }
+
+    void OnExperimentChanged(string key, bool on)
+    {
+        if (this == null) return;
+        if (key == ExperimentSettings.Deadman) SyncDeadman();
+        else if (key == ExperimentSettings.Rtt) UpdateRoundTrip();
+        else if (key == ExperimentSettings.Status) UpdateStatusStrip();
+        else if (key == ExperimentSettings.HandCams || key == ExperimentSettings.Targets
+                 || key == ExperimentSettings.BaseVel) UpdateFpvExperiments();
+    }
+
+    void SyncDeadman()
+    {
+        if (publisher != null) publisher.deadmanEnabled = ExperimentSettings.IsOn(ExperimentSettings.Deadman);
+    }
+
+    // The round-trip probe exists while the "rtt" experiment is on (and setup mode is not).
+    void UpdateRoundTrip()
+    {
+        bool want = ExperimentSettings.IsOn(ExperimentSettings.Rtt) && publisher != null;
+        if (want && _roundTrip == null) _roundTrip = RoundTrip.Create(publisher);
+        else if (!want && _roundTrip != null) { Destroy(_roundTrip.gameObject); _roundTrip = null; }
+    }
+
+    // The status strip exists in first person while the "status" experiment is on.
+    void UpdateStatusStrip()
+    {
+        bool want = FirstPerson && _fpv != null && _fpv.Model != null && ExperimentSettings.IsOn(ExperimentSettings.Status);
+        if (want && _strip == null)
+            _strip = StatusStrip.Create(FirstPersonView.Head, publisher, images, _fpv.Model, images.Profile,
+                                        _fpv.CameraIndex, () => _roundTrip);
+        else if (!want && _strip != null) { Destroy(_strip.gameObject); _strip = null; }
+    }
+
+    // Hand cams, arm targets and base velocity exist in first person while their experiment is on.
+    void UpdateFpvExperiments()
+    {
+        var model = FirstPerson && _fpv != null ? _fpv.Model : null;
+        var profile = images != null ? images.Profile : null;
+        Sync(ref _handCams, model != null && ExperimentSettings.IsOn(ExperimentSettings.HandCams),
+             () => HandCamPip.Create(images, model, profile));
+        Sync(ref _targets, model != null && ExperimentSettings.IsOn(ExperimentSettings.Targets),
+             () => ArmTargets.Create(model));
+        Sync(ref _baseVel, model != null && ExperimentSettings.IsOn(ExperimentSettings.BaseVel),
+             () => BaseVelocity.Create(model, profile));
+    }
+
+    static void Sync<T>(ref T field, bool want, System.Func<T> create) where T : Component
+    {
+        if (want && field == null) field = create();
+        else if (!want && field != null) { Destroy(field.gameObject); field = null; }
     }
 
     void OnDestroy()
     {
+        ExperimentSettings.Changed -= OnExperimentChanged;
         if (images != null)
         {
             images.CamerasAdded -= RebuildBar;
@@ -246,7 +321,20 @@ public class TeleopHud : MonoBehaviour
         HudUi.Place((RectTransform)cancel.transform, left + 2f * (buttonW + gap), top, buttonW, buttonH);
     }
 
-    bool _menuWasPressed;
+    bool _menuWasPressed, _menuDeferred, _menuLongDone, _menuSuppressed, _simMenu;
+    // Experiment "menurecenter": hold the menu input this long in first person to Recenter.
+    const float LongPressSeconds = 1.5f;
+
+    // How long the menu input has been held in the current press (0 when not pressed).
+    public float MenuHeldSeconds { get; private set; }
+    // Test hook: once SimulateMenu has been called, the menu input comes only from it.
+    public bool SimulateMenuInput;
+
+    public void SimulateMenu(bool pressed)
+    {
+        SimulateMenuInput = true;
+        _simMenu = pressed;
+    }
 
     void Update()
     {
@@ -254,13 +342,72 @@ public class TeleopHud : MonoBehaviour
 
         // Menu shows/hides the HUD bar: the left controller's menu button, or with hand tracking
         // the hand menu gesture (left palm facing you + pinch). Back to robots is on the bar.
-        bool pressed = ControllerMenuPressed() || HandMenuGesture();
-        if (pressed && !_menuWasPressed && _bar != null)
+        // In first person with "menurecenter" on, a short press toggles on release and a hold of
+        // LongPressSeconds recenters instead; otherwise the bar toggles on press.
+        bool pressed = SimulateMenuInput ? _simMenu : ControllerMenuPressed() || HandMenuGesture();
+        if (pressed)
         {
-            _bar.gameObject.SetActive(!_bar.gameObject.activeSelf);
-            Debug.Log($"[TeleopHud] menu -> bar {(_bar.gameObject.activeSelf ? "shown" : "hidden")}");
+            if (!_menuWasPressed)
+            {
+                MenuHeldSeconds = 0f;
+                _menuLongDone = _menuSuppressed = false;
+                _menuDeferred = FirstPerson && ExperimentSettings.IsOn(ExperimentSettings.MenuRecenter);
+                if (!_menuDeferred) ToggleBar();
+            }
+            else
+                MenuHeldSeconds += Time.unscaledDeltaTime;
+
+            if (PanelDragger.Dragging) _menuSuppressed = true;
+            if (_menuDeferred && !_menuLongDone && !_menuSuppressed && MenuHeldSeconds >= LongPressSeconds)
+            {
+                _menuLongDone = true;
+                Debug.Log("[TeleopHud] long-press menu -> recenter");
+                Recenter();
+            }
+        }
+        else if (_menuWasPressed)
+        {
+            if (_menuDeferred && !_menuLongDone && !_menuSuppressed && !PanelDragger.Dragging
+                && MenuHeldSeconds < LongPressSeconds)
+                ToggleBar();
+            MenuHeldSeconds = 0f;
+            _menuDeferred = false;
         }
         _menuWasPressed = pressed;
+    }
+
+    void ToggleBar()
+    {
+        if (_bar == null) return;
+        _bar.gameObject.SetActive(!_bar.gameObject.activeSelf);
+        PlaceBar();
+        Debug.Log($"[TeleopHud] menu -> bar {(_bar.gameObject.activeSelf ? "shown" : "hidden")}");
+    }
+
+    // In first person the bar sits lower and smaller so it never covers the image centre; in
+    // blocks mode it is at its normal pose. Relative to the bar's normal local pose.
+    const float BarCompactScale = 0.7f, BarCompactDrop = 0.35f;
+    Vector3 _barNormalPos, _barNormalScale;
+
+    public bool BarCompact { get; private set; }
+
+    void PlaceBar()
+    {
+        if (_bar == null) return;
+        if (FirstPerson && !BarCompact)
+        {
+            _barNormalPos = _bar.localPosition;
+            _barNormalScale = _bar.localScale;
+            _bar.localScale = _barNormalScale * BarCompactScale;
+            _bar.localPosition = _barNormalPos + Vector3.down * BarCompactDrop;
+            BarCompact = true;
+        }
+        else if (!FirstPerson && BarCompact)
+        {
+            _bar.localPosition = _barNormalPos;
+            _bar.localScale = _barNormalScale;
+            BarCompact = false;
+        }
     }
 
     static bool ControllerMenuPressed()

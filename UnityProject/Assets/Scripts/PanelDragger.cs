@@ -163,7 +163,7 @@ public class PanelDragger : MonoBehaviour
 
     // Grab input: the trigger (Activate) on controllers; with tracked hands a pinch, which XRI
     // reports as Select (hands have no Activate).
-    static bool UsingHands =>
+    internal static bool UsingHands =>
         XRInputModalityManager.currentInputMode.Value == XRInputModalityManager.InputMode.TrackedHand;
 
     static bool PressedThisFrame(XRBaseInputInteractor i)
@@ -190,7 +190,7 @@ public class PanelDragger : MonoBehaviour
     }
 
     // Thumb tip to index tip of the interactor's hand (m), or -1 if that hand is not tracked.
-    static float PinchDistance(InteractorHandedness handedness)
+    internal static float PinchDistance(InteractorHandedness handedness)
     {
         var hands = TeleopHud.Hands;
         if (hands == null || handedness == InteractorHandedness.None) return -1f;
