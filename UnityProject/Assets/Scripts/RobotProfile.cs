@@ -65,10 +65,30 @@ public class RobotProfile : ScriptableObject
 
     public CameraConfig[] cameras = Array.Empty<CameraConfig>();
 
-    public string FullTopic(CameraConfig cam)
+    [Header("First-person view (3D model)")]
+    // Life-size model with one RobotLink per URDF link. Null for robots without a model
+    // (added robots: RobotLibrary's JSON has no such field), which then have no first-person view.
+    public GameObject modelPrefab;
+    // Frame of the head camera (the image quad hangs on it) and of the pan axis (stays fixed).
+    public string cameraFrame = "head_camera_color_frame";
+    public string panFrame = "head_pan_link";
+    // Camera topics relative to the robot namespace (see FullTopic).
+    public string firstPersonCameraTopicSuffix = "head_camera/color/image_raw/compressed";
+    public string cameraInfoSuffix = "head_camera/camera_info";
+    // Links (by frame-name prefix) hidden in first person: the head the user sits in.
+    public string[] firstPersonHiddenLinkPrefixes = { "head_", "mic_" };
+    // Horizontal field of view (rad) used until camera_info arrives.
+    public float defaultHfov = 1.2113f;
+
+    public bool HasModel => modelPrefab != null;
+
+    // Absolute topic for a topic relative to the robot namespace.
+    public string FullTopic(string suffix)
     {
-        if (cam.topicSuffix.StartsWith("/")) return cam.topicSuffix;
+        if (suffix.StartsWith("/")) return suffix;
         string ns = string.IsNullOrEmpty(robotNamespace) ? "" : "/" + robotNamespace;
-        return ns + "/" + cam.topicSuffix.TrimStart('/');
+        return ns + "/" + suffix.TrimStart('/');
     }
+
+    public string FullTopic(CameraConfig cam) => FullTopic(cam.topicSuffix);
 }

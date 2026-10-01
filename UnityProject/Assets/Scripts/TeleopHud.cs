@@ -1,3 +1,6 @@
+using System;
+using System.Collections;
+using System.IO;
 using TMPro;
 using UnityEngine;
 using UnityEngine.XR.Hands;
@@ -28,6 +31,15 @@ public class TeleopHud : MonoBehaviour
     TextMeshProUGUI _waitingStatus;
 
     public bool LazyFollow { get; private set; }
+
+    // First-person view (3D robot model + head camera image) instead of the camera blocks.
+    public bool FirstPerson { get; private set; }
+    // Raised when the view mode changes (the bar syncs its toggle and buttons).
+    public event Action ViewModeChanged;
+    FirstPersonView _fpv;
+
+    const string CaptureKey = "DebugCapture";
+    const float CaptureDelaySeconds = 10f;
 
     void Start()
     {
@@ -65,6 +77,108 @@ public class TeleopHud : MonoBehaviour
 
         if (PlayerPrefs.GetInt(LazyFollowKey, 0) == 1)
             SetLazyFollow(true);
+
+        var profile = images.Profile;
+        string modeOverride = FirstPersonView.ViewModeOverride;
+        FirstPersonView.ViewModeOverride = null;   // one robot screen only
+        if (profile != null && profile.HasModel)
+        {
+            string mode = modeOverride ?? PlayerPrefs.GetString(FirstPersonView.ViewModeKey(profile), FirstPersonView.ModeBlocks);
+            if (mode == FirstPersonView.ModeFirstPerson)
+                SetFirstPerson(true, save: modeOverride == null);
+        }
+
+        if (PlayerPrefs.GetInt(CaptureKey, 0) == 1)
+            StartCoroutine(CaptureLater());
+    }
+
+    // Blocks (default) or first person. The choice is kept per robot. Robots without a model
+    // stay in blocks mode.
+    public void SetFirstPerson(bool on) => SetFirstPerson(on, true);
+
+    void SetFirstPerson(bool on, bool save)
+    {
+        var profile = images != null ? images.Profile : null;
+        if (on && (profile == null || !profile.HasModel))
+        {
+            Debug.Log("FPV: this robot has no model, staying in blocks mode");
+            ViewModeChanged?.Invoke();   // puts the toggle back
+            return;
+        }
+        if (on == FirstPerson) return;
+        FirstPerson = on;
+        if (profile != null && save)
+        {
+            PlayerPrefs.SetString(FirstPersonView.ViewModeKey(profile),
+                on ? FirstPersonView.ModeFirstPerson : FirstPersonView.ModeBlocks);
+            PlayerPrefs.Save();
+        }
+
+        if (on)
+        {
+            _fpv = FirstPersonView.Create(images, profile);
+            images.SetBlocksShown(false);
+            if (_bar != null) _bar.gameObject.SetActive(false);   // menu / hand gesture brings it back
+        }
+        else
+        {
+            if (_fpv != null) Destroy(_fpv.gameObject);
+            _fpv = null;
+            images.SetBlocksShown(true);
+            if (_bar != null) _bar.gameObject.SetActive(true);
+        }
+        Debug.Log($"FPV: view mode -> {(on ? "firstperson" : "blocks")}");
+        ViewModeChanged?.Invoke();
+    }
+
+    // First person: put the model back under the headset.
+    public void Recenter()
+    {
+        if (_fpv != null) _fpv.Recenter();
+    }
+
+    // Autonomous tests (PlayerPrefs DebugCapture=1, set from an intent extra): once the screen has
+    // been up a while, save what the main camera sees as a PNG for `adb pull`, then clear the flag.
+    IEnumerator CaptureLater()
+    {
+        yield return new WaitForSecondsRealtime(CaptureDelaySeconds);
+        yield return null;
+        PlayerPrefs.DeleteKey(CaptureKey);
+        PlayerPrefs.Save();
+
+        var cam = Camera.main;
+        if (cam == null) { Debug.LogWarning("FPV: capture failed, no main camera"); yield break; }
+        RenderTexture rt = null;
+        Texture2D png = null;
+        var previousTarget = cam.targetTexture;
+        var previousEye = cam.stereoTargetEye;
+        var previousActive = RenderTexture.active;
+        try
+        {
+            rt = new RenderTexture(1280, 720, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
+            cam.stereoTargetEye = StereoTargetEyeMask.None;
+            cam.targetTexture = rt;
+            cam.Render();
+            RenderTexture.active = rt;
+            png = new Texture2D(rt.width, rt.height, TextureFormat.RGB24, false);
+            png.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+            png.Apply(false);
+            string path = Path.Combine(Application.persistentDataPath, "fpv_capture.png");
+            File.WriteAllBytes(path, png.EncodeToPNG());
+            Debug.Log($"FPV: capture {path}");
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"FPV: capture failed: {e.Message}");
+        }
+        finally
+        {
+            cam.targetTexture = previousTarget;
+            cam.stereoTargetEye = previousEye;
+            RenderTexture.active = previousActive;
+            if (rt != null) { rt.Release(); Destroy(rt); }
+            if (png != null) Destroy(png);
+        }
     }
 
     // "Find cameras" added blocks: rebuild the bar so it lists their toggles too.

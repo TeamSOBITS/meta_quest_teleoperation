@@ -71,6 +71,10 @@ public class ImageSubscriber : MonoBehaviour
     // Raised when discovery decides the robot's namespace (the Joy topic follows it).
     public event Action<string> NamespaceChanged;
 
+    // Raised after a camera's texture was shown; carries the current texture instance
+    // (raw decoding can replace it).
+    public event Action<int, Texture2D> FrameReady;
+
     public bool InSetup => RobotProfile.SetupMode && _profile != null && _profile.isCustom;
     public string SetupStatus { get; private set; } = "";
 
@@ -319,6 +323,11 @@ public class ImageSubscriber : MonoBehaviour
         }
         PlayerPrefs.Save();
         Layout();
+        if (_blocksHidden)   // first person: the reset applies once the blocks are back
+        {
+            _hiddenByMode.Clear();
+            SetBlocksShownInternal(false);
+        }
         VisibilityReset?.Invoke();
     }
 
@@ -504,10 +513,56 @@ public class ImageSubscriber : MonoBehaviour
         }
     }
 
+    // Index of the camera whose topic is `topicSuffixOrFullTopic` (relative to the namespace, or
+    // absolute), -1 if there is none.
+    public int IndexOf(string topicSuffixOrFullTopic)
+    {
+        if (_profile == null || string.IsNullOrEmpty(topicSuffixOrFullTopic)) return -1;
+        string wanted = _profile.FullTopic(topicSuffixOrFullTopic);
+        for (int i = 0; i < _panels.Count; i++)
+            if (_panels[i].Topic == wanted) return i;
+        return -1;
+    }
+
+    // Keep decoding a camera although its block is hidden (first-person view uses it).
+    readonly HashSet<int> _forceDecode = new HashSet<int>();
+
+    public void ForceDecode(int index, bool on)
+    {
+        if (index < 0 || index >= _panels.Count) return;
+        if (on) _forceDecode.Add(index); else _forceDecode.Remove(index);
+    }
+
+    // First-person view: hide / show every camera block without touching the saved
+    // visibility or layout. Showing restores exactly the blocks that were visible before.
+    readonly List<CameraPanel> _hiddenByMode = new List<CameraPanel>();
+
+    bool _blocksHidden;
+
+    public void SetBlocksShown(bool shown)
+    {
+        if (shown == !_blocksHidden) return;
+        SetBlocksShownInternal(shown);
+    }
+
+    void SetBlocksShownInternal(bool shown)
+    {
+        _blocksHidden = !shown;
+        if (!shown)
+        {
+            foreach (var p in _panels)
+                if (p.Visible) { _hiddenByMode.Add(p); p.Visible = false; }
+            return;
+        }
+        foreach (var p in _hiddenByMode)
+            if (p != null) p.Visible = true;
+        _hiddenByMode.Clear();
+    }
+
     // Hidden cameras skip decoding entirely; others are limited to their maxFps.
     bool ShouldRender(int index)
     {
-        if (!_panels[index].Visible) return false;
+        if (!_panels[index].Visible && !_forceDecode.Contains(index)) return false;
         float fps = _panels[index].Config.maxFps;
         if (fps <= 0f) return true;
         double now = Time.timeAsDouble;
@@ -568,5 +623,6 @@ public class ImageSubscriber : MonoBehaviour
             if (!InSetup) RobotLibrary.Save(_profile);
         }
         panel.SetTexture(tex);
+        FrameReady?.Invoke(index, tex);
     }
 }

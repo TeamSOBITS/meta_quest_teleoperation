@@ -34,7 +34,7 @@ public class RobotPresence : MonoBehaviour
 
     ROSConnection _ros;
     string _ip;
-    bool _connected;
+    bool _connected, _closed;
     readonly Dictionary<RobotProfile, bool> _online = new Dictionary<RobotProfile, bool>();
 
     // true = online, false = offline, null = not known yet or cannot be checked.
@@ -65,6 +65,7 @@ public class RobotPresence : MonoBehaviour
     // Close the connection and wait until its reader has stopped, before a robot screen connects.
     public IEnumerator Close()
     {
+        _closed = true;   // Start may not have run yet (robot opened from an intent in the same frame)
         StopAllCoroutines();
         if (_connected) _ros.Disconnect();
         _connected = false;
@@ -74,6 +75,7 @@ public class RobotPresence : MonoBehaviour
     IEnumerator Start()
     {
         yield return new WaitForSeconds(HandoffSeconds);
+        if (_closed) yield break;
         _ros.Connect(_ip, RosIpSettings.Port);
         _connected = true;
         while (true)

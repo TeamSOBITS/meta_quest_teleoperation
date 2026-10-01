@@ -38,3 +38,12 @@ MonoBehaviour:
     flipVertical: 0
     flipHorizontal: 0
     scale: 1
+  modelPrefab: {fileID: 1720537149869814926, guid: a6ec5edc0925c44dd94d09dbf52bd149, type: 3}
+  cameraFrame: head_camera_color_frame
+  panFrame: head_pan_link
+  firstPersonCameraTopicSuffix: head_camera/color/image_raw/compressed
+  cameraInfoSuffix: head_camera/camera_info
+  firstPersonHiddenLinkPrefixes:
+  - head_
+  - mic_
+  defaultHfov: 1.2113

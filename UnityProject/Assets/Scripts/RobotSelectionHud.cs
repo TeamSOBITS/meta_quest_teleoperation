@@ -65,7 +65,63 @@ public class RobotSelectionHud : MonoBehaviour
         _head = Camera.main != null ? Camera.main.transform : transform;
         Build();
         _presence = RobotPresence.Create(_all, _ip);
+#if UNITY_ANDROID && !UNITY_EDITOR
+        ApplyLaunchExtras();
+#endif
     }
+
+#if UNITY_ANDROID && !UNITY_EDITOR
+    // Autonomous tests start the app with intent extras, e.g.
+    //   am start -n <pkg>/<activity> --es robot SOBIT_HOME --es viewmode firstperson --es capture 1
+    // robot = profile asset name (opens it), viewmode = firstperson | blocks, capture = 1 (save a
+    // screenshot of the robot screen, see TeleopHud). Read once per app run, so "Back to robots"
+    // does not open the robot again.
+    static bool _extrasHandled;
+
+    void ApplyLaunchExtras()
+    {
+        if (_extrasHandled) return;
+        _extrasHandled = true;
+        string robot = null, viewMode = null, capture = null;
+        try
+        {
+            using (var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
+            using (var activity = player.GetStatic<AndroidJavaObject>("currentActivity"))
+            using (var intent = activity?.Call<AndroidJavaObject>("getIntent"))
+            {
+                if (intent != null)
+                {
+                    robot = intent.Call<string>("getStringExtra", "robot");
+                    viewMode = intent.Call<string>("getStringExtra", "viewmode");
+                    capture = intent.Call<string>("getStringExtra", "capture");
+                }
+            }
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogWarning($"FPV: could not read intent extras: {e.Message}");
+            return;
+        }
+        Debug.Log($"FPV: intent robot={robot} viewmode={viewMode} capture={capture}");
+
+        // DebugCapture must not linger: set only by this launch, cleared when no extra is present.
+        if (capture == "1") PlayerPrefs.SetInt("DebugCapture", 1);
+        else PlayerPrefs.DeleteKey("DebugCapture");
+        if (string.IsNullOrEmpty(robot)) { PlayerPrefs.Save(); return; }
+
+        var profile = _all.Find(r => r.name == robot);
+        if (profile == null)
+        {
+            Debug.LogWarning($"FPV: intent robot '{robot}' not found");
+            PlayerPrefs.Save();
+            return;
+        }
+        if (viewMode == FirstPersonView.ModeFirstPerson || viewMode == FirstPersonView.ModeBlocks)
+            FirstPersonView.ViewModeOverride = viewMode;   // this robot screen only, not saved
+        PlayerPrefs.Save();
+        Select(profile);
+    }
+#endif
 
     // (Re)build the whole screen: built-in robots, robots added on the headset, "Add robot".
     void Build()

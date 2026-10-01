@@ -10,7 +10,8 @@ using UnityEngine.UI;
 ///   |-----------------------------------------------------------------------------|
 ///   | [x] Publish Joy | [x] Head Camera    [x] Hand Camera    | [ Reset layout ]   |
 ///   | [ ] Lazy follow | [x] Front Camera   [ ] Back Camera    | [ <- Robots    ]   |
-///   | [ ] Passthrough |                                       |                    |
+///   | [ ] Passthrough |                                       | [ Recenter     ]   |
+///   | [ ] First person|  (hint, first person only)            |                    |
 ///   +-----------------------------------------------------------------------------+
 ///
 /// Passthrough swaps the dark studio background for the real room (see PassthroughMode);
@@ -25,7 +26,7 @@ public class HudBar : MonoBehaviour
     const float WidthMm = 4200f, PaddingMm = 50f, GapMm = 40f, RadiusMm = 60f, OutlineMm = 22f;
     const float HeaderHeightMm = 220f, RowHeightMm = 150f;
     const float JoyColumnMm = 850f, ButtonColumnMm = 560f, EditWidthMm = 420f, PillWidthMm = 640f;
-    const int CameraColumns = 2, LeftColumnRows = 3;
+    const int CameraColumns = 2, LeftColumnRows = 4;
     // Space between the lowest camera block and the bar (metres). Blocks are turned to face
     // the eye, which brings their lower outer corners slightly down in view; this gap absorbs it.
     const float GapBelowCamerasM = 0.17f;
@@ -36,6 +37,10 @@ public class HudBar : MonoBehaviour
     readonly System.Collections.Generic.List<(CameraPanel panel, Toggle toggle)> _cameraToggles = new();
 
     QuestControllerPublisher _publisher;
+    TeleopHud _hud;
+    Toggle _firstPersonToggle;
+    Button _recenter;
+    TextMeshProUGUI _fpHint;
     TextMeshProUGUI _ip, _pillText, _joyText;
     Image _pill, _joyChip, _outline;
     bool? _shownConnected, _shownJoy;
@@ -48,7 +53,12 @@ public class HudBar : MonoBehaviour
         // Added robots get "Find cameras" and "Joy namespace" buttons in the next free slots of
         // the camera toggles.
         int cameraSlots = images.Panels.Count + (images.Profile.isCustom ? 2 : 0);
-        int controlRows = Mathf.Max(LeftColumnRows, buttonRows, Mathf.CeilToInt(cameraSlots / (float)CameraColumns));
+        // Models: the first-person hint takes the row below the camera toggles; Recenter takes a
+        // button slot (shown in first person only).
+        bool hasModel = images.Profile.HasModel;
+        if (hasModel) buttonRows = Mathf.Max(buttonRows, 3);
+        int cameraRows = Mathf.CeilToInt(cameraSlots / (float)CameraColumns);
+        int controlRows = Mathf.Max(LeftColumnRows, buttonRows, cameraRows + (hasModel ? 1 : 0));
         float controlsH = controlRows * RowHeightMm + (controlRows - 1) * GapMm;
         float heightMm = PaddingMm + HeaderHeightMm + GapMm + 4f + GapMm + controlsH + PaddingMm;
 
@@ -60,6 +70,8 @@ public class HudBar : MonoBehaviour
         var bar = root.gameObject.AddComponent<HudBar>();
         bar._publisher = publisher;
         bar._images = images;
+        bar._hud = hud;
+        hud.ViewModeChanged += bar.SyncViewMode;
         bar.Build(root, images, hud, heightMm);
         images.VisibilityReset += bar.SyncCameraToggles;
         images.LabelsChanged += bar.SyncCameraToggles;
@@ -142,6 +154,13 @@ public class HudBar : MonoBehaviour
         });
         HudUi.Place((RectTransform)passthrough.transform, PaddingMm, top + 2f * (RowHeightMm + GapMm), JoyColumnMm, RowHeightMm);
 
+        // First person: needs the robot's 3D model; without one the toggle is greyed out.
+        bool hasModel = images.Profile.HasModel;
+        _firstPersonToggle = HudUi.Toggle(root, hasModel ? "First person" : "First person (no model)", body,
+            hud.FirstPerson, hud.SetFirstPerson);
+        _firstPersonToggle.interactable = hasModel && !images.InSetup;
+        HudUi.Place((RectTransform)_firstPersonToggle.transform, PaddingMm, top + 3f * (RowHeightMm + GapMm), JoyColumnMm, RowHeightMm);
+
         float camLeft = PaddingMm + JoyColumnMm + GapMm;
         float camWidth = inner - JoyColumnMm - GapMm - ButtonColumnMm - GapMm;
         float colW = (camWidth - (CameraColumns - 1) * GapMm) / CameraColumns;
@@ -189,6 +208,15 @@ public class HudBar : MonoBehaviour
                 colW, RowHeightMm);
         }
 
+        if (hasModel)
+        {
+            int cameraRows = Mathf.CeilToInt((images.Panels.Count + (images.Profile.isCustom ? 2 : 0)) / (float)CameraColumns);
+            _fpHint = HudUi.Label(root, "First person hint", "You see the robot's arms twice (image + model) \u2014 expected.",
+                                  body * 0.85f, TextAlignmentOptions.Left);
+            _fpHint.color = HudUi.MutedText;
+            HudUi.Place(_fpHint.rectTransform, camLeft, top + cameraRows * (RowHeightMm + GapMm), camWidth, RowHeightMm);
+        }
+
         float buttonsLeft = WidthMm - PaddingMm - ButtonColumnMm;
         var reset = HudUi.Button(root, "Reset layout", body, images.ResetLayout);
         HudUi.Place((RectTransform)reset.transform, buttonsLeft, top, ButtonColumnMm, RowHeightMm);
@@ -206,6 +234,22 @@ public class HudBar : MonoBehaviour
             var back = HudUi.Button(root, "← Robots", body, _publisher.BackToRobotSelection);
             HudUi.Place((RectTransform)back.transform, buttonsLeft, top + RowHeightMm + GapMm, ButtonColumnMm, RowHeightMm);
         }
+        if (hasModel)
+        {
+            _recenter = HudUi.Button(root, "Recenter", body, hud.Recenter);
+            HudUi.Place((RectTransform)_recenter.transform, buttonsLeft, top + 2f * (RowHeightMm + GapMm), ButtonColumnMm, RowHeightMm);
+        }
+        SyncViewMode();
+    }
+
+    // The view mode changed (or a toggle press was refused): follow it. Recenter and the hint
+    // only make sense in first person.
+    void SyncViewMode()
+    {
+        if (_hud == null) return;
+        if (_firstPersonToggle != null) _firstPersonToggle.SetIsOnWithoutNotify(_hud.FirstPerson);
+        if (_recenter != null) _recenter.gameObject.SetActive(_hud.FirstPerson);
+        if (_fpHint != null) _fpHint.gameObject.SetActive(_hud.FirstPerson);
     }
 
     const string FindCamerasText = "Find cameras";
@@ -253,6 +297,7 @@ public class HudBar : MonoBehaviour
 
     void OnDestroy()
     {
+        if (_hud != null) _hud.ViewModeChanged -= SyncViewMode;
         if (_images != null)
         {
             _images.VisibilityReset -= SyncCameraToggles;
