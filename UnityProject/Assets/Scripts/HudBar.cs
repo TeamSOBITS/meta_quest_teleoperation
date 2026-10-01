@@ -28,6 +28,9 @@ public class HudBar : MonoBehaviour
 
     const string JoyOnText = "JOY ON", JoyOffText = "LAYOUT MODE";
 
+    ImageSubscriber _images;
+    readonly System.Collections.Generic.List<(CameraPanel panel, Toggle toggle)> _cameraToggles = new();
+
     QuestControllerPublisher _publisher;
     TextMeshProUGUI _ip, _pillText, _joyText;
     Image _pill, _joyChip, _outline;
@@ -35,7 +38,9 @@ public class HudBar : MonoBehaviour
 
     public static HudBar Create(Transform parent, QuestControllerPublisher publisher, ImageSubscriber images, TeleopHud hud)
     {
-        int controlRows = Mathf.Max(2, Mathf.CeilToInt(images.Panels.Count / (float)CameraColumns));
+        // Button column: Reset layout + Back, or in setup mode Reset layout + Save robot + Cancel.
+        int buttonRows = images.InSetup ? 3 : 2;
+        int controlRows = Mathf.Max(buttonRows, Mathf.CeilToInt(images.Panels.Count / (float)CameraColumns));
         float controlsH = controlRows * RowHeightMm + (controlRows - 1) * GapMm;
         float heightMm = PaddingMm + HeaderHeightMm + GapMm + 4f + GapMm + controlsH + PaddingMm;
 
@@ -46,7 +51,9 @@ public class HudBar : MonoBehaviour
         var root = HudUi.CreateCanvas("HUD Bar", parent, position, new Vector2(WidthMm, heightMm), interactive: true);
         var bar = root.gameObject.AddComponent<HudBar>();
         bar._publisher = publisher;
+        bar._images = images;
         bar.Build(root, images, hud, heightMm);
+        images.VisibilityReset += bar.SyncCameraToggles;
         return bar;
     }
 
@@ -77,7 +84,8 @@ public class HudBar : MonoBehaviour
         _joyText.fontStyle = FontStyles.Bold;
         _joyText.textWrappingMode = TextWrappingModes.NoWrap;
         HudUi.Stretch(_joyText.rectTransform);
-        float chipW = Mathf.Max(_joyText.GetPreferredValues(JoyOnText).x, _joyText.GetPreferredValues(JoyOffText).x) + 2f * body;
+        float chipW = Mathf.Max(_joyText.GetPreferredValues(JoyOnText).x, _joyText.GetPreferredValues(JoyOffText).x,
+                                images.InSetup ? _joyText.GetPreferredValues(SetupChipText(images)).x : 0f) + 2f * body;
         float chipLeft = PaddingMm + nameW + GapMm;
         HudUi.Place(_joyChip.rectTransform, chipLeft, top + (HeaderHeightMm - chipH) / 2f, chipW, chipH);
 
@@ -112,6 +120,7 @@ public class HudBar : MonoBehaviour
 
         // --- Controls: Publish Joy | camera toggles | Reset layout / Back to robots ---
         var joy = HudUi.Toggle(root, "Publish Joy", body, _publisher.publishJoy, on => _publisher.publishJoy = on);
+        joy.interactable = !images.InSetup;  // setup mode stays in layout mode
         HudUi.Place((RectTransform)joy.transform, PaddingMm, top, JoyColumnMm, RowHeightMm);
         var lazy = HudUi.Toggle(root, "Lazy follow", body, hud.LazyFollow, hud.SetLazyFollow);
         HudUi.Place((RectTransform)lazy.transform, PaddingMm, top + RowHeightMm + GapMm, JoyColumnMm, RowHeightMm);
@@ -123,6 +132,7 @@ public class HudBar : MonoBehaviour
         {
             var cam = images.Panels[i];
             var t = HudUi.Toggle(root, cam.Config.displayName, body, cam.Visible, on => images.SetCameraVisible(cam, on));
+            _cameraToggles.Add((cam, t));
             HudUi.Place((RectTransform)t.transform,
                 camLeft + (i % CameraColumns) * (colW + GapMm),
                 top + (i / CameraColumns) * (RowHeightMm + GapMm),
@@ -132,8 +142,38 @@ public class HudBar : MonoBehaviour
         float buttonsLeft = WidthMm - PaddingMm - ButtonColumnMm;
         var reset = HudUi.Button(root, "Reset layout", body, images.ResetLayout);
         HudUi.Place((RectTransform)reset.transform, buttonsLeft, top, ButtonColumnMm, RowHeightMm);
-        var back = HudUi.Button(root, "← Robots", body, _publisher.BackToRobotSelection);
-        HudUi.Place((RectTransform)back.transform, buttonsLeft, top + RowHeightMm + GapMm, ButtonColumnMm, RowHeightMm);
+        if (images.InSetup)
+        {
+            var save = HudUi.Button(root, "Save robot", body, hud.SaveSetup);
+            var a = HudUi.AccentColor;
+            save.GetComponent<Image>().color = new Color(a.r * 0.55f, a.g * 0.55f, a.b * 0.55f, 1f);
+            HudUi.Place((RectTransform)save.transform, buttonsLeft, top + RowHeightMm + GapMm, ButtonColumnMm, RowHeightMm);
+            var cancel = HudUi.Button(root, "Cancel", body, hud.CancelSetup);
+            HudUi.Place((RectTransform)cancel.transform, buttonsLeft, top + 2f * (RowHeightMm + GapMm), ButtonColumnMm, RowHeightMm);
+        }
+        else
+        {
+            var back = HudUi.Button(root, "← Robots", body, _publisher.BackToRobotSelection);
+            HudUi.Place((RectTransform)back.transform, buttonsLeft, top + RowHeightMm + GapMm, ButtonColumnMm, RowHeightMm);
+        }
+    }
+
+    static string SetupChipText(ImageSubscriber images)
+    {
+        string ns = images.Profile.robotNamespace;
+        return $"SETUP · /{ns}";
+    }
+
+    // Reset layout shows every camera again; keep the toggles in step without re-triggering them.
+    void SyncCameraToggles()
+    {
+        foreach (var (panel, toggle) in _cameraToggles)
+            toggle.SetIsOnWithoutNotify(panel.Visible);
+    }
+
+    void OnDestroy()
+    {
+        if (_images != null) _images.VisibilityReset -= SyncCameraToggles;
     }
 
     void Update()
@@ -151,7 +191,18 @@ public class HudBar : MonoBehaviour
         }
 
         bool joy = _publisher.publishJoy;
-        if (_shownJoy != joy)
+        if (_images.InSetup)
+        {
+            if (_shownJoy == null)
+            {
+                _shownJoy = false;
+                var a = HudUi.AccentColor;
+                _joyChip.color = new Color(a.r, a.g, a.b, 0.18f);
+                _joyText.color = a;
+                _joyText.text = SetupChipText(_images);
+            }
+        }
+        else if (_shownJoy != joy)
         {
             _shownJoy = joy;
             var c = joy ? HudUi.WarnColor : HudUi.AccentColor;

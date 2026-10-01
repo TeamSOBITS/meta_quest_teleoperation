@@ -160,7 +160,7 @@ public static class HudUi
         var button = bg.gameObject.AddComponent<Button>();
         button.targetGraphic = bg;
         button.colors = HoverColors;
-        button.onClick.AddListener(onClick);
+        if (onClick != null) button.onClick.AddListener(onClick);
         var label = Label(bg.transform, "Label", text, fontSize);
         Stretch(label.rectTransform);
         return button;

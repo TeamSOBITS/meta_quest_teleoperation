@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -33,14 +34,21 @@ public class RobotSelectionHud : MonoBehaviour
     const float CardWidthMm = 1500f, CardPaddingMm = 60f, CardGapMm = 160f, RadiusMm = 60f;
     const float IpRowWidthMm = 3000f, IpRowHeightMm = 260f, EditWidthMm = 420f, PillWidthMm = 640f;
     const float TitleFontScale = 1.5f, BackdropPaddingMm = 110f;
-    const string LastRobotKey = "LastRobot";
+    public const string LastRobotKey = "LastRobot";
     const string HintText = "Point at a robot and pull the trigger";
+    const float MessageSeconds = 4f, RemoveConfirmSeconds = 3f;
     static readonly Color CardColor = new Color(0.21f, 0.23f, 0.28f, 1f);
     const int MaxColumns = 3;
     // Vertical position of the whole screen's centre relative to eye level (metres).
     const float CentreY = 0.1f;
 
     readonly IpKeyboard _keyboard = new IpKeyboard();
+    readonly TextKeyboard _nameKeyboard = new TextKeyboard();
+    readonly List<RobotProfile> _all = new List<RobotProfile>();
+    Transform _head;
+    GameObject _screen;
+    TextMeshProUGUI _hint;
+    float _hintUntil;
     string _ip;
     TextMeshProUGUI _ipLabel, _pillText;
     Image _pill;
@@ -52,13 +60,19 @@ public class RobotSelectionHud : MonoBehaviour
     {
         _ip = RosIpSettings.Load(defaultIp);
         StudioEnvironment.Apply(Camera.main);
-        var head = Camera.main != null ? Camera.main.transform : transform;
-        Build(head);
+        _head = Camera.main != null ? Camera.main.transform : transform;
+        Build();
         Probe();
     }
 
-    void Build(Transform head)
+    // (Re)build the whole screen: built-in robots, robots added on the headset, "Add robot".
+    void Build()
     {
+        if (_screen != null) Destroy(_screen);
+        _all.Clear();
+        _all.AddRange(robots);
+        _all.AddRange(RobotLibrary.LoadAll());
+
         float body  = HudUi.BodyFontSize  * HudUi.MmPerMetre;
         float title = HudUi.TitleFontSize * HudUi.MmPerMetre;
 
@@ -67,7 +81,7 @@ public class RobotSelectionHud : MonoBehaviour
         float pictureH = pictureW * 0.75f;
         float cardH = CardPaddingMm + pictureH + 40f + title * 1.3f + body * 1.4f + CardPaddingMm;
 
-        int n = Mathf.Max(1, robots.Length);
+        int n = _all.Count + 1;   // + the "Add robot" card
         int cols = Mathf.Min(n, MaxColumns);
         int rows = Mathf.CeilToInt(n / (float)cols);
         float gridW = cols * CardWidthMm + (cols - 1) * CardGapMm;
@@ -80,8 +94,9 @@ public class RobotSelectionHud : MonoBehaviour
         float hintH = body * 2.2f;
         float heightMm = pad + headingH + 60f + IpRowHeightMm + 120f + gridH + 40f + hintH + pad;
 
-        var root = HudUi.CreateCanvas("Robot Selection Screen", head,
+        var root = HudUi.CreateCanvas("Robot Selection Screen", _head,
             new Vector3(0f, CentreY, HudUi.ReferenceDistance), new Vector2(widthMm, heightMm), interactive: true);
+        _screen = root.gameObject;
 
         // One dark backdrop behind everything, so text reads on any background.
         HudUi.Stretch(HudUi.Round(HudUi.Box(root, "Backdrop", HudUi.PanelColor), RadiusMm * 1.5f).rectTransform);
@@ -100,21 +115,70 @@ public class RobotSelectionHud : MonoBehaviour
         BuildIpRow(row.rectTransform, body, title);
         top += IpRowHeightMm + 120f;
 
-        // Robot cards
-        for (int i = 0; i < robots.Length; i++)
+        // Robot cards, then "Add robot"
+        for (int i = 0; i < n; i++)
         {
             int r = i / cols, c = i % cols;
-            int inRow = Mathf.Min(cols, robots.Length - r * cols);
+            int inRow = Mathf.Min(cols, n - r * cols);
             float rowW = inRow * CardWidthMm + (inRow - 1) * CardGapMm;
             float left = (widthMm - rowW) / 2f + c * (CardWidthMm + CardGapMm);
-            var card = BuildCard(root, robots[i], pictureW, pictureH, body, title);
+            var card = i < _all.Count
+                ? BuildCard(root, _all[i], pictureW, pictureH, body, title)
+                : BuildAddCard(root, pictureW, pictureH, body, title);
             HudUi.Place((RectTransform)card.transform, left, top + r * (cardH + CardGapMm), CardWidthMm, cardH);
         }
         top += gridH + 40f;
 
-        var hint = HudUi.Label(root, "Hint", HintText, body);
-        hint.color = HudUi.MutedText;
-        HudUi.Place(hint.rectTransform, 0f, top, widthMm, hintH);
+        _hint = HudUi.Label(root, "Hint", HintText, body);
+        _hint.color = HudUi.MutedText;
+        HudUi.Place(_hint.rectTransform, 0f, top, widthMm, hintH);
+    }
+
+    // Briefly replace the hint line with a message (e.g. why a name was not accepted).
+    void ShowMessage(string text)
+    {
+        _hint.text = text;
+        _hint.color = HudUi.BadColor;
+        _hintUntil = Time.time + MessageSeconds;
+    }
+
+    Button BuildAddCard(RectTransform parent, float pictureW, float pictureH, float body, float title)
+    {
+        var bg = HudUi.Round(HudUi.Box(parent, "Card Add robot", CardColor, raycastTarget: true), RadiusMm);
+        var button = bg.gameObject.AddComponent<Button>();
+        button.targetGraphic = bg;
+        button.colors = HudUi.HoverColors;
+        button.onClick.AddListener(() => _nameKeyboard.Open("", $"Robot {_all.Count + 1}"));
+
+        float top = CardPaddingMm;
+        var frame = HudUi.Round(HudUi.Box(bg.transform, "Picture", new Color(1f, 1f, 1f, 0.06f)), RadiusMm * 0.6f);
+        HudUi.Place(frame.rectTransform, CardPaddingMm, top, pictureW, pictureH);
+        var plus = HudUi.Label(frame.transform, "Plus", "+", title * 4f);
+        plus.color = HudUi.AccentColor;
+        HudUi.Stretch(plus.rectTransform);
+        top += pictureH + 40f;
+
+        var name = HudUi.Label(bg.transform, "Name", "Add robot", title, TextAlignmentOptions.Left);
+        name.fontStyle = FontStyles.Bold;
+        HudUi.Place(name.rectTransform, CardPaddingMm, top, pictureW, title * 1.3f);
+        top += title * 1.3f;
+
+        var meta = HudUi.Label(bg.transform, "Details", "Name it, then pick its cameras", body, TextAlignmentOptions.Left);
+        meta.color = HudUi.MutedText;
+        HudUi.Place(meta.rectTransform, CardPaddingMm, top, pictureW, body * 1.4f);
+        return button;
+    }
+
+    void StartSetup(string displayName)
+    {
+        displayName = displayName.Trim();
+        if (displayName.Length == 0) { ShowMessage("Type a name for the robot"); return; }
+        if (RobotLibrary.IsNameTaken(displayName, _all)) { ShowMessage($"A robot named \u201c{displayName}\u201d already exists"); return; }
+
+        var robot = RobotLibrary.CreateNew(displayName);
+        RobotProfile.SetupMode = true;
+        RobotProfile.Selected = robot;
+        SceneManager.LoadScene(robot.sceneName);
     }
 
     void BuildIpRow(RectTransform row, float body, float title)
@@ -158,7 +222,16 @@ public class RobotSelectionHud : MonoBehaviour
         float top = CardPaddingMm;
         var frame = HudUi.Round(HudUi.Box(bg.transform, "Picture", new Color(0.91f, 0.93f, 0.95f, 1f)), RadiusMm * 0.6f);
         HudUi.Place(frame.rectTransform, CardPaddingMm, top, pictureW, pictureH);
-        if (robot.picture != null)
+        if (robot.picture == null)
+        {
+            // Added robots have no picture: show their initials instead.
+            frame.color = new Color(HudUi.AccentColor.r * 0.35f, HudUi.AccentColor.g * 0.35f, HudUi.AccentColor.b * 0.35f, 1f);
+            var initials = HudUi.Label(frame.transform, "Initials", Initials(robot.displayName), title * 3f);
+            initials.fontStyle = FontStyles.Bold;
+            initials.color = HudUi.AccentColor;
+            HudUi.Stretch(initials.rectTransform);
+        }
+        else
         {
             var pic = new GameObject("Image", typeof(RectTransform)).AddComponent<RawImage>();
             pic.transform.SetParent(frame.transform, false);
@@ -185,6 +258,8 @@ public class RobotSelectionHud : MonoBehaviour
             float tagW = tagText.GetPreferredValues("Last used").x + 1.6f * body;
             HudUi.Place(tag.rectTransform, pictureW - tagW - 30f, 30f, tagW, tagH);
         }
+        if (robot.isCustom)
+            BuildRemoveButton(frame.rectTransform, robot, body);
         top += pictureH + 40f;
 
         var name = HudUi.Label(bg.transform, "Name", robot.displayName, title, TextAlignmentOptions.Left);
@@ -193,11 +268,41 @@ public class RobotSelectionHud : MonoBehaviour
         top += title * 1.3f;
 
         int cams = robot.cameras != null ? robot.cameras.Length : 0;
+        string ns = string.IsNullOrEmpty(robot.robotNamespace) ? "no namespace" : "/" + robot.robotNamespace;
         var meta = HudUi.Label(bg.transform, "Details",
-            $"/{robot.robotNamespace}  ·  {cams} camera{(cams == 1 ? "" : "s")}", body, TextAlignmentOptions.Left);
+            $"{ns}  ·  {cams} camera{(cams == 1 ? "" : "s")}", body, TextAlignmentOptions.Left);
         meta.color = HudUi.MutedText;
         HudUi.Place(meta.rectTransform, CardPaddingMm, top, pictureW, body * 1.4f);
         return button;
+    }
+
+    // "Remove" on an added robot's card; a second press within a few seconds confirms.
+    void BuildRemoveButton(RectTransform frame, RobotProfile robot, float body)
+    {
+        var button = HudUi.Button(frame, "Remove", body * 0.9f, null);
+        var label = button.GetComponentInChildren<TextMeshProUGUI>();
+        HudUi.Place((RectTransform)button.transform, 30f, 30f, 360f, body * 1.7f);
+        float armedUntil = -1f;
+        button.onClick.AddListener(() =>
+        {
+            if (Time.time < armedUntil)
+            {
+                RobotLibrary.Delete(robot);
+                if (PlayerPrefs.GetString(LastRobotKey, "") == robot.name) PlayerPrefs.DeleteKey(LastRobotKey);
+                Build();
+                return;
+            }
+            armedUntil = Time.time + RemoveConfirmSeconds;
+            label.text = "Press again";
+            label.color = HudUi.BadColor;
+        });
+    }
+
+    static string Initials(string name)
+    {
+        var words = name.Split(new[] { ' ', '_', '-' }, System.StringSplitOptions.RemoveEmptyEntries);
+        string s = words.Length >= 2 ? $"{words[0][0]}{words[1][0]}" : name.Length > 0 ? name.Substring(0, Mathf.Min(2, name.Length)) : "?";
+        return s.ToUpperInvariant();
     }
 
     void Select(RobotProfile robot)
@@ -211,6 +316,15 @@ public class RobotSelectionHud : MonoBehaviour
     void Update()
     {
         _ipLabel.text = _keyboard.IsOpen ? _keyboard.Text : _ip;
+
+        string newName = _nameKeyboard.Poll();
+        if (newName != null) StartSetup(newName);
+        if (_hintUntil > 0f && Time.time > _hintUntil)
+        {
+            _hintUntil = 0f;
+            _hint.text = HintText;
+            _hint.color = HudUi.MutedText;
+        }
 
         string newIp = _keyboard.Poll();
         if (newIp != null)

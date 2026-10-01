@@ -45,28 +45,43 @@ public static class RosIpSettings
 }
 
 /// <summary>
-/// Quest system keyboard for typing an IP. Call <see cref="Poll"/> every frame; it returns
-/// the new IP once the user confirms a changed, non-empty value, otherwise null.
+/// Quest system keyboard for typing text. Call <see cref="Poll"/> every frame; it returns the
+/// typed text once the user confirms a changed, non-empty value, otherwise null.
+/// Where no system keyboard exists (the Unity Editor), <see cref="Open"/> can confirm a
+/// fallback value straight away so flows stay testable.
 /// </summary>
-public class IpKeyboard
+public class TextKeyboard
 {
+    readonly TouchScreenKeyboardType _type;
     TouchScreenKeyboard _keyboard;
-    string _current;
+    string _current, _pending;
+
+    public TextKeyboard(TouchScreenKeyboardType type = TouchScreenKeyboardType.Default) => _type = type;
 
     public bool IsOpen => _keyboard != null;
     // What the user is typing while the keyboard is open.
     public string Text => _keyboard?.text;
 
-    public void Open(string current)
+    public void Open(string current, string fallbackWithoutKeyboard = null)
     {
         _current = current;
+        if (!TouchScreenKeyboard.isSupported && fallbackWithoutKeyboard != null)
+        {
+            _pending = fallbackWithoutKeyboard;
+            return;
+        }
         TouchScreenKeyboard.hideInput = false;
-        _keyboard = TouchScreenKeyboard.Open(current,
-            TouchScreenKeyboardType.NumbersAndPunctuation, false, false, false, false);
+        _keyboard = TouchScreenKeyboard.Open(current, _type, false, false, false, false);
     }
 
     public string Poll()
     {
+        if (_pending != null)
+        {
+            string p = _pending;
+            _pending = null;
+            return p;
+        }
         if (_keyboard == null) return null;
         if (_keyboard.status == TouchScreenKeyboard.Status.Visible) return null;
 
@@ -75,4 +90,10 @@ public class IpKeyboard
         _keyboard = null;
         return confirmed && !string.IsNullOrEmpty(typed) && typed != _current ? typed : null;
     }
+}
+
+/// <summary>Keyboard with the numbers-and-punctuation layout, for typing an IP.</summary>
+public class IpKeyboard : TextKeyboard
+{
+    public IpKeyboard() : base(TouchScreenKeyboardType.NumbersAndPunctuation) { }
 }
