@@ -19,6 +19,10 @@ public static class HudUi
 
     public const float MmPerMetre = 1000f;
 
+    // HUD canvases draw after transparent scenery (e.g. a grid floor). UI does not write depth,
+    // so without this a large transparent floor sorted later is blended on top of the panels.
+    public const int CanvasSortingOrder = 100;
+
     public static readonly Color PanelColor   = new Color(0.08f, 0.08f, 0.10f, 0.85f);
     public static readonly Color ControlColor = new Color(0.25f, 0.27f, 0.32f, 1f);
     public static readonly Color AccentColor  = new Color(0.30f, 0.65f, 1f, 1f);
@@ -42,6 +46,7 @@ public static class HudUi
         go.transform.SetParent(parent, false);
         var canvas = go.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.WorldSpace;
+        canvas.sortingOrder = CanvasSortingOrder;
         if (interactive)
         {
             canvas.worldCamera = Camera.main;

@@ -13,6 +13,7 @@ MonoBehaviour:
   m_Name: SOBIT_LIGHT
   m_EditorClassIdentifier: 
   displayName: SOBIT LIGHT
+  picture: {fileID: 2800000, guid: e49c5f941da79c0e69312547d0dfced3, type: 3}
   robotNamespace: sobit_light
   sceneName: TeleopScene
   cameras:

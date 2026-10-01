@@ -84,6 +84,7 @@ public class CameraPanel : MonoBehaviour
 
         var canvas = gameObject.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.WorldSpace;
+        canvas.sortingOrder = HudUi.CanvasSortingOrder;
         ((RectTransform)transform).localScale = Vector3.one / MmPerMetre;
 
         // Drawn first, so they sit behind the labels and view: highlight ring around the card, then the card.

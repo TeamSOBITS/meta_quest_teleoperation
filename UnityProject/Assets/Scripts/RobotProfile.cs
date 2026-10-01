@@ -44,6 +44,9 @@ public class RobotProfile : ScriptableObject
 
     public string displayName;
 
+    // Shown on the robot's card on the selection screen.
+    public Texture2D picture;
+
     // e.g. "sobit_home". Joy is published on /<robotNamespace>/joy.
     public string robotNamespace;
 

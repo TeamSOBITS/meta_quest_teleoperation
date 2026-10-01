@@ -40,13 +40,11 @@ public class QuestControllerPublisher : MonoBehaviour
     private string _joyTopicName;
     private string _confirmedIp;  // IP that was last explicitly connected to
 
-    private TouchScreenKeyboard _keyboard;
+    private readonly IpKeyboard _keyboard = new IpKeyboard();
 
     // Name of the scene to return to when the user wants to pick a different robot.
     public string robotSelectionSceneName = "RobotSelectionScene";
     private bool _prevMenuButtonState;
-
-    private const string RosIpPrefsKey = "RosIPAddress";
 
     // Restore the last IP typed on the keyboard. Done in Awake because ROSConnection
     // connects in its own Start, and every Awake runs before any Start — so the first
@@ -56,9 +54,7 @@ public class QuestControllerPublisher : MonoBehaviour
         if (RobotProfile.Selected != null)
             robotNamespace = RobotProfile.Selected.robotNamespace;
 
-        string savedIp = PlayerPrefs.GetString(RosIpPrefsKey, "");
-        if (!string.IsNullOrEmpty(savedIp))
-            ros.RosIPAddress = savedIp;
+        ros.RosIPAddress = RosIpSettings.Load(ros.RosIPAddress);
     }
 
     public void Start()
@@ -76,7 +72,7 @@ public class QuestControllerPublisher : MonoBehaviour
     }
 
     // IP to show in the HUD: what is being typed while the keyboard is open, else the connected one.
-    public string DisplayedIp => _keyboard != null ? _keyboard.text : _confirmedIp;
+    public string DisplayedIp => _keyboard.IsOpen ? _keyboard.Text : _confirmedIp;
 
     public bool HasConnectionError => ros.HasConnectionError;
 
@@ -84,12 +80,7 @@ public class QuestControllerPublisher : MonoBehaviour
     public void BackToRobotSelection() => SceneManager.LoadScene(robotSelectionSceneName);
 
     // Opens the Quest system keyboard; the typed IP is applied when the user confirms.
-    public void OpenIpKeyboard()
-    {
-        TouchScreenKeyboard.hideInput = false;
-        _keyboard = TouchScreenKeyboard.Open(_confirmedIp,
-            TouchScreenKeyboardType.NumbersAndPunctuation, false, false, false, false);
-    }
+    public void OpenIpKeyboard() => _keyboard.Open(_confirmedIp);
 
 
     public void Update()
@@ -99,21 +90,13 @@ public class QuestControllerPublisher : MonoBehaviour
         // race where a transient mismatch between the UI text and ros.RosIPAddress
         // triggers an extra Disconnect/Connect cycle and causes the
         // "InvalidHandle: cannot use Destroyable" exception in ros_tcp_endpoint.
-        if (_keyboard != null &&
-            _keyboard.status == TouchScreenKeyboard.Status.Done &&
-            !string.IsNullOrEmpty(_keyboard.text) &&
-            !_keyboard.text.Equals(_confirmedIp))
+        string newIp = _keyboard.Poll();
+        if (newIp != null)
         {
-            _confirmedIp = _keyboard.text;
+            _confirmedIp = newIp;
             ros.Disconnect();
-            ros.Connect(_confirmedIp, 10000);
-            PlayerPrefs.SetString(RosIpPrefsKey, _confirmedIp);
-            PlayerPrefs.Save();  // flush now; the app may be killed from the Quest menu without a clean quit
-            _keyboard = null;
-        }
-        else if (_keyboard != null && _keyboard.status != TouchScreenKeyboard.Status.Visible)
-        {
-            _keyboard = null;  // cancelled, or confirmed without a change
+            ros.Connect(_confirmedIp, RosIpSettings.Port);
+            RosIpSettings.Save(_confirmedIp);
         }
 
         // Left controller menu button: go back to the robot selection screen, so picking
