@@ -9,6 +9,7 @@ using UnityEngine.XR.Interaction.Toolkit.Interactables;
 ///
 /// Layout (world-space canvas, 1 canvas unit = 1 mm):
 ///
+///   (all on a dark rounded card)
 ///      Camera Name        name label, fixed font, wraps within the view width
 ///      [gap]
 ///   +--------------+
@@ -28,6 +29,8 @@ public class CameraPanel : MonoBehaviour
     const float MmPerMetre = HudUi.MmPerMetre;
     static readonly Color WaitingColor = new Color(0.15f, 0.15f, 0.15f, 1f);
     const float OutlineMarginMm = 30f;
+    // Dark card behind the whole block so labels read on any background (same style as the HUD bar).
+    const float CardPaddingMm = 40f, CardRadiusMm = 60f;
 
     public enum Highlight { None, Hover, Drag }
 
@@ -43,7 +46,7 @@ public class CameraPanel : MonoBehaviour
     public float BelowViewCentre { get; private set; }
 
     RawImage _view;
-    Image _outline;
+    Image _outline, _card;
     TextMeshProUGUI _name, _topic;
     BoxCollider _collider;
 
@@ -71,9 +74,11 @@ public class CameraPanel : MonoBehaviour
         canvas.renderMode = RenderMode.WorldSpace;
         ((RectTransform)transform).localScale = Vector3.one / MmPerMetre;
 
-        // Drawn first, so it sits behind the labels and view.
-        _outline = HudUi.Round(HudUi.Box(transform, "Outline", Color.clear), 2f * OutlineMarginMm);
+        // Drawn first, so they sit behind the labels and view: outline around the card, then the card.
+        _outline = HudUi.Round(HudUi.Box(transform, "Outline", Color.clear), CardRadiusMm + OutlineMarginMm);
         HudUi.Stretch(_outline.rectTransform, -OutlineMarginMm);
+        _card = HudUi.Round(HudUi.Box(transform, "Card", HudUi.PanelColor), CardRadiusMm);
+        HudUi.Stretch(_card.rectTransform);
 
         // Labels: same width as the view; text wraps instead of widening the block.
         // Topics have no spaces, so allow line breaks after each '/'.
@@ -99,12 +104,12 @@ public class CameraPanel : MonoBehaviour
     public Metrics Measure(float size)
     {
         Sizes(size, out float viewW, out float viewH, out float nameH, out float topicH);
-        float gap = LabelGap * MmPerMetre;
+        float gap = LabelGap * MmPerMetre, pad = CardPaddingMm;
         return new Metrics
         {
-            Width = viewW / MmPerMetre,
-            AboveViewCentre = (nameH + gap + viewH / 2f) / MmPerMetre,
-            BelowViewCentre = (viewH / 2f + gap + topicH) / MmPerMetre,
+            Width = (viewW + 2f * pad) / MmPerMetre,
+            AboveViewCentre = (pad + nameH + gap + viewH / 2f) / MmPerMetre,
+            BelowViewCentre = (viewH / 2f + gap + topicH + pad) / MmPerMetre,
         };
     }
 
@@ -113,19 +118,20 @@ public class CameraPanel : MonoBehaviour
     {
         Size = size;
         Sizes(size, out float viewW, out float viewH, out float nameH, out float topicH);
-        float gap = LabelGap * MmPerMetre;
-        float totalH = nameH + gap + viewH + gap + topicH;
-        ((RectTransform)transform).sizeDelta = new Vector2(viewW, totalH);
+        float gap = LabelGap * MmPerMetre, pad = CardPaddingMm;
+        float totalH = pad + nameH + gap + viewH + gap + topicH + pad;
+        float totalW = viewW + 2f * pad;
+        ((RectTransform)transform).sizeDelta = new Vector2(totalW, totalH);
 
-        // Stack from the top of the block downwards.
-        float top = totalH / 2f;
+        // Stack from the top of the card downwards.
+        float top = totalH / 2f - pad;
         Place(_name.rectTransform, top, nameH, viewW);
         top -= nameH + gap;
         Place(_view.rectTransform, top, viewH, viewW);
         top -= viewH + gap;
         Place(_topic.rectTransform, top, topicH, viewW);
 
-        _collider.size = new Vector3(viewW, totalH, 20f);
+        _collider.size = new Vector3(totalW, totalH, 20f);
 
         var m = Measure(size);
         Width  = m.Width;
