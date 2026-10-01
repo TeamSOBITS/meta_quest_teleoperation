@@ -20,14 +20,18 @@ public class ImageSubscriber : MonoBehaviour
 
     [Header("Layout (metres, relative to the head)")]
     public float distance = 4.3f;
-    public int maxColumns = 3;
     public float columnGap = 0.15f;
     public float rowGap = 0.15f;
-    // Keep panels above the ROS IP block at the bottom of the view.
+    // Area the auto layout may use. minBottom keeps blocks above the HUD bar.
+    public float maxWidth = 6.0f;
+    public float maxTop = 2.0f;
     public float minBottom = -1.55f;
+    // Upper limit for how much views grow when cameras are hidden (1 = default size).
+    public float maxGrow = 1.6f;
 
     readonly List<CameraPanel> _panels = new List<CameraPanel>();
     RobotProfile _profile;
+    float _defaultFit;   // best-fit size with every camera visible; sizes are relative to it
     Texture2D[] _textures;
     double[] _lastRenderTime;
 
@@ -62,11 +66,31 @@ public class ImageSubscriber : MonoBehaviour
             ros.Subscribe<CompressedImageMsg>(topic, msg => RenderCompressedTexture(msg, index));
         }
 
+        _defaultFit = BestFit(_panels, out _);
         Layout();
         ApplySavedPositions();
     }
 
-    // Put every camera block back at its default place and forget dragged positions.
+    // True once the user has dragged any block: the layout is then theirs and is left alone.
+    public bool HasCustomLayout
+    {
+        get
+        {
+            foreach (var p in _panels)
+                if (PlayerPrefs.HasKey(PositionKey(p))) return true;
+            return false;
+        }
+    }
+
+    // Show/hide a camera. In the automatic layout the remaining cameras are re-arranged
+    // and grow into the freed space; a custom (dragged) layout is kept as it is.
+    public void SetCameraVisible(CameraPanel panel, bool visible)
+    {
+        panel.Visible = visible;
+        if (!HasCustomLayout) Layout();
+    }
+
+    // Back to the automatic layout (for the cameras currently shown); forget dragged positions.
     public void ResetLayout()
     {
         foreach (var p in _panels)
@@ -103,40 +127,32 @@ public class ImageSubscriber : MonoBehaviour
 
     string PositionKey(CameraPanel p) => $"PanelPosition/{_profile.name}/{p.Config.displayName}";
 
-    // Grid of up to maxColumns per row, centred in front of the head, each panel facing the eye.
-    // Rows are sized from the actual blocks, so a scaled-up camera pushes its neighbours aside
-    // instead of overlapping them. Views in a row share a horizontal centre line.
+    // Automatic layout of the visible cameras: pick the column count that allows the largest
+    // views within the layout area, size the views relative to the all-cameras layout (so with
+    // every camera shown the layout is the default one), then place the grid centred in front
+    // of the head, each block facing the eye. Rows are sized from the actual blocks, so blocks
+    // never overlap; views in a row share a horizontal centre line.
     void Layout()
     {
-        int n = _panels.Count;
-        if (n == 0) return;
+        var visible = _panels.FindAll(p => p.Visible);
+        if (visible.Count == 0) return;
 
-        int cols = Mathf.Min(n, Mathf.Max(1, maxColumns));
-        if (n > cols) cols = Mathf.CeilToInt(n / Mathf.Ceil(n / (float)cols));  // balance rows, e.g. 4 -> 2x2
-        int rows = Mathf.CeilToInt(n / (float)cols);
+        float fit = BestFit(visible, out int cols);
+        float size = Mathf.Min(maxGrow, fit / _defaultFit);
+        foreach (var p in visible) p.SetSize(size);
 
-        var rowAbove = new float[rows];
-        var rowBelow = new float[rows];
-        var rowWidths = new float[rows];
-        for (int i = 0; i < n; i++)
-        {
-            int r = i / cols;
-            rowAbove[r] = Mathf.Max(rowAbove[r], _panels[i].AboveViewCentre);
-            rowBelow[r] = Mathf.Max(rowBelow[r], _panels[i].BelowViewCentre);
-            rowWidths[r] += _panels[i].Width + (i % cols > 0 ? columnGap : 0f);
-        }
-
-        float totalH = (rows - 1) * rowGap;
-        for (int r = 0; r < rows; r++) totalH += rowAbove[r] + rowBelow[r];
+        Measure(visible, cols, size, out float[] rowAbove, out float[] rowBelow, out float[] rowWidths);
+        float totalH = (rowAbove.Length - 1) * rowGap;
+        for (int r = 0; r < rowAbove.Length; r++) totalH += rowAbove[r] + rowBelow[r];
         float top = Mathf.Max(totalH / 2f, minBottom + totalH);
 
-        for (int r = 0, i = 0; r < rows; r++)
+        for (int r = 0, i = 0; r < rowAbove.Length; r++)
         {
             float viewCentreY = top - rowAbove[r];
             float x = -rowWidths[r] / 2f;
-            for (int c = 0; c < cols && i < n; c++, i++)
+            for (int c = 0; c < cols && i < visible.Count; c++, i++)
             {
-                var p = _panels[i];
+                var p = visible[i];
                 float blockCentreY = viewCentreY + p.AboveViewCentre - p.Height / 2f;
                 var pos = new Vector3(x + p.Width / 2f, blockCentreY, distance);
                 p.transform.localPosition = pos;
@@ -144,6 +160,48 @@ public class ImageSubscriber : MonoBehaviour
                 x += p.Width + columnGap;
             }
             top -= rowAbove[r] + rowBelow[r] + rowGap;
+        }
+    }
+
+    // Largest view size factor at which `panels` fit the layout area, over all column counts.
+    float BestFit(List<CameraPanel> panels, out int bestCols)
+    {
+        float best = 0f;
+        bestCols = panels.Count;
+        for (int cols = panels.Count; cols >= 1; cols--)
+        {
+            // Binary search: block width and height only grow with size.
+            float lo = 0.05f, hi = 4f;
+            for (int it = 0; it < 20; it++)
+            {
+                float mid = (lo + hi) / 2f;
+                if (Fits(panels, cols, mid)) lo = mid; else hi = mid;
+            }
+            if (lo > best + 1e-3f) { best = lo; bestCols = cols; }
+        }
+        return best;
+    }
+
+    bool Fits(List<CameraPanel> panels, int cols, float size)
+    {
+        Measure(panels, cols, size, out float[] above, out float[] below, out float[] widths);
+        float h = (above.Length - 1) * rowGap, w = 0f;
+        for (int r = 0; r < above.Length; r++) { h += above[r] + below[r]; w = Mathf.Max(w, widths[r]); }
+        return w <= maxWidth && h <= maxTop - minBottom;
+    }
+
+    void Measure(List<CameraPanel> panels, int cols, float size,
+                 out float[] rowAbove, out float[] rowBelow, out float[] rowWidths)
+    {
+        int rows = Mathf.CeilToInt(panels.Count / (float)cols);
+        rowAbove = new float[rows]; rowBelow = new float[rows]; rowWidths = new float[rows];
+        for (int i = 0; i < panels.Count; i++)
+        {
+            int r = i / cols;
+            var m = panels[i].Measure(size);
+            rowAbove[r] = Mathf.Max(rowAbove[r], m.AboveViewCentre);
+            rowBelow[r] = Mathf.Max(rowBelow[r], m.BelowViewCentre);
+            rowWidths[r] += m.Width + (i % cols > 0 ? columnGap : 0f);
         }
     }
 

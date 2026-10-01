@@ -34,7 +34,7 @@ public class CameraPanel : MonoBehaviour
     public RobotProfile.CameraConfig Config { get; private set; }
     public string Topic { get; private set; }
 
-    // Total block size in metres, available after Create().
+    // Total block size in metres for the current Size.
     public float Width  { get; private set; }
     public float Height { get; private set; }
 
@@ -44,6 +44,11 @@ public class CameraPanel : MonoBehaviour
 
     RawImage _view;
     Image _outline;
+    TextMeshProUGUI _name, _topic;
+    BoxCollider _collider;
+
+    // Current view size factor (1 = profile size); set by the auto layout.
+    public float Size { get; private set; } = 1f;
 
     // Ray target for dragging; enabled only while dragging is allowed (see PanelDragger).
     public XRSimpleInteractable Interactable { get; private set; }
@@ -64,60 +69,82 @@ public class CameraPanel : MonoBehaviour
 
         var canvas = gameObject.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.WorldSpace;
+        ((RectTransform)transform).localScale = Vector3.one / MmPerMetre;
 
         // Drawn first, so it sits behind the labels and view.
         _outline = HudUi.Round(HudUi.Box(transform, "Outline", Color.clear), 2f * OutlineMarginMm);
-
-        float viewH = ViewHeight * config.scale * MmPerMetre;
-        float viewW = viewH * config.Aspect;
-        float gap   = LabelGap * MmPerMetre;
+        HudUi.Stretch(_outline.rectTransform, -OutlineMarginMm);
 
         // Labels: same width as the view; text wraps instead of widening the block.
         // Topics have no spaces, so allow line breaks after each '/'.
-        var name  = CreateLabel("Name",  config.displayName,          NameFontSize,  viewW);
-        var topicLabel = CreateLabel("Topic", topic.Replace("/", "/​"), TopicFontSize, viewW);
-        float nameH  = name.GetPreferredValues(name.text, viewW, Mathf.Infinity).y;
-        float topicH = topicLabel.GetPreferredValues(topicLabel.text, viewW, Mathf.Infinity).y;
-
-        float totalH = nameH + gap + viewH + gap + topicH;
-        var root = (RectTransform)transform;
-        root.sizeDelta  = new Vector2(viewW, totalH);
-        root.localScale = Vector3.one / MmPerMetre;
-
-        // Stack from the top of the block downwards.
-        float top = totalH / 2f;
-        Place(name.rectTransform, top, nameH, viewW);
-        top -= nameH + gap;
+        _name  = CreateLabel("Name",  config.displayName,          NameFontSize);
+        _topic = CreateLabel("Topic", topic.Replace("/", "/\u200B"), TopicFontSize);
 
         _view = new GameObject("View", typeof(RectTransform)).AddComponent<RawImage>();
         _view.transform.SetParent(transform, false);
         _view.color = WaitingColor;
         _view.raycastTarget = false;
-        Place(_view.rectTransform, top, viewH, viewW);
-        top -= viewH + gap;
-
-        Place(topicLabel.rectTransform, top, topicH, viewW);
-
-        HudUi.Stretch(_outline.rectTransform, -OutlineMarginMm);
 
         // Collider over the whole block (canvas units are mm), then the interactable that uses it.
-        var collider = gameObject.AddComponent<BoxCollider>();
-        collider.size = new Vector3(viewW, totalH, 20f);
+        _collider = gameObject.AddComponent<BoxCollider>();
         Interactable = gameObject.AddComponent<XRSimpleInteractable>();
         Interactable.enabled = false;
 
-        Width  = viewW  / MmPerMetre;
-        Height = totalH / MmPerMetre;
-        AboveViewCentre = (nameH + gap + viewH / 2f) / MmPerMetre;
-        BelowViewCentre = (viewH / 2f + gap + topicH) / MmPerMetre;
+        SetSize(1f);
     }
 
-    TextMeshProUGUI CreateLabel(string objName, string text, float fontSizeMetres, float width)
+    // Block dimensions (metres) if the view were drawn at `size` x its profile scale.
+    public struct Metrics { public float Width, AboveViewCentre, BelowViewCentre; }
+
+    public Metrics Measure(float size)
     {
-        var label = HudUi.Label(transform, objName, text, fontSizeMetres * MmPerMetre);
-        label.rectTransform.sizeDelta = new Vector2(width, 0f);
-        return label;
+        Sizes(size, out float viewW, out float viewH, out float nameH, out float topicH);
+        float gap = LabelGap * MmPerMetre;
+        return new Metrics
+        {
+            Width = viewW / MmPerMetre,
+            AboveViewCentre = (nameH + gap + viewH / 2f) / MmPerMetre,
+            BelowViewCentre = (viewH / 2f + gap + topicH) / MmPerMetre,
+        };
     }
+
+    // Resize the view to `size` x its profile scale. Fonts and gaps stay fixed; labels re-wrap.
+    public void SetSize(float size)
+    {
+        Size = size;
+        Sizes(size, out float viewW, out float viewH, out float nameH, out float topicH);
+        float gap = LabelGap * MmPerMetre;
+        float totalH = nameH + gap + viewH + gap + topicH;
+        ((RectTransform)transform).sizeDelta = new Vector2(viewW, totalH);
+
+        // Stack from the top of the block downwards.
+        float top = totalH / 2f;
+        Place(_name.rectTransform, top, nameH, viewW);
+        top -= nameH + gap;
+        Place(_view.rectTransform, top, viewH, viewW);
+        top -= viewH + gap;
+        Place(_topic.rectTransform, top, topicH, viewW);
+
+        _collider.size = new Vector3(viewW, totalH, 20f);
+
+        var m = Measure(size);
+        Width  = m.Width;
+        Height = totalH / MmPerMetre;
+        AboveViewCentre = m.AboveViewCentre;
+        BelowViewCentre = m.BelowViewCentre;
+    }
+
+    // Sizes in mm for a given size factor.
+    void Sizes(float size, out float viewW, out float viewH, out float nameH, out float topicH)
+    {
+        viewH = ViewHeight * Config.scale * size * MmPerMetre;
+        viewW = viewH * Config.Aspect;
+        nameH  = _name.GetPreferredValues(_name.text, viewW, Mathf.Infinity).y;
+        topicH = _topic.GetPreferredValues(_topic.text, viewW, Mathf.Infinity).y;
+    }
+
+    TextMeshProUGUI CreateLabel(string objName, string text, float fontSizeMetres)
+        => HudUi.Label(transform, objName, text, fontSizeMetres * MmPerMetre);
 
     // Anchor a child to the block's centre and place its top edge at y = top.
     static void Place(RectTransform rt, float top, float height, float width)

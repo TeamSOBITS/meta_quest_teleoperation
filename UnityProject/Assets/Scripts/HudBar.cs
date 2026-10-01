@@ -93,7 +93,7 @@ public class HudBar : MonoBehaviour
         for (int i = 0; i < images.Panels.Count; i++)
         {
             var cam = images.Panels[i];
-            var t = HudUi.Toggle(root, cam.Config.displayName, body, cam.Visible, on => cam.Visible = on);
+            var t = HudUi.Toggle(root, cam.Config.displayName, body, cam.Visible, on => images.SetCameraVisible(cam, on));
             HudUi.Place((RectTransform)t.transform,
                 camLeft + (i % CameraColumns) * (colW + GapMm),
                 top + (i / CameraColumns) * (RowHeightMm + GapMm),
