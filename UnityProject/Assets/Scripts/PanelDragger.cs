@@ -1,8 +1,9 @@
 using UnityEngine;
+using UnityEngine.XR.Interaction.Toolkit.Inputs;
 using UnityEngine.XR.Interaction.Toolkit.Interactors;
 
 /// <summary>
-/// Lets the user move camera blocks with a controller while Joy publishing is off
+/// Lets the user move camera blocks with a controller (trigger) or hand (pinch) while robot control is off
 /// (so the trigger can't also reach the robot): point the ray at a block, hold the trigger,
 /// and the block follows the ray around the head at its current distance. Blocks stay
 /// head-locked and facing the eye; the new position is saved on release.
@@ -33,7 +34,7 @@ public class PanelDragger : MonoBehaviour
 
         if (_dragged != null)
         {
-            if (_interactor == null || !_interactor.activateInput.ReadIsPerformed())
+            if (_interactor == null || !Held(_interactor))
                 EndDrag();
             else if (_second != null)
                 Resize();
@@ -54,7 +55,7 @@ public class PanelDragger : MonoBehaviour
             {
                 // Trigger (the interactor's Activate input) pressed while pointing at this block.
                 // (Not while the ray is on a button, e.g. Rename: that press is a click, not a drag.)
-                if (hover is XRBaseInputInteractor interactor && interactor.activateInput.ReadWasPerformedThisFrame()
+                if (hover is XRBaseInputInteractor interactor && PressedThisFrame(interactor)
                     && !(interactor is NearFarInteractor nf && nf.TryGetCurrentUIRaycastResult(out _)))
                 {
                     BeginDrag(panel, interactor);
@@ -107,7 +108,7 @@ public class PanelDragger : MonoBehaviour
     {
         foreach (var hover in _dragged.Interactable.interactorsHovering)
         {
-            if (hover is XRBaseInputInteractor other && other != _interactor && other.activateInput.ReadWasPerformedThisFrame())
+            if (hover is XRBaseInputInteractor other && other != _interactor && PressedThisFrame(other))
             {
                 _second = other;
                 _startDistance = Mathf.Max(ControllerDistance(), 0.01f);
@@ -120,7 +121,7 @@ public class PanelDragger : MonoBehaviour
     // Size follows the controllers' distance; the block stays where it is while resizing.
     void Resize()
     {
-        if (_second == null || !_second.activateInput.ReadIsPerformed())
+        if (_second == null || !Held(_second))
         {
             // Back to moving with the first controller, from where the block is now.
             _second = null;
@@ -130,6 +131,17 @@ public class PanelDragger : MonoBehaviour
         float size = Mathf.Clamp(_startSize * ControllerDistance() / _startDistance, MinSize, MaxSize);
         if (Mathf.Abs(size - _dragged.Size) > 0.005f) _dragged.SetSize(size);
     }
+
+    // Grab input: the trigger (Activate) on controllers; with tracked hands a pinch, which XRI
+    // reports as Select (hands have no Activate).
+    static bool UsingHands =>
+        XRInputModalityManager.currentInputMode.Value == XRInputModalityManager.InputMode.TrackedHand;
+
+    static bool PressedThisFrame(XRBaseInputInteractor i)
+        => UsingHands ? i.selectInput.ReadWasPerformedThisFrame() : i.activateInput.ReadWasPerformedThisFrame();
+
+    static bool Held(XRBaseInputInteractor i)
+        => UsingHands ? i.selectInput.ReadIsPerformed() : i.activateInput.ReadIsPerformed();
 
     float ControllerDistance() => Vector3.Distance(_interactor.transform.position, _second.transform.position);
 
