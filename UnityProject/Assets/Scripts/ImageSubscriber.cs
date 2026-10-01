@@ -169,7 +169,9 @@ public class ImageSubscriber : MonoBehaviour
     }
 
     // Of the camera candidates in `topics` (except `skip`), add to `result` those that deliver a
-    // frame within LiveCheckSeconds. Each candidate is subscribed only for the check.
+    // frame within LiveCheckSeconds. The check subscriptions are kept: TeamSOBITS ros_tcp_endpoint
+    // has no remove_subscriber command, and ROSConnection.Unsubscribe kills its client connection
+    // (the connection resets and the stream to the headset breaks). Live ones become blocks anyway.
     IEnumerator LiveTopics(List<(string, string)> topics, HashSet<string> skip, List<(string, string)> result)
     {
         var candidates = topics.Where(t => CameraDiscovery.IsCameraCandidate(t.Item1, t.Item2) && !skip.Contains(t.Item1)).ToList();
@@ -184,7 +186,6 @@ public class ImageSubscriber : MonoBehaviour
         }
         float until = Time.time + LiveCheckSeconds;
         while (Time.time < until && alive.Count < candidates.Count) yield return null;
-        foreach (var (topic, _) in candidates) ros.Unsubscribe(topic);
 
         result.AddRange(candidates.Where(c => alive.Contains(c.Item1)));
     }
@@ -344,7 +345,8 @@ public class ImageSubscriber : MonoBehaviour
         if (_renameKeyboard.IsOpen) return;
         _renaming = panel;
         _labelBeforeRename = panel.Label;
-        _renameKeyboard.Open(panel.Label, panel.Config.displayName, allowEmpty: true);
+        _renameKeyboard.Open(panel.Label, panel.Config.displayName);   // empty or cancelled keeps the name
+        Debug.Log($"[Rename] open: {panel.Label}");
     }
 
     public void RenameCamera(CameraPanel panel, string label)
@@ -365,14 +367,15 @@ public class ImageSubscriber : MonoBehaviour
     void Update()
     {
         if (_renaming == null) return;
+        string label = _renameKeyboard.Poll();   // closes the keyboard once the user is done
         if (_renameKeyboard.IsOpen)
         {
             _renaming.SetLabel(QuestControllerPublisher.TypingDisplay(_renameKeyboard.Text, "Type a name\u2026"));
             return;
         }
-        string label = _renameKeyboard.Poll();
         if (label != null) RenameCamera(_renaming, label);
-        else _renaming.SetLabel(_labelBeforeRename);   // cancelled
+        else _renaming.SetLabel(_labelBeforeRename);   // cancelled: keep the previous name
+        Debug.Log($"[Rename] {(label != null ? "renamed to " + label : "cancelled, kept " + _labelBeforeRename)}");
         _renaming = null;
     }
 

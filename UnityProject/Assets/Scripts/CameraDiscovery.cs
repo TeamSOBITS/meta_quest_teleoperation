@@ -89,6 +89,13 @@ public static class CameraDiscovery
 
     public static bool IsCompressed(string type) => NormaliseType(type) == CompressedType;
 
+    // Any image topic, depth included (the endpoint may hold subscribers on these).
+    public static bool IsImage(string type)
+    {
+        string t = NormaliseType(type);
+        return t == CompressedType || t == RawType;
+    }
+
     static bool IsDepth(string topic)
         => topic.Split('/').Any(s => s.Contains("depth")) || topic.EndsWith("compressedDepth");
 

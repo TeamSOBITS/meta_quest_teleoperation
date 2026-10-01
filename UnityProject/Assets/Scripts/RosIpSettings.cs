@@ -36,7 +36,11 @@ public class TextKeyboard
     readonly TouchScreenKeyboardType _type;
     TouchScreenKeyboard _keyboard;
     string _current, _pending;
-    bool _allowEmpty;
+    bool _allowEmpty, _seenVisible;
+    float _openedAt;
+    // A new keyboard can report the previous one's Done status until it shows up; results are
+    // only taken once it has been visible (or after this long, if it never appears).
+    const float ShowTimeoutSeconds = 2f;
 
     public TextKeyboard(TouchScreenKeyboardType type = TouchScreenKeyboardType.Default) => _type = type;
 
@@ -58,6 +62,8 @@ public class TextKeyboard
         }
         TouchScreenKeyboard.hideInput = false;
         _keyboard = TouchScreenKeyboard.Open(initialText ?? "", _type, false, false, false, false);
+        _seenVisible = false;
+        _openedAt = Time.unscaledTime;
     }
 
     public string Poll()
@@ -69,10 +75,12 @@ public class TextKeyboard
             return p;
         }
         if (_keyboard == null) return null;
-        if (_keyboard.status == TouchScreenKeyboard.Status.Visible) return null;
+        if (_keyboard.status == TouchScreenKeyboard.Status.Visible) { _seenVisible = true; return null; }
+        if (!_seenVisible && Time.unscaledTime - _openedAt < ShowTimeoutSeconds) return null;   // not shown yet
 
         string typed = _keyboard.text;
-        bool confirmed = _keyboard.status == TouchScreenKeyboard.Status.Done;
+        bool confirmed = _seenVisible && _keyboard.status == TouchScreenKeyboard.Status.Done;
+        Debug.Log($"[TextKeyboard] closed: {_keyboard.status}, seen {_seenVisible}, text \"{typed}\"");
         _keyboard = null;
         if (!confirmed) return null;
         typed ??= "";

@@ -144,7 +144,7 @@ public class TeleopHud : MonoBehaviour
     static XRHandSubsystem _hands;
     static readonly System.Collections.Generic.List<XRHandSubsystem> _found = new();
 
-    static XRHandSubsystem Hands
+    public static XRHandSubsystem Hands
     {
         get
         {
@@ -159,6 +159,7 @@ public class TeleopHud : MonoBehaviour
 
     bool HandMenuGesture()
     {
+        if (PanelDragger.Dragging) return false;
         if (MetaAimHand.left != null && ((ulong)MetaAimHand.left.aimFlags.ReadValue() & (ulong)MetaAimFlags.MenuPressed) != 0)
             return true;
         if (!HandsTracked || hudParent == null) return false;

@@ -62,6 +62,7 @@ public class CameraPanel : MonoBehaviour
     public enum FeedState { Waiting, Live, Stale }
     public FeedState State { get; private set; } = FeedState.Waiting;
     BoxCollider _collider;
+    const float ColliderOffsetMm = 5f;   // behind the canvas (its front faces -Z, towards the eye)
 
     // Current view size factor (1 = profile size); set by the auto layout.
     public float Size { get; private set; } = 1f;
@@ -129,9 +130,11 @@ public class CameraPanel : MonoBehaviour
         rrt.anchoredPosition = new Vector2(-CardPaddingMm * 0.5f, -CardPaddingMm * 0.5f);
         _rename.gameObject.SetActive(false);
 
-        // Collider over the whole block (canvas units are mm), then the interactable that uses it.
+        // Collider over the whole block (canvas units are mm), just behind the canvas so a ray on
+        // the Rename button hits the button first; then the interactable that uses it.
         _collider = gameObject.AddComponent<BoxCollider>();
-        Interactable = gameObject.AddComponent<XRSimpleInteractable>();
+        _collider.center = new Vector3(0f, 0f, ColliderOffsetMm);
+        Interactable = gameObject.AddComponent<HoverOnlyInteractable>();
         Interactable.enabled = false;
 
         SetSize(1f);
@@ -170,7 +173,7 @@ public class CameraPanel : MonoBehaviour
         top -= viewH + gap;
         Place(_topic.rectTransform, top, topicH, viewW);
 
-        _collider.size = new Vector3(totalW, totalH, 20f);
+        _collider.size = new Vector3(totalW, totalH, 2f);
 
         var m = Measure(size);
         Width  = m.Width;
@@ -294,4 +297,14 @@ public class CameraPanel : MonoBehaviour
         var size = _badgeText.GetPreferredValues(text);
         _badge.rectTransform.sizeDelta = new Vector2(size.x + _badgeText.fontSize, size.y * 1.15f);
     }
+}
+
+/// <summary>
+/// A block is only hovered, never selected: PanelDragger reads the trigger/pinch itself. With
+/// tracked hands a pinch is XRI's Select, and selecting the block would snap the hand's ray to
+/// the block's centre and take the pinch away from the Rename button.
+/// </summary>
+public class HoverOnlyInteractable : XRSimpleInteractable
+{
+    public override bool IsSelectableBy(UnityEngine.XR.Interaction.Toolkit.Interactors.IXRSelectInteractor interactor) => false;
 }

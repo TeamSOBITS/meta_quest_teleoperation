@@ -13,12 +13,19 @@ public class PanelDragger : MonoBehaviour
     public QuestControllerPublisher publisher;
     public ImageSubscriber images;
 
-    // Two-controller resize: while one trigger holds a block, pointing the other controller at
-    // it and pulling its trigger scales the view with the distance between the controllers.
+    // Two-handed resize: while one trigger/pinch holds a block, pressing with the other hand
+    // scales the view with the distance between the two hands/controllers.
     const float MinSize = 0.3f, MaxSize = 3f;
 
     bool _enabled;
     CameraPanel _dragged;
+    static PanelDragger _instance;
+
+    // A block is being moved or resized (the hand menu gesture is ignored meanwhile:
+    // a left-hand pinch is part of a two-hand resize).
+    public static bool Dragging => _instance != null && _instance._dragged != null;
+
+    void Awake() => _instance = this;
     XRBaseInputInteractor _interactor, _second;
     float _startDistance, _startSize;
     Quaternion _rayToPanel;   // rotation from the ray direction to the panel direction, head space
@@ -79,6 +86,7 @@ public class PanelDragger : MonoBehaviour
 
     void BeginDrag(CameraPanel panel, XRBaseInputInteractor interactor)
     {
+        _fingersClosed.Clear();
         _dragged = panel;
         _interactor = interactor;
         Vector3 panelDir = panel.transform.localPosition;
@@ -104,18 +112,36 @@ public class PanelDragger : MonoBehaviour
         _second = null;
     }
 
+    // While one hand/controller holds a block, the other one pressing (pinch or trigger) anywhere,
+    // except on a button, starts resizing. Requiring its ray on the same block was unreliable
+    // with hands: once one hand holds the block, the other hand's ray rarely registers on it.
     void TryBeginResize()
     {
-        foreach (var hover in _dragged.Interactable.interactorsHovering)
+        foreach (var other in OtherInteractors())
         {
-            if (hover is XRBaseInputInteractor other && other != _interactor && PressedThisFrame(other))
-            {
-                _second = other;
-                _startDistance = Mathf.Max(ControllerDistance(), 0.01f);
-                _startSize = _dragged.Size;
-                return;
-            }
+            if (!PressedThisFrame(other)) continue;
+            if (other is NearFarInteractor nf && nf.TryGetCurrentUIRaycastResult(out _)) continue;
+            float d = ControllerDistance();
+            if (d <= 0.01f) return;   // hands/controllers not both tracked
+            _second = other;
+            _fingersClosed.Remove(other);
+            _startDistance = d;
+            _startSize = _dragged.Size;
+            Debug.Log($"[PanelDragger] resize start: {_dragged.Config.displayName} size {_startSize:F2} distance {d:F2} m");
+            return;
         }
+    }
+
+    readonly System.Collections.Generic.List<NearFarInteractor> _interactors = new();
+
+    // Active hand/controller interactors other than the one holding the block (the input modality
+    // manager deactivates controller or hand objects that are not in use).
+    System.Collections.Generic.IEnumerable<XRBaseInputInteractor> OtherInteractors()
+    {
+        if (_interactors.Count == 0)
+            _interactors.AddRange(FindObjectsByType<NearFarInteractor>(FindObjectsInactive.Include, FindObjectsSortMode.None));
+        foreach (var i in _interactors)
+            if (i != null && i != _interactor && i.isActiveAndEnabled) yield return i;
     }
 
     // Size follows the controllers' distance; the block stays where it is while resizing.
@@ -124,11 +150,14 @@ public class PanelDragger : MonoBehaviour
         if (_second == null || !Held(_second))
         {
             // Back to moving with the first controller, from where the block is now.
+            Debug.Log($"[PanelDragger] resize end: {_dragged.Config.displayName} size {_dragged.Size:F2} distance {ControllerDistance():F2} m");
             _second = null;
             _rayToPanel = Quaternion.FromToRotation(RayDirection(), _dragged.transform.localPosition.normalized);
             return;
         }
-        float size = Mathf.Clamp(_startSize * ControllerDistance() / _startDistance, MinSize, MaxSize);
+        float d = ControllerDistance();
+        if (d <= 0f) return;   // lost tracking for a moment: keep the current size
+        float size = Mathf.Clamp(_startSize * d / _startDistance, MinSize, MaxSize);
         if (Mathf.Abs(size - _dragged.Size) > 0.005f) _dragged.SetSize(size);
     }
 
@@ -140,10 +169,59 @@ public class PanelDragger : MonoBehaviour
     static bool PressedThisFrame(XRBaseInputInteractor i)
         => UsingHands ? i.selectInput.ReadWasPerformedThisFrame() : i.activateInput.ReadWasPerformedThisFrame();
 
-    static bool Held(XRBaseInputInteractor i)
-        => UsingHands ? i.selectInput.ReadIsPerformed() : i.activateInput.ReadIsPerformed();
+    // With hands, release is read from the fingers: XRI's pinch only releases once the hand is
+    // opened wide, so a block kept following the hand after the fingers had parted.
+    const float PinchReleaseDistance = 0.035f;   // thumb tip to index tip (m)
 
-    float ControllerDistance() => Vector3.Distance(_interactor.transform.position, _second.transform.position);
+    // Hands whose fingertips have closed since the pinch began. Until then XRI's pinch state is
+    // used: it can report a pinch while the tips are still a few centimetres apart, and the
+    // finger check alone would release that grab immediately.
+    static readonly System.Collections.Generic.HashSet<XRBaseInputInteractor> _fingersClosed = new();
+
+    static bool Held(XRBaseInputInteractor i)
+    {
+        if (!UsingHands) return i.activateInput.ReadIsPerformed();
+        bool xriHeld = i.selectInput.ReadIsPerformed();
+        float d = PinchDistance(i.handedness);
+        if (d < 0f) return xriHeld;                       // hand not tracked this frame
+        if (d < PinchReleaseDistance) { _fingersClosed.Add(i); return true; }
+        if (_fingersClosed.Contains(i)) { _fingersClosed.Remove(i); return false; }   // fingers parted
+        return xriHeld;
+    }
+
+    // Thumb tip to index tip of the interactor's hand (m), or -1 if that hand is not tracked.
+    static float PinchDistance(InteractorHandedness handedness)
+    {
+        var hands = TeleopHud.Hands;
+        if (hands == null || handedness == InteractorHandedness.None) return -1f;
+        var hand = handedness == InteractorHandedness.Left ? hands.leftHand : hands.rightHand;
+        if (hand.isTracked &&
+            hand.GetJoint(UnityEngine.XR.Hands.XRHandJointID.ThumbTip).TryGetPose(out Pose thumb) &&
+            hand.GetJoint(UnityEngine.XR.Hands.XRHandJointID.IndexTip).TryGetPose(out Pose index))
+            return Vector3.Distance(thumb.position, index.position);
+        return -1f;
+    }
+
+    // Distance between the two hands (palm joints) or controllers (device positions), in metres.
+    // Read from tracking data: the hands' ray interactor objects do not follow the hands closely.
+    static float ControllerDistance()
+    {
+        if (UsingHands)
+        {
+            var hands = TeleopHud.Hands;
+            if (hands != null && hands.leftHand.isTracked && hands.rightHand.isTracked &&
+                hands.leftHand.GetJoint(UnityEngine.XR.Hands.XRHandJointID.Palm).TryGetPose(out Pose l) &&
+                hands.rightHand.GetJoint(UnityEngine.XR.Hands.XRHandJointID.Palm).TryGetPose(out Pose r))
+                return Vector3.Distance(l.position, r.position);
+            return -1f;
+        }
+        var left = UnityEngine.XR.InputDevices.GetDeviceAtXRNode(UnityEngine.XR.XRNode.LeftHand);
+        var right = UnityEngine.XR.InputDevices.GetDeviceAtXRNode(UnityEngine.XR.XRNode.RightHand);
+        if (left.TryGetFeatureValue(UnityEngine.XR.CommonUsages.devicePosition, out Vector3 lp) &&
+            right.TryGetFeatureValue(UnityEngine.XR.CommonUsages.devicePosition, out Vector3 rp))
+            return Vector3.Distance(lp, rp);
+        return -1f;
+    }
 
     // Controller ray direction in head space.
     Vector3 RayDirection()

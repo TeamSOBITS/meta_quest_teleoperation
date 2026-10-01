@@ -17,7 +17,8 @@ using UnityEngine.UI;
 ///     +----------------------+   +----------------------+
 ///              Point at a robot and pull the trigger
 ///
-/// The robot chosen last time carries a "Last used" tag.
+/// The robot chosen last time carries a "Last used" tag; a green dot after the name means the
+/// robot is online (it has topics in its namespace, see RobotPresence), a grey one that it is not.
 /// Each card is a button: pointing at it darkens it, pulling the trigger opens that robot.
 /// The ROS IP row only sets the IP; the ROS connection is opened (and its state shown) by the
 /// robot screen. (A reachability ping was dropped: UnityEngine.Ping does not work on Quest.)
@@ -52,6 +53,10 @@ public class RobotSelectionHud : MonoBehaviour
     float _hintUntil;
     string _ip;
     TextMeshProUGUI _ipLabel, _addName;
+    RobotPresence _presence;
+    bool _opening;
+    readonly Dictionary<RobotProfile, Image> _dots = new Dictionary<RobotProfile, Image>();
+    static readonly Color OfflineDotColor = new Color(1f, 1f, 1f, 0.18f);
 
     void Start()
     {
@@ -59,6 +64,7 @@ public class RobotSelectionHud : MonoBehaviour
         StudioEnvironment.Apply(Camera.main);
         _head = Camera.main != null ? Camera.main.transform : transform;
         Build();
+        _presence = RobotPresence.Create(_all, _ip);
     }
 
     // (Re)build the whole screen: built-in robots, robots added on the headset, "Add robot".
@@ -66,6 +72,7 @@ public class RobotSelectionHud : MonoBehaviour
     {
         if (_screen != null) Destroy(_screen);
         _all.Clear();
+        _dots.Clear();
         _all.AddRange(robots);
         _all.AddRange(RobotLibrary.LoadAll());
 
@@ -176,7 +183,7 @@ public class RobotSelectionHud : MonoBehaviour
         var robot = RobotLibrary.CreateNew(displayName);
         RobotProfile.SetupMode = true;
         RobotProfile.Selected = robot;
-        SceneManager.LoadScene(robot.sceneName);
+        StartCoroutine(Open(robot));
     }
 
     void BuildIpRow(RectTransform row, float body, float title)
@@ -252,9 +259,20 @@ public class RobotSelectionHud : MonoBehaviour
             BuildRemoveButton(frame.rectTransform, robot, body);
         top += pictureH + 40f;
 
+        // Name, with a dot at the end of the row: green when the robot is online.
+        float dot = body * 0.9f;
         var name = HudUi.Label(bg.transform, "Name", robot.displayName, title, TextAlignmentOptions.Left);
         name.fontStyle = FontStyles.Bold;
-        HudUi.Place(name.rectTransform, CardPaddingMm, top, pictureW, title * 1.3f);
+        name.textWrappingMode = TextWrappingModes.NoWrap;
+        name.overflowMode = TextOverflowModes.Ellipsis;
+        HudUi.Place(name.rectTransform, CardPaddingMm, top, pictureW - dot - 30f, title * 1.3f);
+        if (RobotPresence.CanCheck(robot))
+        {
+            var status = HudUi.Round(HudUi.Box(bg.transform, "Online", OfflineDotColor), dot / 2f);
+            HudUi.Place(status.rectTransform, CardPaddingMm + pictureW - dot, top + (title * 1.3f - dot) / 2f, dot, dot);
+            status.gameObject.SetActive(false);   // shown once the first check is done
+            _dots[robot] = status;
+        }
         top += title * 1.3f;
 
         int cams = robot.cameras != null ? robot.cameras.Length : 0;
@@ -300,6 +318,18 @@ public class RobotSelectionHud : MonoBehaviour
         PlayerPrefs.SetString(LastRobotKey, robot.name);
         PlayerPrefs.Save();
         RobotProfile.Selected = robot;
+        StartCoroutine(Open(robot));
+    }
+
+    // The online check's ROS connection must be closed before the robot screen opens its own.
+    System.Collections.IEnumerator Open(RobotProfile robot)
+    {
+        if (_opening) yield break;
+        _opening = true;
+        _hint.text = $"Opening {robot.displayName}\u2026";
+        _hint.color = HudUi.MutedText;
+        _hintUntil = 0f;
+        yield return _presence.Close();
         SceneManager.LoadScene(robot.sceneName);
     }
 
@@ -309,6 +339,13 @@ public class RobotSelectionHud : MonoBehaviour
         _ipLabel.text = _keyboard.IsOpen ? QuestControllerPublisher.TypingDisplay(_keyboard.Text, "Type the ROS PC IP\u2026") : _ip;
         if (_addName != null)
             _addName.text = _nameKeyboard.IsOpen ? QuestControllerPublisher.TypingDisplay(_nameKeyboard.Text, "Type a name\u2026") : AddRobotTitle;
+
+        foreach (var (robot, status) in _dots)
+        {
+            bool? online = _presence.IsOnline(robot);
+            status.gameObject.SetActive(online.HasValue);
+            status.color = online == true ? HudUi.GoodColor : OfflineDotColor;
+        }
 
         string newName = _nameKeyboard.Poll();
         if (newName != null) StartSetup(newName);
@@ -324,6 +361,7 @@ public class RobotSelectionHud : MonoBehaviour
         {
             _ip = newIp;
             RosIpSettings.Save(_ip);
+            _presence.SetIp(_ip);
         }
     }
 }
