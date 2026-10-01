@@ -164,9 +164,13 @@ public class ImageSubscriber : MonoBehaviour
     }
 
     // Largest view size factor at which `panels` fit the layout area, over all column counts.
+    // A grid with empty slots (e.g. 3+1) only wins if its views are more than 5% larger than
+    // those of a full grid, so near-ties go to the tidier layout (4 -> 2x2, 3 -> one row).
+    const float EmptySlotPenalty = 0.95f;
+
     float BestFit(List<CameraPanel> panels, out int bestCols)
     {
-        float best = 0f;
+        float best = 0f, bestScore = 0f;
         bestCols = panels.Count;
         for (int cols = panels.Count; cols >= 1; cols--)
         {
@@ -177,7 +181,8 @@ public class ImageSubscriber : MonoBehaviour
                 float mid = (lo + hi) / 2f;
                 if (Fits(panels, cols, mid)) lo = mid; else hi = mid;
             }
-            if (lo > best + 1e-3f) { best = lo; bestCols = cols; }
+            float score = panels.Count % cols == 0 ? lo : lo * EmptySlotPenalty;
+            if (score > bestScore + 1e-3f) { bestScore = score; best = lo; bestCols = cols; }
         }
         return best;
     }
