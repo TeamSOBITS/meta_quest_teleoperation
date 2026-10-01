@@ -36,6 +36,9 @@ public class FirstPersonView : MonoBehaviour
     // Set by the launch intent (autonomous tests): overrides the mode for the next robot screen
     // only, is never saved. TeleopHud.BuildHud consumes and clears it.
     public static string ViewModeOverride;
+    // Replaces the headset pose for Recenter (the demo recorder films from a fixed, level head).
+    public static Transform HeadOverride;
+    static Transform Head => HeadOverride != null ? HeadOverride : Camera.main != null ? Camera.main.transform : null;
 
     public static string ViewModeKey(RobotProfile r) => ViewModeKey(r.name);
     public static string ViewModeKey(string robotName) => $"ViewMode/{robotName}";
@@ -144,8 +147,8 @@ public class FirstPersonView : MonoBehaviour
 
     public void Recenter()
     {
-        if (_model == null || Camera.main == null) return;
-        var head = Camera.main.transform;
+        var head = Head;
+        if (_model == null || head == null) return;
         var root = _model.Root;
         Transform cam = _camFrame != null ? _camFrame : root;
 

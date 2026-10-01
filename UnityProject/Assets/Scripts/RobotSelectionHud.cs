@@ -83,6 +83,7 @@ public class RobotSelectionHud : MonoBehaviour
         if (_extrasHandled) return;
         _extrasHandled = true;
         string robot = null, viewMode = null, capture = null;
+        int record = 0, fps = 15, switchAt = -1;
         try
         {
             using (var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
@@ -94,6 +95,9 @@ public class RobotSelectionHud : MonoBehaviour
                     robot = intent.Call<string>("getStringExtra", "robot");
                     viewMode = intent.Call<string>("getStringExtra", "viewmode");
                     capture = intent.Call<string>("getStringExtra", "capture");
+                    record = intent.Call<int>("getIntExtra", "record", 0);          // --ei record 60
+                    fps = intent.Call<int>("getIntExtra", "fps", 15);
+                    switchAt = intent.Call<int>("getIntExtra", "switchat", -1);
                 }
             }
         }
@@ -102,7 +106,7 @@ public class RobotSelectionHud : MonoBehaviour
             Debug.LogWarning($"FPV: could not read intent extras: {e.Message}");
             return;
         }
-        Debug.Log($"FPV: intent robot={robot} viewmode={viewMode} capture={capture}");
+        Debug.Log($"FPV: intent robot={robot} viewmode={viewMode} capture={capture} record={record} fps={fps} switchat={switchAt}");
 
         // DebugCapture must not linger: set only by this launch, cleared when no extra is present.
         if (capture == "1") PlayerPrefs.SetInt("DebugCapture", 1);
@@ -119,6 +123,11 @@ public class RobotSelectionHud : MonoBehaviour
         if (viewMode == FirstPersonView.ModeFirstPerson || viewMode == FirstPersonView.ModeBlocks)
             FirstPersonView.ViewModeOverride = viewMode;   // this robot screen only, not saved
         PlayerPrefs.Save();
+        if (record > 0)   // session only, never saved
+            DemoRecorder.Request = new DemoRecorder.Settings
+            {
+                seconds = record, fps = Mathf.Clamp(fps, 1, 60), switchAt = switchAt >= 0 ? switchAt : record / 2f,
+            };
         Select(profile);
     }
 #endif

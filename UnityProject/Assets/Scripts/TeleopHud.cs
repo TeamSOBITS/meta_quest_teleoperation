@@ -90,13 +90,30 @@ public class TeleopHud : MonoBehaviour
 
         if (PlayerPrefs.GetInt(CaptureKey, 0) == 1)
             StartCoroutine(CaptureLater());
+
+        if (DemoRecorder.Request != null)
+        {
+            var request = DemoRecorder.Request.Value;
+            DemoRecorder.Request = null;   // this launch only
+            DemoRecorder.Create(this, images, request);
+        }
+    }
+
+    // Move the HUD (panels, bar, future panels) under another transform, keeping local poses.
+    internal void ReparentHud(Transform parent)
+    {
+        foreach (var panel in images.Panels)
+            panel.transform.SetParent(parent, false);
+        _bar.SetParent(parent, false);
+        images.panelParent = parent;
+        hudParent = parent;
     }
 
     // Blocks (default) or first person. The choice is kept per robot. Robots without a model
     // stay in blocks mode.
     public void SetFirstPerson(bool on) => SetFirstPerson(on, true);
 
-    void SetFirstPerson(bool on, bool save)
+    internal void SetFirstPerson(bool on, bool save)
     {
         var profile = images != null ? images.Profile : null;
         if (on && (profile == null || !profile.HasModel))
