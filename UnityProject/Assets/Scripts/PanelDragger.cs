@@ -22,7 +22,7 @@ public class PanelDragger : MonoBehaviour
 
     void Update()
     {
-        bool allowed = !publisher.publishJoy;
+        bool allowed = !publisher.controlRobot;
         if (allowed != _enabled) SetEnabled(allowed);
         if (!allowed) return;
 
@@ -43,7 +43,9 @@ public class PanelDragger : MonoBehaviour
             foreach (var hover in panel.Interactable.interactorsHovering)
             {
                 // Trigger (the interactor's Activate input) pressed while pointing at this block.
-                if (hover is XRBaseInputInteractor interactor && interactor.activateInput.ReadWasPerformedThisFrame())
+                // (Not while the ray is on a button, e.g. Rename: that press is a click, not a drag.)
+                if (hover is XRBaseInputInteractor interactor && interactor.activateInput.ReadWasPerformedThisFrame()
+                    && !(interactor is NearFarInteractor nf && nf.TryGetCurrentUIRaycastResult(out _)))
                 {
                     BeginDrag(panel, interactor);
                     break;
@@ -59,6 +61,7 @@ public class PanelDragger : MonoBehaviour
         foreach (var panel in images.Panels)
         {
             panel.Interactable.enabled = on;
+            panel.SetEditable(on);
             panel.SetHighlight(CameraPanel.Highlight.None);
         }
     }

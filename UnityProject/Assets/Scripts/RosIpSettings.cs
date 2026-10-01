@@ -36,6 +36,7 @@ public class TextKeyboard
     readonly TouchScreenKeyboardType _type;
     TouchScreenKeyboard _keyboard;
     string _current, _pending;
+    bool _allowEmpty;
 
     public TextKeyboard(TouchScreenKeyboardType type = TouchScreenKeyboardType.Default) => _type = type;
 
@@ -45,9 +46,11 @@ public class TextKeyboard
 
     // `current` is the value being replaced (confirming it unchanged counts as cancel);
     // the keyboard starts empty unless `initialText` is given.
-    public void Open(string current, string fallbackWithoutKeyboard = null, string initialText = "")
+    // allowEmpty: confirming an empty field returns "" (e.g. "no namespace") instead of cancelling.
+    public void Open(string current, string fallbackWithoutKeyboard = null, string initialText = "", bool allowEmpty = false)
     {
         _current = current;
+        _allowEmpty = allowEmpty;
         if (!TouchScreenKeyboard.isSupported && fallbackWithoutKeyboard != null)
         {
             _pending = fallbackWithoutKeyboard;
@@ -71,7 +74,10 @@ public class TextKeyboard
         string typed = _keyboard.text;
         bool confirmed = _keyboard.status == TouchScreenKeyboard.Status.Done;
         _keyboard = null;
-        return confirmed && !string.IsNullOrEmpty(typed) && typed != _current ? typed : null;
+        if (!confirmed) return null;
+        typed ??= "";
+        if (typed.Length == 0 && !_allowEmpty) return null;
+        return typed != _current ? typed : null;
     }
 }
 

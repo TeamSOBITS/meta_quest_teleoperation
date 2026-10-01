@@ -48,6 +48,13 @@ public class ImageSubscriber : MonoBehaviour
     bool _listening, _searchNow;
 
     const float DiscoveryWaitSeconds = 2.5f;
+    // How long a candidate camera topic may take to deliver a frame before it counts as idle.
+    const float LiveCheckSeconds = 3f;
+
+    // Discovery keeps only camera topics that actually deliver frames: the endpoint lists every
+    // topic with any publisher OR subscriber, so a topic only subscribed to (e.g. by this app on
+    // another robot) would otherwise show up as a camera. Tests without ROS turn this off.
+    public static bool RequireLiveTopics = true;
 
     public IReadOnlyList<CameraPanel> Panels => _panels;
     public RobotProfile Profile => _profile;
@@ -59,6 +66,10 @@ public class ImageSubscriber : MonoBehaviour
     public event Action VisibilityReset;
     // Raised when "Find cameras" added camera blocks.
     public event Action CamerasAdded;
+    // Raised when a camera was renamed.
+    public event Action LabelsChanged;
+    // Raised when discovery decides the robot's namespace (the Joy topic follows it).
+    public event Action<string> NamespaceChanged;
 
     public bool InSetup => RobotProfile.SetupMode && _profile != null && _profile.isCustom;
     public string SetupStatus { get; private set; } = "";
@@ -101,7 +112,11 @@ public class ImageSubscriber : MonoBehaviour
     {
         string topic = _profile.FullTopic(cam);
         int index = _panels.Count;
-        _panels.Add(CameraPanel.Create(panelParent, cam, topic));
+        var panel = CameraPanel.Create(panelParent, cam, topic);
+        string label = PlayerPrefs.GetString(LabelKey(_profile, cam), "");
+        if (label.Length > 0) panel.SetLabel(label);
+        panel.RenameRequested += BeginRename;
+        _panels.Add(panel);
         _textures.Add(new Texture2D(cam.resolution.x, cam.resolution.y, TextureFormat.RGB24, false));
         _rawBuffers.Add(null);
         _lastRenderTime.Add(0.0);
@@ -134,18 +149,44 @@ public class ImageSubscriber : MonoBehaviour
         while (Time.time < until && !_searchNow) yield return null;
     }
 
-    // Setup mode: ask the ROS endpoint for its topic list until camera topics show up
+    // Setup mode: ask the ROS endpoint for its topic list until publishing cameras show up
     // (or the user continues without cameras).
     IEnumerator Discover()
     {
-        SetupStatus = "Looking for camera topics\u2026";
         while (!IsReady)
         {
+            SetupStatus = "Looking for camera topics\u2026";
             RequestTopics();
             yield return WaitForTopics();
-            if (IsReady || ConfigureDiscovered(TopicList())) yield break;
-            SetupStatus = $"No camera topics found on {ros.RosIPAddress} yet. Searching again every few seconds.";
+            if (IsReady) yield break;
+
+            var live = new List<(string, string)>();
+            SetupStatus = "Checking which cameras are publishing\u2026";
+            yield return LiveTopics(TopicList(), new HashSet<string>(), live);
+            if (IsReady || ConfigureDiscovered(live)) yield break;
+            SetupStatus = $"No publishing cameras found on {ros.RosIPAddress} yet. Searching again every few seconds.";
         }
+    }
+
+    // Of the camera candidates in `topics` (except `skip`), add to `result` those that deliver a
+    // frame within LiveCheckSeconds. Each candidate is subscribed only for the check.
+    IEnumerator LiveTopics(List<(string, string)> topics, HashSet<string> skip, List<(string, string)> result)
+    {
+        var candidates = topics.Where(t => CameraDiscovery.IsCameraCandidate(t.Item1, t.Item2) && !skip.Contains(t.Item1)).ToList();
+        if (!RequireLiveTopics) { result.AddRange(candidates); yield break; }
+
+        var alive = new HashSet<string>();
+        foreach (var (topic, type) in candidates)
+        {
+            string t = topic;
+            if (CameraDiscovery.IsCompressed(type)) ros.Subscribe<CompressedImageMsg>(t, _ => alive.Add(t));
+            else ros.Subscribe<ImageMsg>(t, _ => alive.Add(t));
+        }
+        float until = Time.time + LiveCheckSeconds;
+        while (Time.time < until && alive.Count < candidates.Count) yield return null;
+        foreach (var (topic, _) in candidates) ros.Unsubscribe(topic);
+
+        result.AddRange(candidates.Where(c => alive.Contains(c.Item1)));
     }
 
     // Setup mode: search immediately instead of waiting for the next retry.
@@ -165,6 +206,7 @@ public class ImageSubscriber : MonoBehaviour
         if (found.Count == 0) return false;
 
         _profile.robotNamespace = CameraDiscovery.CommonNamespace(found.Select(f => f.topic));
+        NamespaceChanged?.Invoke(_profile.robotNamespace);
         _profile.cameras = found.Select(ToConfig).ToArray();
         SetupStatus = $"{found.Count} camera{(found.Count == 1 ? "" : "s")} found";
         BuildPanels();
@@ -177,6 +219,7 @@ public class ImageSubscriber : MonoBehaviour
     {
         if (IsReady) return;
         _profile.robotNamespace = CameraDiscovery.RobotNamespace(_topics.Keys);
+        NamespaceChanged?.Invoke(_profile.robotNamespace);
         _profile.cameras = Array.Empty<RobotProfile.CameraConfig>();
         SetupStatus = "No cameras";
         BuildPanels();
@@ -191,8 +234,16 @@ public class ImageSubscriber : MonoBehaviour
         RequestTopics();
         yield return WaitForTopics();
 
-        var known = new HashSet<string>(_profile.cameras.Select(c => _profile.FullTopic(c)));
-        var fresh = CameraDiscovery.Select(TopicList()).Where(f => !known.Contains(f.topic)).ToList();
+        // Known cameras, including the raw/compressed twin of each, so a camera is never added twice.
+        var known = new HashSet<string>();
+        foreach (var t in _profile.cameras.Select(c => _profile.FullTopic(c)))
+        {
+            known.Add(t);
+            known.Add(t.EndsWith("/compressed") ? t.Substring(0, t.Length - "/compressed".Length) : t + "/compressed");
+        }
+        var live = new List<(string, string)>();
+        yield return LiveTopics(TopicList(), known, live);
+        var fresh = CameraDiscovery.Select(live).Where(f => !known.Contains(f.topic)).ToList();
         if (fresh.Count > 0)
         {
             var names = new HashSet<string>(_profile.cameras.Select(c => c.displayName));
@@ -200,7 +251,10 @@ public class ImageSubscriber : MonoBehaviour
             foreach (var c in added)
                 while (names.Contains(c.displayName)) c.displayName += " 2";   // keep layout keys unique
             if (string.IsNullOrEmpty(_profile.robotNamespace) && _profile.cameras.Length == 0)
+            {
                 _profile.robotNamespace = CameraDiscovery.CommonNamespace(fresh.Select(f => f.topic));
+                NamespaceChanged?.Invoke(_profile.robotNamespace);
+            }
             _profile.cameras = _profile.cameras.Concat(added).ToArray();
             foreach (var c in added) AddPanel(c);
 
@@ -267,15 +321,59 @@ public class ImageSubscriber : MonoBehaviour
         VisibilityReset?.Invoke();
     }
 
-    // Forget a robot's saved positions and shown/hidden cameras (e.g. when it is removed).
+    // Forget a robot's saved positions, shown/hidden cameras and camera names (e.g. when it is removed).
     public static void ForgetLayout(RobotProfile robot)
     {
         foreach (var cam in robot.cameras)
         {
             PlayerPrefs.DeleteKey(PositionKey(robot, cam));
             PlayerPrefs.DeleteKey(VisibleKey(robot, cam));
+            PlayerPrefs.DeleteKey(LabelKey(robot, cam));
         }
         PlayerPrefs.Save();
+    }
+
+    // --- Renaming (layout mode): the Quest keyboard starts empty; confirming it empty restores
+    // the original name. Names are kept per robot; layouts stay keyed to the original name. ---
+    readonly TextKeyboard _renameKeyboard = new TextKeyboard();
+    CameraPanel _renaming;
+    string _labelBeforeRename;
+
+    void BeginRename(CameraPanel panel)
+    {
+        if (_renameKeyboard.IsOpen) return;
+        _renaming = panel;
+        _labelBeforeRename = panel.Label;
+        _renameKeyboard.Open(panel.Label, panel.Config.displayName, allowEmpty: true);
+    }
+
+    public void RenameCamera(CameraPanel panel, string label)
+    {
+        label = (label ?? "").Trim();
+        if (label.Length == 0 || label == panel.Config.displayName)
+        {
+            PlayerPrefs.DeleteKey(LabelKey(_profile, panel.Config));
+            label = panel.Config.displayName;
+        }
+        else PlayerPrefs.SetString(LabelKey(_profile, panel.Config), label);
+        PlayerPrefs.Save();
+        panel.SetLabel(label);
+        if (!HasCustomLayout) Layout();
+        LabelsChanged?.Invoke();
+    }
+
+    void Update()
+    {
+        if (_renaming == null) return;
+        if (_renameKeyboard.IsOpen)
+        {
+            _renaming.SetLabel(QuestControllerPublisher.TypingDisplay(_renameKeyboard.Text, "Type a name\u2026"));
+            return;
+        }
+        string label = _renameKeyboard.Poll();
+        if (label != null) RenameCamera(_renaming, label);
+        else _renaming.SetLabel(_labelBeforeRename);   // cancelled
+        _renaming = null;
     }
 
     void ApplySavedVisibility()
@@ -314,6 +412,7 @@ public class ImageSubscriber : MonoBehaviour
     string VisibleKey(CameraPanel p) => VisibleKey(_profile, p.Config);
     static string PositionKey(RobotProfile r, RobotProfile.CameraConfig c) => $"PanelPosition/{r.name}/{c.displayName}";
     static string VisibleKey(RobotProfile r, RobotProfile.CameraConfig c) => $"PanelVisible/{r.name}/{c.displayName}";
+    static string LabelKey(RobotProfile r, RobotProfile.CameraConfig c) => $"CameraLabel/{r.name}/{c.displayName}";
 
     // Automatic layout of the visible cameras: pick the column count that allows the largest
     // views within the layout area, size the views relative to the all-cameras layout (so with

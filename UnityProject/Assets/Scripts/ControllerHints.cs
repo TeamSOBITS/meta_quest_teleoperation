@@ -5,7 +5,7 @@ using UnityEngine.XR.Interaction.Toolkit.Inputs;
 /// <summary>
 /// Small labels above the controllers for the first seconds in a robot screen, so the
 /// controller shortcuts are discoverable:
-///   left:  "☰  Back to robots"
+///   left:  "Menu button: back to robots"
 ///   right: "Trigger: drag blocks (layout mode)"
 /// The labels face the head and fade out after <see cref="ShowSeconds"/>.
 /// </summary>
@@ -28,7 +28,7 @@ public class ControllerHints : MonoBehaviour
         var hints = new GameObject("Controller Hints").AddComponent<ControllerHints>();
         hints._head = head;
         hints._start = Time.time;
-        hints.Add(modality.leftController, "☰  Back to robots");
+        hints.Add(modality.leftController, "Menu button: back to robots");
         hints.Add(modality.rightController, "Trigger: drag blocks (layout mode)");
         return hints;
     }

@@ -1,5 +1,6 @@
 using TMPro;
 using UnityEngine;
+using UnityEngine.XR.Hands;
 
 /// <summary>
 /// Sets up the robot screen around the camera blocks: studio surroundings, the HUD bar
@@ -35,8 +36,9 @@ public class TeleopHud : MonoBehaviour
         if (hudParent == null && Camera.main != null)
             hudParent = Camera.main.transform;
 
+        images.NamespaceChanged += publisher.SetNamespace;   // Joy topic follows discovery
         if (images.InSetup)
-            publisher.publishJoy = false;  // layout mode: the trigger arranges blocks, nothing reaches a robot
+            publisher.controlRobot = false;  // layout mode: the trigger arranges blocks, nothing reaches a robot
 
         if (images.IsReady)
             BuildHud();
@@ -76,7 +78,11 @@ public class TeleopHud : MonoBehaviour
 
     void OnDestroy()
     {
-        if (images != null) images.CamerasAdded -= RebuildBar;
+        if (images != null)
+        {
+            images.CamerasAdded -= RebuildBar;
+            images.NamespaceChanged -= publisher.SetNamespace;
+        }
     }
 
     // Shown in setup mode until camera topics have been found or the user continues without.
@@ -109,10 +115,23 @@ public class TeleopHud : MonoBehaviour
         HudUi.Place((RectTransform)cancel.transform, left + 2f * (buttonW + gap), top, buttonW, buttonH);
     }
 
+    bool _handMenuWasPressed;
+
     void Update()
     {
         if (_waitingStatus != null) _waitingStatus.text = images.SetupStatus;
+
+        // Hand "menu" gesture (left palm facing you + pinch) shows/hides the HUD bar.
+        bool pressed = HandMenuPressed();
+        if (pressed && !_handMenuWasPressed && _bar != null)
+            _bar.gameObject.SetActive(!_bar.gameObject.activeSelf);
+        _handMenuWasPressed = pressed;
     }
+
+    public static bool HandsTracked => MetaAimHand.left != null && MetaAimHand.left.isTracked.ReadValue() > 0.5f;
+
+    static bool HandMenuPressed()
+        => HandsTracked && ((ulong)MetaAimHand.left.aimFlags.ReadValue() & (ulong)MetaAimFlags.MenuPressed) != 0;
 
     // Setup mode: keep the discovered cameras, shown/hidden choices and layout as a new robot.
     public void SaveSetup()

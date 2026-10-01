@@ -80,6 +80,15 @@ public static class CameraDiscovery
     public static string RobotNamespace(IEnumerable<string> topics)
         => CommonNamespace(topics.Where(t => !SystemTopics.Contains(t) && t.Trim('/').Contains('/')));
 
+    // Colour image topics (compressed or raw) that could be cameras, depth excluded.
+    public static bool IsCameraCandidate(string topic, string type)
+    {
+        string t = NormaliseType(type);
+        return (t == CompressedType || t == RawType) && !IsDepth(topic);
+    }
+
+    public static bool IsCompressed(string type) => NormaliseType(type) == CompressedType;
+
     static bool IsDepth(string topic)
         => topic.Split('/').Any(s => s.Contains("depth")) || topic.EndsWith("compressedDepth");
 

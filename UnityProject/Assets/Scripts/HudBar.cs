@@ -30,7 +30,7 @@ public class HudBar : MonoBehaviour
     // the eye, which brings their lower outer corners slightly down in view; this gap absorbs it.
     const float GapBelowCamerasM = 0.17f;
 
-    const string JoyOnText = "JOY ON", JoyOffText = "LAYOUT MODE";
+    const string JoyOnText = "CONTROL ON", JoyOffText = "LAYOUT MODE";
 
     ImageSubscriber _images;
     readonly System.Collections.Generic.List<(CameraPanel panel, Toggle toggle)> _cameraToggles = new();
@@ -45,8 +45,9 @@ public class HudBar : MonoBehaviour
         // Button column: Reset layout + Back, or in setup mode Reset layout + Save robot + Cancel.
         int buttonRows = images.InSetup ? 3 : 2;
         // The left column holds three toggles (Publish Joy, Lazy follow, Passthrough).
-        // Added robots get a "Find cameras" button in the next free slot of the camera toggles.
-        int cameraSlots = images.Panels.Count + (images.Profile.isCustom ? 1 : 0);
+        // Added robots get "Find cameras" and "Joy namespace" buttons in the next free slots of
+        // the camera toggles.
+        int cameraSlots = images.Panels.Count + (images.Profile.isCustom ? 2 : 0);
         int controlRows = Mathf.Max(LeftColumnRows, buttonRows, Mathf.CeilToInt(cameraSlots / (float)CameraColumns));
         float controlsH = controlRows * RowHeightMm + (controlRows - 1) * GapMm;
         float heightMm = PaddingMm + HeaderHeightMm + GapMm + 4f + GapMm + controlsH + PaddingMm;
@@ -61,6 +62,7 @@ public class HudBar : MonoBehaviour
         bar._images = images;
         bar.Build(root, images, hud, heightMm);
         images.VisibilityReset += bar.SyncCameraToggles;
+        images.LabelsChanged += bar.SyncCameraToggles;
         return bar;
     }
 
@@ -126,7 +128,8 @@ public class HudBar : MonoBehaviour
         top += 4f + GapMm;
 
         // --- Controls: Publish Joy | camera toggles | Reset layout / Back to robots ---
-        var joy = HudUi.Toggle(root, "Publish Joy", body, _publisher.publishJoy, on => _publisher.publishJoy = on);
+        // Control robot: TF (head/controller poses) + Joy. Off = the robot receives nothing.
+        var joy = HudUi.Toggle(root, "Control robot", body, _publisher.controlRobot, on => _publisher.controlRobot = on);
         joy.interactable = !images.InSetup;  // setup mode stays in layout mode
         HudUi.Place((RectTransform)joy.transform, PaddingMm, top, JoyColumnMm, RowHeightMm);
         var lazy = HudUi.Toggle(root, "Lazy follow", body, hud.LazyFollow, hud.SetLazyFollow);
@@ -145,7 +148,7 @@ public class HudBar : MonoBehaviour
         for (int i = 0; i < images.Panels.Count; i++)
         {
             var cam = images.Panels[i];
-            var t = HudUi.Toggle(root, cam.Config.displayName, body, cam.Visible, on => images.SetCameraVisible(cam, on));
+            var t = HudUi.Toggle(root, cam.Label, body, cam.Visible, on => images.SetCameraVisible(cam, on));
             _cameraToggles.Add((cam, t));
             HudUi.Place((RectTransform)t.transform,
                 camLeft + (i % CameraColumns) * (colW + GapMm),
@@ -174,6 +177,16 @@ public class HudBar : MonoBehaviour
                 camLeft + (i % CameraColumns) * (colW + GapMm),
                 top + (i / CameraColumns) * (RowHeightMm + GapMm),
                 colW, RowHeightMm);
+
+            // Joy namespace: typed on the Quest keyboard; confirming it empty means no namespace.
+            i++;
+            var ns = HudUi.Button(root, NamespaceButtonText(images.Profile), body, null);
+            _namespaceLabel = ns.GetComponentInChildren<TextMeshProUGUI>();
+            ns.onClick.AddListener(() => _namespaceKeyboard.Open(images.Profile.robotNamespace, allowEmpty: true));
+            HudUi.Place((RectTransform)ns.transform,
+                camLeft + (i % CameraColumns) * (colW + GapMm),
+                top + (i / CameraColumns) * (RowHeightMm + GapMm),
+                colW, RowHeightMm);
         }
 
         float buttonsLeft = WidthMm - PaddingMm - ButtonColumnMm;
@@ -197,10 +210,27 @@ public class HudBar : MonoBehaviour
 
     const string FindCamerasText = "Find cameras";
 
+    readonly TextKeyboard _namespaceKeyboard = new TextKeyboard();
+    TextMeshProUGUI _namespaceLabel;
+
+    static string NamespaceButtonText(RobotProfile robot)
+        => string.IsNullOrEmpty(robot.robotNamespace) ? "Joy: /joy" : $"Joy: /{robot.robotNamespace}/joy";
+
     System.Collections.IEnumerator ResetLabelLater(TextMeshProUGUI label)
     {
         yield return new WaitForSeconds(3f);
         if (label != null) label.text = FindCamerasText;
+    }
+
+    // Change the added robot's Joy namespace ("" = none) and keep it.
+    void SetNamespace(string ns)
+    {
+        var robot = _images.Profile;
+        _publisher.SetNamespace(ns);
+        robot.robotNamespace = _publisher.robotNamespace;
+        if (!_images.InSetup) RobotLibrary.Save(robot);
+        _namespaceLabel.text = NamespaceButtonText(robot);
+        if (_images.InSetup) _joyText.text = SetupChipText(_images);
     }
 
     static string SetupChipText(ImageSubscriber images)
@@ -209,21 +239,40 @@ public class HudBar : MonoBehaviour
         return string.IsNullOrEmpty(ns) ? "SETUP · no namespace" : $"SETUP · /{ns}";
     }
 
-    // Reset layout shows every camera again; keep the toggles in step without re-triggering them.
+    // Reset layout shows every camera again, and cameras can be renamed; keep the toggles in step
+    // without re-triggering them.
     void SyncCameraToggles()
     {
         foreach (var (panel, toggle) in _cameraToggles)
+        {
             toggle.SetIsOnWithoutNotify(panel.Visible);
+            var label = toggle.GetComponentInChildren<TextMeshProUGUI>();
+            if (label != null) label.text = panel.Label;
+        }
     }
 
     void OnDestroy()
     {
-        if (_images != null) _images.VisibilityReset -= SyncCameraToggles;
+        if (_images != null)
+        {
+            _images.VisibilityReset -= SyncCameraToggles;
+            _images.LabelsChanged -= SyncCameraToggles;
+        }
     }
 
     void Update()
     {
         _ip.text = _publisher.DisplayedIp;
+
+        if (_namespaceLabel != null)
+        {
+            if (_namespaceKeyboard.IsOpen)
+                _namespaceLabel.text = "Joy: /" + QuestControllerPublisher.TypingDisplay(_namespaceKeyboard.Text, "") + "/joy";
+            string ns = _namespaceKeyboard.Poll();
+            if (ns != null) SetNamespace(ns);
+            else if (!_namespaceKeyboard.IsOpen && _namespaceLabel.text.Contains("|"))
+                _namespaceLabel.text = NamespaceButtonText(_images.Profile);   // cancelled
+        }
 
         bool connected = !_publisher.HasConnectionError;
         if (_shownConnected != connected)
@@ -235,7 +284,7 @@ public class HudBar : MonoBehaviour
             _pillText.text = connected ? "connected" : "not connected";
         }
 
-        bool joy = _publisher.publishJoy;
+        bool joy = _publisher.controlRobot;
         if (_images.InSetup)
         {
             if (_shownJoy == null)

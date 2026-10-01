@@ -2,6 +2,7 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.XR.Interaction.Toolkit.Interactables;
+using UnityEngine.XR.Interaction.Toolkit.UI;
 
 /// <summary>
 /// One camera block: camera name above the view, the camera view, topic name below.
@@ -85,6 +86,8 @@ public class CameraPanel : MonoBehaviour
         var canvas = gameObject.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.WorldSpace;
         canvas.sortingOrder = HudUi.CanvasSortingOrder;
+        canvas.worldCamera = Camera.main;
+        gameObject.AddComponent<TrackedDeviceGraphicRaycaster>();   // for the Rename button
         ((RectTransform)transform).localScale = Vector3.one / MmPerMetre;
 
         // Drawn first, so they sit behind the labels and view: highlight ring around the card, then the card.
@@ -117,6 +120,14 @@ public class CameraPanel : MonoBehaviour
         _badgeText.textWrappingMode = TextWrappingModes.NoWrap;
         HudUi.Stretch(_badgeText.rectTransform);
         _badge.gameObject.SetActive(false);
+
+        // Rename: shown in layout mode only, at the card's top-right corner.
+        _rename = HudUi.Button(transform, "Rename", TopicFontSize * MmPerMetre, () => RenameRequested?.Invoke(this));
+        var rrt = (RectTransform)_rename.transform;
+        rrt.anchorMin = rrt.anchorMax = rrt.pivot = new Vector2(1f, 1f);
+        rrt.sizeDelta = new Vector2(TopicFontSize * MmPerMetre * 4.6f, TopicFontSize * MmPerMetre * 1.6f);
+        rrt.anchoredPosition = new Vector2(-CardPaddingMm * 0.5f, -CardPaddingMm * 0.5f);
+        _rename.gameObject.SetActive(false);
 
         // Collider over the whole block (canvas units are mm), then the interactable that uses it.
         _collider = gameObject.AddComponent<BoxCollider>();
@@ -202,6 +213,20 @@ public class CameraPanel : MonoBehaviour
         get => gameObject.activeSelf;
         set => gameObject.SetActive(value);
     }
+
+    // Name shown above the view; may differ from Config.displayName (which keys saved layouts).
+    public string Label => _name.text;
+    public event System.Action<CameraPanel> RenameRequested;
+    Button _rename;
+
+    public void SetLabel(string label)
+    {
+        _name.text = label;
+        SetSize(Size);   // a longer name may wrap
+    }
+
+    // Layout mode: the Rename button is available.
+    public void SetEditable(bool editable) => _rename.gameObject.SetActive(editable);
 
     public void SetHighlight(Highlight state)
     {

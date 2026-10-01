@@ -32,9 +32,10 @@ public class QuestControllerPublisher : MonoBehaviour
     public bool useSimTime = false;  // kept for Inspector compatibility, no longer used
     public float publishFrequency = 1.0f / 60.0f;
 
-    // Send controller buttons/axes to the robot as sensor_msgs/Joy. TF is always published.
-    // Toggled from the control panel; turning it off also enables dragging camera blocks.
-    public bool publishJoy = true;
+    // Drive the robot: publish head/controller poses (TF) and controller buttons/axes (Joy).
+    // Off = nothing is sent, so the robot stays still ("layout mode"; camera blocks can be dragged).
+    [UnityEngine.Serialization.FormerlySerializedAs("publishJoy")]
+    public bool controlRobot = true;
 
     private float _timeElapsed;
     private string _joyTopicName;
@@ -59,14 +60,8 @@ public class QuestControllerPublisher : MonoBehaviour
 
     public void Start()
     {
-        // Build namespaced joy topic: /<robotNamespace>/joy
-        _joyTopicName = string.IsNullOrEmpty(robotNamespace)
-            ? "/joy"
-            : "/" + robotNamespace + "/joy";
-
         ros.RegisterPublisher<TFMessageMsg>(tfTopicName);
-        // Publish controller buttons as sensor_msgs/Joy on the namespaced topic
-        ros.RegisterPublisher<JoyMsg>(_joyTopicName);
+        SetNamespace(robotNamespace);
 
         _confirmedIp = ros.RosIPAddress;  // record what we are already connected to
     }
@@ -82,6 +77,24 @@ public class QuestControllerPublisher : MonoBehaviour
 
     // Leave the robot screen and go back to choosing a robot (HUD button and left menu button).
     public void BackToRobotSelection() => SceneManager.LoadScene(robotSelectionSceneName);
+
+    // Joy goes to /<ns>/joy, or /joy when the robot has no namespace.
+    public string JoyTopic => _joyTopicName;
+
+    public void SetNamespace(string ns)
+    {
+        robotNamespace = (ns ?? "").Trim().Trim('/');
+        _joyTopicName = string.IsNullOrEmpty(robotNamespace) ? "/joy" : "/" + robotNamespace + "/joy";
+        ros.RegisterPublisher<JoyMsg>(_joyTopicName);
+    }
+
+    // ROSConnection only disconnects on application quit. Without this, every robot screen
+    // left behind a live connection that kept reconnecting, and ros_tcp_endpoint hands its
+    // single outgoing stream to the newest connection, so old ones stole camera images.
+    void OnDestroy()
+    {
+        if (ros != null) ros.Disconnect();
+    }
 
     // Opens the Quest system keyboard; the typed IP is applied when the user confirms.
     public void OpenIpKeyboard() => _keyboard.Open(_confirmedIp);
@@ -106,8 +119,9 @@ public class QuestControllerPublisher : MonoBehaviour
         // Left controller menu button: go back to the robot selection screen, so picking
         // the wrong robot isn't a dead end. Checked independently of ROS connection state,
         // so it still works even if the robot connection has an error.
+        // With hand tracking the same menu gesture shows/hides the HUD bar (TeleopHud) instead.
         var leftDevice = InputDevices.GetDeviceAtXRNode(XRNode.LeftHand);
-        if (leftDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.menuButton, out bool menuButtonPressed))
+        if (!TeleopHud.HandsTracked && leftDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.menuButton, out bool menuButtonPressed))
         {
             if (menuButtonPressed && !_prevMenuButtonState)
             {
@@ -118,9 +132,9 @@ public class QuestControllerPublisher : MonoBehaviour
             _prevMenuButtonState = menuButtonPressed;
         }
 
-        // Stop publishing when disconnected — avoids injecting stale TFs into
-        // a freshly-started ROS session.
-        if (ros.HasConnectionError) return;
+        // Stop publishing when disconnected (avoids injecting stale TFs into a freshly-started
+        // ROS session) and when robot control is off (layout mode: the robot must not move).
+        if (ros.HasConnectionError || !controlRobot) return;
 
         _timeElapsed += Time.deltaTime;
         if (_timeElapsed > publishFrequency)
@@ -250,7 +264,6 @@ public class QuestControllerPublisher : MonoBehaviour
 
     ros.Publish(tfTopicName, new TFMessageMsg(tfList.ToArray()));
 
-    if (!publishJoy) return;
 
     // --- Publish controller button states as sensor_msgs/Joy on a single /joy topic ---
     // Use Unity XR InputDevices to query Meta Quest controller buttons and axes

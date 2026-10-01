@@ -38,7 +38,10 @@ public static class PassthroughMode
                 EnsureSession();
                 var manager = cam.GetComponent<ARCameraManager>();
                 if (manager == null) manager = cam.gameObject.AddComponent<ARCameraManager>();
-                manager.enabled = true;
+                // Start passthrough only once the AR session is ready; enabling it earlier makes
+                // the runtime reject the start (XR_ERROR_UNEXPECTED_STATE_PASSTHROUGH_FB) and retry.
+                manager.enabled = SessionReady;
+                if (!SessionReady) WaitForSession();
 
                 // Passthrough is layered behind the rendered image, so the clear colour must
                 // be transparent; keep the studio rgb so toggling off restores the same look.
@@ -59,6 +62,26 @@ public static class PassthroughMode
             }
         }
         SetFloorVisible(!on);
+    }
+
+    static bool SessionReady => ARSession.state >= ARSessionState.Ready;
+    static bool _waiting;
+
+    static void WaitForSession()
+    {
+        if (_waiting) return;
+        _waiting = true;
+        ARSession.stateChanged += OnSessionStateChanged;
+    }
+
+    static void OnSessionStateChanged(ARSessionStateChangedEventArgs args)
+    {
+        if (args.state < ARSessionState.Ready) return;
+        ARSession.stateChanged -= OnSessionStateChanged;
+        _waiting = false;
+        var cam = Camera.main;
+        var manager = cam != null ? cam.GetComponent<ARCameraManager>() : null;
+        if (manager != null) manager.enabled = Enabled;
     }
 
     static void EnsureSession()
