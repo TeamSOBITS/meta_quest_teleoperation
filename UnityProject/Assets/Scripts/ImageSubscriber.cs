@@ -382,12 +382,13 @@ public class ImageSubscriber : MonoBehaviour
             if (PlayerPrefs.GetInt(VisibleKey(p), 1) == 0) p.Visible = false;
     }
 
-    // Remember where the user dragged a block (head-relative), per robot and camera.
+    // Remember where the user dragged or resized a block, per robot and camera. Saved as
+    // "x;y;z;size": the block's place relative to the head and its view size.
     public void SavePosition(CameraPanel panel)
     {
         var v = panel.transform.localPosition;
         PlayerPrefs.SetString(PositionKey(panel),
-            string.Format(CultureInfo.InvariantCulture, "{0};{1};{2}", v.x, v.y, v.z));
+            string.Format(CultureInfo.InvariantCulture, "{0};{1};{2};{3}", v.x, v.y, v.z, panel.Size));
         PlayerPrefs.Save();
     }
 
@@ -396,7 +397,10 @@ public class ImageSubscriber : MonoBehaviour
         foreach (var p in _panels)
         {
             var parts = PlayerPrefs.GetString(PositionKey(p), "").Split(';');
-            if (parts.Length == 3 &&
+            if (parts.Length >= 4 &&
+                float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float size))
+                p.SetSize(size);   // older saves (x;y;z) keep the automatic size
+            if (parts.Length >= 3 &&
                 float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float x) &&
                 float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float y) &&
                 float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float z))

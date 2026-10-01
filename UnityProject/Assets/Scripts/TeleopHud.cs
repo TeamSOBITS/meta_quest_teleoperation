@@ -115,18 +115,23 @@ public class TeleopHud : MonoBehaviour
         HudUi.Place((RectTransform)cancel.transform, left + 2f * (buttonW + gap), top, buttonW, buttonH);
     }
 
-    bool _handMenuWasPressed;
+    bool _menuWasPressed;
 
     void Update()
     {
         if (_waitingStatus != null) _waitingStatus.text = images.SetupStatus;
 
-        // Hand "menu" gesture (left palm facing you + pinch) shows/hides the HUD bar.
-        bool pressed = HandMenuPressed();
-        if (pressed && !_handMenuWasPressed && _bar != null)
+        // Menu shows/hides the HUD bar: the left controller's menu button, or with hand tracking
+        // the hand menu gesture (left palm facing you + pinch). Back to robots is on the bar.
+        bool pressed = HandsTracked ? HandMenuPressed() : ControllerMenuPressed();
+        if (pressed && !_menuWasPressed && _bar != null)
             _bar.gameObject.SetActive(!_bar.gameObject.activeSelf);
-        _handMenuWasPressed = pressed;
+        _menuWasPressed = pressed;
     }
+
+    static bool ControllerMenuPressed()
+        => UnityEngine.XR.InputDevices.GetDeviceAtXRNode(UnityEngine.XR.XRNode.LeftHand)
+               .TryGetFeatureValue(UnityEngine.XR.CommonUsages.menuButton, out bool pressed) && pressed;
 
     public static bool HandsTracked => MetaAimHand.left != null && MetaAimHand.left.isTracked.ReadValue() > 0.5f;
 

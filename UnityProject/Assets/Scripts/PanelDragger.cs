@@ -12,9 +12,14 @@ public class PanelDragger : MonoBehaviour
     public QuestControllerPublisher publisher;
     public ImageSubscriber images;
 
+    // Two-controller resize: while one trigger holds a block, pointing the other controller at
+    // it and pulling its trigger scales the view with the distance between the controllers.
+    const float MinSize = 0.3f, MaxSize = 3f;
+
     bool _enabled;
     CameraPanel _dragged;
-    XRBaseInputInteractor _interactor;
+    XRBaseInputInteractor _interactor, _second;
+    float _startDistance, _startSize;
     Quaternion _rayToPanel;   // rotation from the ray direction to the panel direction, head space
     float _radius;
 
@@ -30,8 +35,13 @@ public class PanelDragger : MonoBehaviour
         {
             if (_interactor == null || !_interactor.activateInput.ReadIsPerformed())
                 EndDrag();
+            else if (_second != null)
+                Resize();
             else
-                Follow();
+            {
+                TryBeginResize();
+                if (_second == null) Follow();
+            }
         }
 
         foreach (var panel in images.Panels)
@@ -90,7 +100,38 @@ public class PanelDragger : MonoBehaviour
         _dragged.SetHighlight(CameraPanel.Highlight.None);
         _dragged = null;
         _interactor = null;
+        _second = null;
     }
+
+    void TryBeginResize()
+    {
+        foreach (var hover in _dragged.Interactable.interactorsHovering)
+        {
+            if (hover is XRBaseInputInteractor other && other != _interactor && other.activateInput.ReadWasPerformedThisFrame())
+            {
+                _second = other;
+                _startDistance = Mathf.Max(ControllerDistance(), 0.01f);
+                _startSize = _dragged.Size;
+                return;
+            }
+        }
+    }
+
+    // Size follows the controllers' distance; the block stays where it is while resizing.
+    void Resize()
+    {
+        if (_second == null || !_second.activateInput.ReadIsPerformed())
+        {
+            // Back to moving with the first controller, from where the block is now.
+            _second = null;
+            _rayToPanel = Quaternion.FromToRotation(RayDirection(), _dragged.transform.localPosition.normalized);
+            return;
+        }
+        float size = Mathf.Clamp(_startSize * ControllerDistance() / _startDistance, MinSize, MaxSize);
+        if (Mathf.Abs(size - _dragged.Size) > 0.005f) _dragged.SetSize(size);
+    }
+
+    float ControllerDistance() => Vector3.Distance(_interactor.transform.position, _second.transform.position);
 
     // Controller ray direction in head space.
     Vector3 RayDirection()

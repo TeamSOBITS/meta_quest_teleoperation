@@ -45,7 +45,6 @@ public class QuestControllerPublisher : MonoBehaviour
 
     // Name of the scene to return to when the user wants to pick a different robot.
     public string robotSelectionSceneName = "RobotSelectionScene";
-    private bool _prevMenuButtonState;
 
     // Restore the last IP typed on the keyboard. Done in Awake because ROSConnection
     // connects in its own Start, and every Awake runs before any Start — so the first
@@ -116,21 +115,6 @@ public class QuestControllerPublisher : MonoBehaviour
             RosIpSettings.Save(_confirmedIp);
         }
 
-        // Left controller menu button: go back to the robot selection screen, so picking
-        // the wrong robot isn't a dead end. Checked independently of ROS connection state,
-        // so it still works even if the robot connection has an error.
-        // With hand tracking the same menu gesture shows/hides the HUD bar (TeleopHud) instead.
-        var leftDevice = InputDevices.GetDeviceAtXRNode(XRNode.LeftHand);
-        if (!TeleopHud.HandsTracked && leftDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.menuButton, out bool menuButtonPressed))
-        {
-            if (menuButtonPressed && !_prevMenuButtonState)
-            {
-                _prevMenuButtonState = menuButtonPressed;
-                BackToRobotSelection();
-                return;
-            }
-            _prevMenuButtonState = menuButtonPressed;
-        }
 
         // Stop publishing when disconnected (avoids injecting stale TFs into a freshly-started
         // ROS session) and when robot control is off (layout mode: the robot must not move).
