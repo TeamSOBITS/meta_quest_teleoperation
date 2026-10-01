@@ -36,6 +36,7 @@ public class ImageSubscriber : MonoBehaviour
     double[] _lastRenderTime;
 
     public IReadOnlyList<CameraPanel> Panels => _panels;
+    public RobotProfile Profile => _profile;
 
     void Start()
     {

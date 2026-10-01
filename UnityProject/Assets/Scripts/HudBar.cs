@@ -5,34 +5,38 @@ using UnityEngine.UI;
 /// <summary>
 /// Head-locked bar under the camera blocks, the same for every robot:
 ///
-///   +--------------------------------------------------------------+
-///   | ROS IP  192.168.11.20            ( connected )      [ Edit ] |
-///   |--------------------------------------------------------------|
-///   | [x] Publish Joy  |  [x] Head Camera   [x] Hand Camera  [Reset |
-///   |                  |  [x] Front Camera  [ ] Back Camera  layout]|
-///   +--------------------------------------------------------------+
+///   +-----------------------------------------------------------------------------+
+///   | SOBIT LIGHT  (JOY ON)                 ROS IP 192.168.11.20 (connected) [Edit]|
+///   |-----------------------------------------------------------------------------|
+///   | [x] Publish Joy | [x] Head Camera    [x] Hand Camera    | [ Reset layout ]   |
+///   |                 | [x] Front Camera   [ ] Back Camera    | [ <- Robots    ]   |
+///   +-----------------------------------------------------------------------------+
+///
+/// While Joy is published the bar also gets an amber outline, so it is obvious at a
+/// glance that the controllers are driving the robot.
 /// </summary>
 public class HudBar : MonoBehaviour
 {
     // Sizes in mm on a canvas at HudUi.ReferenceDistance.
-    const float WidthMm = 3600f, PaddingMm = 50f, GapMm = 40f, RadiusMm = 60f;
+    const float WidthMm = 4200f, PaddingMm = 50f, GapMm = 40f, RadiusMm = 60f, OutlineMm = 22f;
     const float HeaderHeightMm = 220f, RowHeightMm = 150f;
-    const float JoyColumnMm = 850f, ResetColumnMm = 520f, EditWidthMm = 420f, PillWidthMm = 640f;
+    const float JoyColumnMm = 850f, ButtonColumnMm = 560f, EditWidthMm = 420f, PillWidthMm = 640f;
     const int CameraColumns = 2;
     // Space between the lowest camera block and the bar (metres). Blocks are turned to face
     // the eye, which brings their lower outer corners slightly down in view; this gap absorbs it.
     const float GapBelowCamerasM = 0.17f;
 
+    const string JoyOnText = "JOY ON", JoyOffText = "LAYOUT MODE";
+
     QuestControllerPublisher _publisher;
-    TextMeshProUGUI _ip;
-    Image _pill;
-    TextMeshProUGUI _pillText;
-    bool? _shownConnected;
+    TextMeshProUGUI _ip, _pillText, _joyText;
+    Image _pill, _joyChip, _outline;
+    bool? _shownConnected, _shownJoy;
 
     public static HudBar Create(Transform parent, QuestControllerPublisher publisher, ImageSubscriber images)
     {
-        int cameraRows = Mathf.Max(1, Mathf.CeilToInt(images.Panels.Count / (float)CameraColumns));
-        float controlsH = cameraRows * RowHeightMm + (cameraRows - 1) * GapMm;
+        int controlRows = Mathf.Max(2, Mathf.CeilToInt(images.Panels.Count / (float)CameraColumns));
+        float controlsH = controlRows * RowHeightMm + (controlRows - 1) * GapMm;
         float heightMm = PaddingMm + HeaderHeightMm + GapMm + 4f + GapMm + controlsH + PaddingMm;
 
         // Top edge just below the lowest point the camera blocks may reach.
@@ -53,43 +57,65 @@ public class HudBar : MonoBehaviour
         float inner = WidthMm - 2 * PaddingMm;
 
         HudUi.Stretch(HudUi.Round(HudUi.Box(root, "Background", HudUi.PanelColor), RadiusMm).rectTransform);
+        // Ring just outside the bar; its thickness is radius x RingThicknessRatio.
+        float ringRadius = OutlineMm / HudUi.RingThicknessRatio;
+        _outline = HudUi.Ring(HudUi.Box(root, "Outline", Color.clear), ringRadius);
+        HudUi.Stretch(_outline.rectTransform, -OutlineMm);
 
-        // --- Header: ROS IP, connection pill, Edit ---
+        // --- Header left: robot name and Joy state chip ---
         float top = PaddingMm;
+        string robotName = images.Profile != null ? images.Profile.displayName : "";
+        var name = HudUi.Label(root, "Robot", robotName, title, TextAlignmentOptions.Left);
+        name.fontStyle = FontStyles.Bold;
+        name.textWrappingMode = TextWrappingModes.NoWrap;
+        float nameW = name.GetPreferredValues(robotName).x;
+        HudUi.Place(name.rectTransform, PaddingMm, top, nameW, HeaderHeightMm);
+
+        float chipH = body * 1.7f;
+        _joyChip = HudUi.Round(HudUi.Box(root, "Joy State", Color.clear), chipH / 2f);
+        _joyText = HudUi.Label(_joyChip.transform, "Label", "", body);
+        _joyText.fontStyle = FontStyles.Bold;
+        _joyText.textWrappingMode = TextWrappingModes.NoWrap;
+        HudUi.Stretch(_joyText.rectTransform);
+        float chipW = Mathf.Max(_joyText.GetPreferredValues(JoyOnText).x, _joyText.GetPreferredValues(JoyOffText).x) + 2f * body;
+        float chipLeft = PaddingMm + nameW + GapMm;
+        HudUi.Place(_joyChip.rectTransform, chipLeft, top + (HeaderHeightMm - chipH) / 2f, chipW, chipH);
+
+        // --- Header right: ROS IP, connection pill, Edit ---
+        var edit = HudUi.Button(root, "Edit", body, _publisher.OpenIpKeyboard);
+        float editLeft = WidthMm - PaddingMm - EditWidthMm;
+        HudUi.Place((RectTransform)edit.transform, editLeft, top + 30f, EditWidthMm, HeaderHeightMm - 60f);
+
+        float pillLeft = editLeft - GapMm - PillWidthMm;
+        _pill = HudUi.Round(HudUi.Box(root, "Status", Color.clear), chipH / 2f);
+        HudUi.Place(_pill.rectTransform, pillLeft, top + (HeaderHeightMm - chipH) / 2f, PillWidthMm, chipH);
+        _pillText = HudUi.Label(_pill.transform, "Label", "", body);
+        HudUi.Stretch(_pillText.rectTransform);
+
         var caption = HudUi.Label(root, "Caption", "ROS IP", body, TextAlignmentOptions.Left);
         caption.color = HudUi.MutedText;
         caption.textWrappingMode = TextWrappingModes.NoWrap;
         float captionW = caption.GetPreferredValues("ROS IP").x;
-        HudUi.Place(caption.rectTransform, PaddingMm, top, captionW, HeaderHeightMm);
+        float captionLeft = chipLeft + chipW + 3f * GapMm;
+        HudUi.Place(caption.rectTransform, captionLeft, top, captionW, HeaderHeightMm);
 
-        float ipLeft = PaddingMm + captionW + GapMm;
-        float ipWidth = inner - captionW - GapMm - PillWidthMm - GapMm - EditWidthMm - GapMm;
+        float ipLeft = captionLeft + captionW + GapMm;
         _ip = HudUi.Label(root, "IP", "", title, TextAlignmentOptions.Left);
         _ip.textWrappingMode = TextWrappingModes.NoWrap;
         _ip.overflowMode = TextOverflowModes.Ellipsis;
-        HudUi.Place(_ip.rectTransform, ipLeft, top, ipWidth, HeaderHeightMm);
-
-        float pillH = body * 1.7f;
-        _pill = HudUi.Round(HudUi.Box(root, "Status", Color.clear), pillH / 2f);
-        HudUi.Place(_pill.rectTransform, ipLeft + ipWidth + GapMm, top + (HeaderHeightMm - pillH) / 2f, PillWidthMm, pillH);
-        _pillText = HudUi.Label(_pill.transform, "Label", "", body);
-        HudUi.Stretch(_pillText.rectTransform);
-
-        var edit = HudUi.Button(root, "Edit", body, _publisher.OpenIpKeyboard);
-        float editH = HeaderHeightMm - 2 * 30f;
-        HudUi.Place((RectTransform)edit.transform, WidthMm - PaddingMm - EditWidthMm, top + 30f, EditWidthMm, editH);
+        HudUi.Place(_ip.rectTransform, ipLeft, top, pillLeft - GapMm - ipLeft, HeaderHeightMm);
         top += HeaderHeightMm + GapMm;
 
         var divider = HudUi.Box(root, "Divider", new Color(1f, 1f, 1f, 0.12f));
         HudUi.Place(divider.rectTransform, PaddingMm, top, inner, 4f);
         top += 4f + GapMm;
 
-        // --- Controls: Publish Joy | camera toggles | Reset layout ---
+        // --- Controls: Publish Joy | camera toggles | Reset layout / Back to robots ---
         var joy = HudUi.Toggle(root, "Publish Joy", body, _publisher.publishJoy, on => _publisher.publishJoy = on);
         HudUi.Place((RectTransform)joy.transform, PaddingMm, top, JoyColumnMm, RowHeightMm);
 
         float camLeft = PaddingMm + JoyColumnMm + GapMm;
-        float camWidth = inner - JoyColumnMm - GapMm - ResetColumnMm - GapMm;
+        float camWidth = inner - JoyColumnMm - GapMm - ButtonColumnMm - GapMm;
         float colW = (camWidth - (CameraColumns - 1) * GapMm) / CameraColumns;
         for (int i = 0; i < images.Panels.Count; i++)
         {
@@ -101,11 +127,11 @@ public class HudBar : MonoBehaviour
                 colW, RowHeightMm);
         }
 
+        float buttonsLeft = WidthMm - PaddingMm - ButtonColumnMm;
         var reset = HudUi.Button(root, "Reset layout", body, images.ResetLayout);
-        var resetLabel = reset.GetComponentInChildren<TextMeshProUGUI>();
-        resetLabel.margin = new Vector4(20f, 0f, 20f, 0f);
-        HudUi.Place((RectTransform)reset.transform, WidthMm - PaddingMm - ResetColumnMm, top, ResetColumnMm,
-            heightMm - top - PaddingMm);
+        HudUi.Place((RectTransform)reset.transform, buttonsLeft, top, ButtonColumnMm, RowHeightMm);
+        var back = HudUi.Button(root, "← Robots", body, _publisher.BackToRobotSelection);
+        HudUi.Place((RectTransform)back.transform, buttonsLeft, top + RowHeightMm + GapMm, ButtonColumnMm, RowHeightMm);
     }
 
     void Update()
@@ -113,11 +139,24 @@ public class HudBar : MonoBehaviour
         _ip.text = _publisher.DisplayedIp;
 
         bool connected = !_publisher.HasConnectionError;
-        if (_shownConnected == connected) return;
-        _shownConnected = connected;
-        var c = connected ? HudUi.GoodColor : HudUi.BadColor;
-        _pill.color = new Color(c.r, c.g, c.b, 0.18f);
-        _pillText.color = c;
-        _pillText.text = connected ? "connected" : "not connected";
+        if (_shownConnected != connected)
+        {
+            _shownConnected = connected;
+            var c = connected ? HudUi.GoodColor : HudUi.BadColor;
+            _pill.color = new Color(c.r, c.g, c.b, 0.18f);
+            _pillText.color = c;
+            _pillText.text = connected ? "connected" : "not connected";
+        }
+
+        bool joy = _publisher.publishJoy;
+        if (_shownJoy != joy)
+        {
+            _shownJoy = joy;
+            var c = joy ? HudUi.WarnColor : HudUi.AccentColor;
+            _joyChip.color = new Color(c.r, c.g, c.b, 0.18f);
+            _joyText.color = c;
+            _joyText.text = joy ? JoyOnText : JoyOffText;
+            _outline.color = joy ? new Color(c.r, c.g, c.b, 0.6f) : Color.clear;
+        }
     }
 }

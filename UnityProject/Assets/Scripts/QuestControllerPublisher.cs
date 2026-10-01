@@ -80,6 +80,9 @@ public class QuestControllerPublisher : MonoBehaviour
 
     public bool HasConnectionError => ros.HasConnectionError;
 
+    // Leave the robot screen and go back to choosing a robot (HUD button and left menu button).
+    public void BackToRobotSelection() => SceneManager.LoadScene(robotSelectionSceneName);
+
     // Opens the Quest system keyboard; the typed IP is applied when the user confirms.
     public void OpenIpKeyboard()
     {
@@ -122,7 +125,7 @@ public class QuestControllerPublisher : MonoBehaviour
             if (menuButtonPressed && !_prevMenuButtonState)
             {
                 _prevMenuButtonState = menuButtonPressed;
-                SceneManager.LoadScene(robotSelectionSceneName);
+                BackToRobotSelection();
                 return;
             }
             _prevMenuButtonState = menuButtonPressed;

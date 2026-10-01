@@ -34,6 +34,12 @@ public class CameraPanel : MonoBehaviour
 
     public enum Highlight { None, Hover, Drag }
 
+    // Camera state shown on the view: "Waiting for ..." before the first frame, then the
+    // displayed frame rate, or "stale" (and a dimmed image) when frames stop arriving.
+    public const float StaleAfterSeconds = 1.0f;
+    const float FpsWindowSeconds = 0.5f, BadgeRefreshSeconds = 0.2f;
+    static readonly Color StaleTint = new Color(0.45f, 0.45f, 0.45f, 1f);
+
     public RobotProfile.CameraConfig Config { get; private set; }
     public string Topic { get; private set; }
 
@@ -47,7 +53,13 @@ public class CameraPanel : MonoBehaviour
 
     RawImage _view;
     Image _outline, _card;
-    TextMeshProUGUI _name, _topic;
+    TextMeshProUGUI _name, _topic, _waiting, _badgeText;
+    Image _badge;
+    float _lastFrameTime = -1f, _windowStart, _fps, _nextBadgeRefresh;
+    int _framesInWindow;
+
+    public enum FeedState { Waiting, Live, Stale }
+    public FeedState State { get; private set; } = FeedState.Waiting;
     BoxCollider _collider;
 
     // Current view size factor (1 = profile size); set by the auto layout.
@@ -74,8 +86,8 @@ public class CameraPanel : MonoBehaviour
         canvas.renderMode = RenderMode.WorldSpace;
         ((RectTransform)transform).localScale = Vector3.one / MmPerMetre;
 
-        // Drawn first, so they sit behind the labels and view: outline around the card, then the card.
-        _outline = HudUi.Round(HudUi.Box(transform, "Outline", Color.clear), CardRadiusMm + OutlineMarginMm);
+        // Drawn first, so they sit behind the labels and view: highlight ring around the card, then the card.
+        _outline = HudUi.Ring(HudUi.Box(transform, "Outline", Color.clear), OutlineMarginMm / HudUi.RingThicknessRatio);
         HudUi.Stretch(_outline.rectTransform, -OutlineMarginMm);
         _card = HudUi.Round(HudUi.Box(transform, "Card", HudUi.PanelColor), CardRadiusMm);
         HudUi.Stretch(_card.rectTransform);
@@ -89,6 +101,21 @@ public class CameraPanel : MonoBehaviour
         _view.transform.SetParent(transform, false);
         _view.color = WaitingColor;
         _view.raycastTarget = false;
+
+        float body = TopicFontSize * MmPerMetre;
+        _waiting = HudUi.Label(_view.transform, "Waiting",
+            $"Waiting for\n<color=#FFFFFF>{config.topicSuffix.Replace("/", "/\u200B")}</color>", body);
+        _waiting.color = HudUi.MutedText;
+        HudUi.Stretch(_waiting.rectTransform, body);
+
+        _badge = HudUi.Round(HudUi.Box(_view.transform, "Badge", new Color(0f, 0f, 0f, 0.55f)), body);
+        var brt = _badge.rectTransform;
+        brt.anchorMin = brt.anchorMax = brt.pivot = new Vector2(1f, 1f);
+        brt.anchoredPosition = new Vector2(-0.5f * body, -0.5f * body);
+        _badgeText = HudUi.Label(_badge.transform, "Label", "", body * 0.85f);
+        _badgeText.textWrappingMode = TextWrappingModes.NoWrap;
+        HudUi.Stretch(_badgeText.rectTransform);
+        _badge.gameObject.SetActive(false);
 
         // Collider over the whole block (canvas units are mm), then the interactable that uses it.
         _collider = gameObject.AddComponent<BoxCollider>();
@@ -180,10 +207,57 @@ public class CameraPanel : MonoBehaviour
 
     public void SetTexture(Texture texture)
     {
+        float now = Time.unscaledTime;
+        if (_lastFrameTime < 0f)
+        {
+            _waiting.gameObject.SetActive(false);
+            _badge.gameObject.SetActive(true);
+            _windowStart = now;
+        }
+        _lastFrameTime = now;
+        _framesInWindow++;
+
         _view.texture = texture;
         _view.color = Color.white;
         _view.uvRect = new Rect(
             Config.flipHorizontal ? 1f : 0f, Config.flipVertical ? 1f : 0f,
             Config.flipHorizontal ? -1f : 1f, Config.flipVertical ? -1f : 1f);
+    }
+
+    void Update()
+    {
+        if (_lastFrameTime < 0f) return;  // still waiting for the first frame
+
+        float now = Time.unscaledTime;
+        if (now - _windowStart >= FpsWindowSeconds)
+        {
+            _fps = _framesInWindow / (now - _windowStart);
+            _framesInWindow = 0;
+            _windowStart = now;
+        }
+        if (now < _nextBadgeRefresh) return;
+        _nextBadgeRefresh = now + BadgeRefreshSeconds;
+
+        float age = now - _lastFrameTime;
+        if (age > StaleAfterSeconds)
+        {
+            State = FeedState.Stale;
+            _view.color = StaleTint;
+            SetBadge($"stale {age:F1} s", HudUi.WarnColor);
+        }
+        else
+        {
+            State = FeedState.Live;
+            SetBadge($"{Mathf.RoundToInt(_fps)} fps", HudUi.GoodColor);
+        }
+    }
+
+    void SetBadge(string text, Color color)
+    {
+        if (_badgeText.text == text) return;
+        _badgeText.text = text;
+        _badgeText.color = color;
+        var size = _badgeText.GetPreferredValues(text);
+        _badge.rectTransform.sizeDelta = new Vector2(size.x + _badgeText.fontSize, size.y * 1.15f);
     }
 }

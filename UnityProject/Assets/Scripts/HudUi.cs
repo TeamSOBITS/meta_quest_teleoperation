@@ -25,10 +25,13 @@ public static class HudUi
     public static readonly Color MutedText    = new Color(1f, 1f, 1f, 0.6f);
     public static readonly Color GoodColor    = new Color(0.38f, 0.88f, 0.50f, 1f);
     public static readonly Color BadColor     = new Color(1f, 0.38f, 0.38f, 1f);
+    public static readonly Color WarnColor    = new Color(1f, 0.71f, 0.28f, 1f);
 
     // Rounded-rectangle sprite for sliced Images; corner radius is set per Image via Round().
     const int RoundedSpriteSize = 64, RoundedSpriteBorder = 16;
-    static Sprite _roundedSprite;
+    // Ring (outline) thickness as a fraction of its corner radius.
+    public const float RingThicknessRatio = 0.25f;
+    static Sprite _roundedSprite, _ringSprite;
 
     // Canvas sized width x height mm, placed at localPosition under parent and facing the parent's origin.
     // Interactive canvases get a raycaster so XR controller rays can press their controls.
@@ -90,10 +93,34 @@ public static class HudUi
         return image;
     }
 
+    // Rounded outline only (transparent inside), `radius` mm corners, radius x RingThicknessRatio thick.
+    // Used for highlight outlines so they don't tint the see-through card behind them.
+    public static Image Ring(Image image, float radius)
+    {
+        image.sprite = RingSprite();
+        image.type = Image.Type.Sliced;
+        image.fillCenter = false;
+        image.pixelsPerUnitMultiplier = RoundedSpriteBorder / Mathf.Max(radius, 0.01f);
+        return image;
+    }
+
+    // Unity's == (not ??=): runtime-made sprites can be destroyed (e.g. leaving Play mode or
+    // unloading unused assets) while the static field still holds the dead reference.
     static Sprite RoundedSprite()
     {
-        if (_roundedSprite != null) return _roundedSprite;
+        if (_roundedSprite == null) _roundedSprite = MakeRoundedSprite(0f);
+        return _roundedSprite;
+    }
 
+    static Sprite RingSprite()
+    {
+        if (_ringSprite == null) _ringSprite = MakeRoundedSprite(RoundedSpriteBorder * RingThicknessRatio);
+        return _ringSprite;
+    }
+
+    // Rounded rectangle; with thickness > 0 only a ring of that many pixels is opaque.
+    static Sprite MakeRoundedSprite(float thickness)
+    {
         int n = RoundedSpriteSize; float r = RoundedSpriteBorder;
         var tex = new Texture2D(n, n, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp };
         var pixels = new Color32[n * n];
@@ -103,14 +130,21 @@ public static class HudUi
             // Distance outside the rounded rectangle, anti-aliased over one pixel.
             float dx = Mathf.Max(r - (x + 0.5f), (x + 0.5f) - (n - r), 0f);
             float dy = Mathf.Max(r - (y + 0.5f), (y + 0.5f) - (n - r), 0f);
-            float a = Mathf.Clamp01(r - Mathf.Sqrt(dx * dx + dy * dy) + 0.5f);
+            float d = Mathf.Sqrt(dx * dx + dy * dy);       // 0 inside the straight part
+            float a = Mathf.Clamp01(r - d + 0.5f);
+            if (thickness > 0f)
+            {
+                // Distance to the nearest edge, inside the shape: keep only the outer band.
+                float edge = Mathf.Min(Mathf.Min(x + 0.5f, n - x - 0.5f), Mathf.Min(y + 0.5f, n - y - 0.5f));
+                float inner = d > 0f ? r - d : edge;
+                a *= Mathf.Clamp01(thickness - inner + 0.5f);
+            }
             pixels[y * n + x] = new Color32(255, 255, 255, (byte)(a * 255));
         }
         tex.SetPixels32(pixels);
         tex.Apply(false, true);
-        _roundedSprite = Sprite.Create(tex, new Rect(0, 0, n, n), new Vector2(0.5f, 0.5f), 100f, 0,
-                                       SpriteMeshType.FullRect, new Vector4(r, r, r, r));
-        return _roundedSprite;
+        return Sprite.Create(tex, new Rect(0, 0, n, n), new Vector2(0.5f, 0.5f), 100f, 0,
+                             SpriteMeshType.FullRect, new Vector4(r, r, r, r));
     }
 
     public static Button Button(Transform parent, string text, float fontSize, UnityAction onClick)
