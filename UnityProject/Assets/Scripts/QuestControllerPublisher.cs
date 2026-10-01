@@ -48,6 +48,18 @@ public class QuestControllerPublisher : MonoBehaviour
     public string robotSelectionSceneName = "RobotSelectionScene";
     private bool _prevMenuButtonState;
 
+    private const string RosIpPrefsKey = "RosIPAddress";
+
+    // Restore the last IP typed on the keyboard. Done in Awake because ROSConnection
+    // connects in its own Start, and every Awake runs before any Start — so the first
+    // connection already goes to the saved IP, with no Disconnect/Connect cycle.
+    public void Awake()
+    {
+        string savedIp = PlayerPrefs.GetString(RosIpPrefsKey, "");
+        if (!string.IsNullOrEmpty(savedIp))
+            ros.RosIPAddress = savedIp;
+    }
+
     public void Start()
     {
         // Build namespaced joy topic: /<robotNamespace>/joy
@@ -91,7 +103,8 @@ public class QuestControllerPublisher : MonoBehaviour
             textInput.text = _confirmedIp;
             ros.Disconnect();
             ros.Connect(_confirmedIp, 10000);
-            PlayerPrefs.SetString("RosIPAddress", _confirmedIp);
+            PlayerPrefs.SetString(RosIpPrefsKey, _confirmedIp);
+            PlayerPrefs.Save();  // flush now; the app may be killed from the Quest menu without a clean quit
             _keyboard = null;
         }
 
