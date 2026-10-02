@@ -1,5 +1,7 @@
 // Verify harness: baseline pictures + scene statistics. Renders fixed poses to VERIFY_SHOTS/baseline/*.png
-// (selection.png, teleop_blocks.png, teleop_model_blocks.png, teleop_firstperson.png) against the live sim and writes
+// (selection.png, teleop_blocks.png, teleop_model_blocks.png, teleop_firstperson.png) against the live sim, three HUD-only
+// pictures (hud_panels.png: camera blocks with flat textures, highlights, topic line, Rename; hud_selection.png: the
+// robot selection screen close up; hud_bar.png: the HUD bar close up) and writes
 // baseline/scene_stats.json (skybox, ambient, fog, lighting data, lights, missing scripts / references per scene + rig prefabs).
 // Needs the live sim (HOME) on 127.0.0.1:10000 and no other ROS client (stop the app on the headset).
 // Run: tools/verify.sh --shots   (or Unity -batchmode -projectPath <copy> -executeMethod SceneShots.Run)
@@ -155,6 +157,38 @@ public static class SceneShots
         while (!Application.isPlaying) yield return Seconds(0.1);
         yield return Seconds(3.0);
         { var head = Camera.main.transform; Shot("selection", head.position, head.rotation, 80f); }
+        { var head = Camera.main.transform; Shot("hud_selection", head.position, head.rotation, 45f); }
+
+        // Camera blocks with flat textures (no live image): flips, highlights, topic line, Rename, long name.
+        GameObject.Find("Robot Selection Screen")?.SetActive(false);
+        {
+            var head = Camera.main.transform;
+            var tex = new Texture2D(8, 6, TextureFormat.RGB24, false) { filterMode = FilterMode.Point };
+            for (int y = 0; y < 6; y++) for (int x = 0; x < 8; x++) tex.SetPixel(x, y, new Color(x / 7f, y / 5f, 0.5f));
+            tex.Apply();
+            var parent = new GameObject("HudShots").transform;
+            var cams = new[]
+            {
+                (name: "Head Camera", flipH: false, hl: CameraPanel.Highlight.None,  topic: false, edit: false),
+                (name: "Hand Camera with a long name that wraps", flipH: true, hl: CameraPanel.Highlight.Hover, topic: false, edit: true),
+                (name: "Front Camera", flipH: false, hl: CameraPanel.Highlight.Drag,  topic: true,  edit: false),
+            };
+            float x0 = -1.5f;
+            foreach (var c in cams)
+            {
+                var cfg = new RobotProfile.CameraConfig { displayName = c.name, topicSuffix = "/robot/cam/image_raw", flipHorizontal = c.flipH, resolution = new Vector2Int(640, 480) };
+                var panel = CameraPanel.Create(parent, cfg, cfg.topicSuffix, c.topic);
+                panel.transform.position = head.position + head.forward * HudTheme.ReferenceDistance + head.right * x0;
+                panel.transform.rotation = Quaternion.LookRotation(panel.transform.position - head.position);
+                x0 += 1.5f;
+                panel.SetSize(c.flipH ? 0.8f : 1f);
+                panel.SetHighlight(c.hl); panel.SetEditable(c.edit);
+                if (c.name == "Front Camera") { }   // stays "Waiting for ..." (no frame)
+                else panel.SetTexture(tex);
+            }
+            yield return Seconds(0.3);
+            Shot("hud_panels", head.position, head.rotation, 40f);
+        }
         { var e = ExitPlay(); while (e.MoveNext()) yield return e.Current; }
 
         // 3. teleop scene against the live sim
@@ -175,6 +209,7 @@ public static class SceneShots
         var headT = FirstPersonView.Head != null ? FirstPersonView.Head : Camera.main.transform;
         Log($"live panels {images.Panels.Count(p => p.State == CameraPanel.FeedState.Live)}/{images.Panels.Count}");
         Shot("teleop_blocks", headT.position, headT.rotation, 90f);
+        { var bar = GameObject.Find("HUD Bar"); if (bar != null) Shot("hud_bar", headT.position, Quaternion.LookRotation(bar.transform.position - headT.position), 17f, 1600, 500); }
 
         hud.SetRobotModel(true);
         yield return Frames(3);

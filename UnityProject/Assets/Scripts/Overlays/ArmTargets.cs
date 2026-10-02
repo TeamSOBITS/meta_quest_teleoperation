@@ -57,7 +57,7 @@ public class ArmTargets : MonoBehaviour
         t._model = model;
         t._rootFrame = root;
         t._namespace = profile.robotNamespace;
-        var colours = new[] { HudUi.AccentColor, HudUi.WarnColor };
+        var colours = new[] { HudTheme.Accent, HudTheme.Warn };
         for (int i = 0; i < profile.arms.Length; i++)
         {
             var arm = profile.arms[i];

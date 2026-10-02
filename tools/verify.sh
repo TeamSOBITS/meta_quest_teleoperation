@@ -5,7 +5,7 @@
 #   --suite NAME  run one suite (repeatable); --all = the default list:
 #                 LayoutVerifier AddRobotTest SelectionShot FirstPersonVerify ExperimentsVerify ExperimentsVerify2 ExperimentsVerify3 ExperimentsVerify4 ProfileValidator SettingsVerify
 #   --build       BuildApk.Build on the copy (-nographics -buildTarget Android); APK copied to UnityProject/Builds/
-#   --shots       SceneShots: baseline pictures + scene_stats.json in <copy-parent>/shots/baseline/
+#   --shots       SceneShots: baseline pictures (4 scene pictures + 3 HUD-only: hud_panels, hud_selection, hud_bar) + scene_stats.json in <copy-parent>/shots/baseline/
 # Env: VERIFY_ROBOT (SOBIT_HOME default, SOBIT_LIGHT: robot the FirstPersonVerify/ExperimentsVerify2-4/ModelShots suites and tools/sim helpers target; switch the sim with tools/sim.sh home|light), SCRATCH (work dir, default ~/.cache/teleop-verify), VERIFY_DIR (default $SCRATCH/verify/UnityProject), UNITY (editor binary),
 #      TELEOP_TOOLS (default <repo>/tools/sim). Live suites need the sim (tools/sim.sh home) and no other ROS client
 #      (adb shell am force-stop com.unity.template.vr). A flock on $SCRATCH/verify.lock serialises runs. Exit code != 0 if anything failed.
@@ -73,7 +73,7 @@ if [ $shots = 1 ]; then
   echo "== SceneShots"
   run_unity SceneShots -executeMethod SceneShots.Run; rc=$?
   n=$(ls "$PARENT/shots/baseline"/*.png 2>/dev/null | wc -l)
-  [ $rc != 0 ] || [ "$n" != 4 ] && rc_all=1
+  [ $rc != 0 ] || [ "$n" != 7 ] && rc_all=1
   rows+=("$(printf '%-20s %5s png  rc=%s -> %s' SceneShots "$n" "$rc" "$PARENT/shots/baseline")")
 fi
 

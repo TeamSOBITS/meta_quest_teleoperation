@@ -23,10 +23,13 @@ public class StatusStrip : MonoBehaviour
     // Placement relative to the head (metres) and size (mm, canvas units).
     const float Distance = 1.2f, DropM = -0.45f;
     const float WidthMm = 1400f, HeightMm = 130f, RadiusMm = 18f;
+    const float BackgroundAlpha = 0.7f;   // the strip is more see-through than a panel
+    const float DotMm = 14f, HeadBoxRadiusMm = 8f, TrackRadiusMm = 4f, MarkerRadiusMm = 3f;
+    static readonly Color CrosshairColor = new Color(1f, 1f, 1f, 0.3f);
     const float NoModelWidthMm = 900f;   // without HEAD and LIFT
     // Blocks mode: the strip hangs where the bar sits (4.3 m), scaled so its text is as large as the
     // bar's body text (the font is sized for Distance and 0.88 x the body size).
-    public const float BlocksScale = HudBar.CompactScale * HudUi.ReferenceDistance / (Distance * 0.88f);
+    public const float BlocksScale = HudBar.CompactScale * HudTheme.ReferenceDistance / (Distance * 0.88f);
     const float Pad = 80f;   // left margin that centres the single row in the wider strip
     const float TextRefreshSeconds = 0.2f;
     const float UnknownRange = 1f;   // gauge range (rad or m) when the profile gives no limit (an asset not yet filled by UrdfModelBuilder)
@@ -63,7 +66,7 @@ public class StatusStrip : MonoBehaviour
         var root = HudUi.CreateCanvas("Status Strip", parent, localPosition,
                                       new Vector2(model != null ? WidthMm : NoModelWidthMm, HeightMm), interactive: false);
         root.localScale *= scale;
-        root.GetComponent<Canvas>().sortingOrder = HudUi.CanvasSortingOrder + 1;
+        root.GetComponent<Canvas>().sortingOrder = HudTheme.SortingOrder + 1;
         var strip = root.gameObject.AddComponent<StatusStrip>();
         strip._publisher = publisher;
         strip._images = images;
@@ -104,29 +107,25 @@ public class StatusStrip : MonoBehaviour
 
     void Build(RectTransform root)
     {
-        float font = HudUi.FontAt(HudUi.BodyFontSize * 0.88f, Distance);
-        var bg = HudUi.Round(HudUi.Box(root, "Background", new Color(HudUi.PanelColor.r, HudUi.PanelColor.g, HudUi.PanelColor.b, 0.7f)), RadiusMm);
+        float font = HudUi.FontAt(HudTheme.BodyFont * 0.88f, Distance);
+        var bg = HudUi.Round(HudUi.Box(root, "Background", HudTheme.WithAlpha(HudTheme.Panel, BackgroundAlpha)), RadiusMm);
         HudUi.Stretch(bg.rectTransform);
 
         // Connection: dot + text.
-        _dot = HudUi.Round(HudUi.Box(root, "Connection Dot", HudUi.GoodColor), 7f);
-        HudUi.Place(_dot.rectTransform, 14f + Pad, (HeightMm - 14f) / 2f, 14f, 14f);
+        _dot = HudUi.Round(HudUi.Box(root, "Connection Dot", HudTheme.Good), DotMm / 2f);
+        HudUi.Place(_dot.rectTransform, DotMm + Pad, (HeightMm - DotMm) / 2f, DotMm, DotMm);
         _conn = Text(root, "Connection", 34f + Pad, 150f, font);
 
         // CONTROL ON pill / LAYOUT.
         float pillH = font * 1.5f;
-        _pill = HudUi.Round(HudUi.Box(root, "Control Pill", Color.clear), pillH / 2f);
+        (_pill, _pillText) = HudUi.Pill(root, "Control Pill", "", font, pillH, Color.clear, Color.white, bold: true);
         HudUi.Place(_pill.rectTransform, 192f + Pad, (HeightMm - pillH) / 2f, 135f, pillH);
-        _pillText = HudUi.Label(_pill.transform, "Label", "", font);
-        _pillText.fontStyle = FontStyles.Bold;
-        _pillText.textWrappingMode = TextWrappingModes.NoWrap;
         // Bold "CONTROL ON" is wider than the pill at the strip's font: shrink to fit
         // (it overflowed into the image fps text).
         _pillText.enableAutoSizing = true;
         _pillText.fontSizeMax = font;
         _pillText.fontSizeMin = font * 0.5f;
         _pillText.margin = new Vector4(8f, 0f, 8f, 0f);
-        HudUi.Stretch(_pillText.rectTransform);
 
         _image = Text(root, "Image", 337f + Pad, 170f, font);
         _tf = Text(root, "TF", 515f + Pad, 95f, font);
@@ -138,14 +137,14 @@ public class StatusStrip : MonoBehaviour
         float x = 730f + Pad;
         var headLabel = Text(root, "Head Label", x, HeadBoxW, small, TextAlignmentOptions.Center);
         headLabel.text = "HEAD";
-        headLabel.color = HudUi.MutedText;
+        headLabel.color = HudTheme.Muted;
         HudUi.Place(headLabel.rectTransform, x, 2f, HeadBoxW, small * 1.2f);
-        var box = HudUi.Round(HudUi.Box(root, "Head Box", HudUi.ControlColor), 8f);
+        var box = HudUi.Round(HudUi.Box(root, "Head Box", HudTheme.Control), HeadBoxRadiusMm);
         float boxTop = HeightMm - HeadBoxH - 4f;
         HudUi.Place(box.rectTransform, x, boxTop, HeadBoxW, HeadBoxH);
         foreach (var size in new[] { new Vector2(HeadBoxW - 10f, 2f), new Vector2(2f, HeadBoxH - 10f) })
         {
-            var cross = HudUi.Box(box.transform, "Crosshair", new Color(1f, 1f, 1f, 0.3f));
+            var cross = HudUi.Box(box.transform, "Crosshair", CrosshairColor);
             cross.rectTransform.anchorMin = cross.rectTransform.anchorMax = cross.rectTransform.pivot = new Vector2(0.5f, 0.5f);
             cross.rectTransform.sizeDelta = size;
             cross.rectTransform.anchoredPosition = Vector2.zero;
@@ -154,14 +153,14 @@ public class StatusStrip : MonoBehaviour
         foreach (bool leftTick in new[] { true, false })
         {
             var tick = HudUi.Label(box.transform, leftTick ? "L" : "R", leftTick ? "L" : "R", small, leftTick ? TextAlignmentOptions.Left : TextAlignmentOptions.Right);
-            tick.color = HudUi.MutedText;
+            tick.color = HudTheme.Muted;
             tick.textWrappingMode = TextWrappingModes.NoWrap;
             tick.rectTransform.anchorMin = tick.rectTransform.anchorMax = tick.rectTransform.pivot = new Vector2(leftTick ? 0f : 1f, 0.5f);
             tick.rectTransform.sizeDelta = new Vector2(small * 1.4f, small * 1.4f);
             tick.rectTransform.anchoredPosition = new Vector2(leftTick ? 4f : -4f, 0f);
         }
         _headText = Text(root, "Head Values", x + HeadBoxW + 8f, 115f, small);
-        _headText.color = HudUi.MutedText;
+        _headText.color = HudTheme.Muted;
         _headText.textWrappingMode = TextWrappingModes.Normal;   // "pan 29°" over "tilt 17°"
         _headText.verticalAlignment = VerticalAlignmentOptions.Middle;
 
@@ -169,11 +168,11 @@ public class StatusStrip : MonoBehaviour
         float lx = x + HeadBoxW + 8f + 125f;
         var liftLabel = Text(root, "Lift Label", lx, 60f, small, TextAlignmentOptions.Left);
         liftLabel.text = "LIFT";
-        liftLabel.color = HudUi.MutedText;
+        liftLabel.color = HudTheme.Muted;
         HudUi.Place(liftLabel.rectTransform, lx, 2f, 80f, small * 1.2f);
-        var liftTrack = HudUi.Round(HudUi.Box(root, "Lift Track", HudUi.ControlColor), 4f);
+        var liftTrack = HudUi.Round(HudUi.Box(root, "Lift Track", HudTheme.Control), TrackRadiusMm);
         HudUi.Place(liftTrack.rectTransform, lx + 4f, HeightMm - LiftBarMm - 4f, 10f, LiftBarMm);
-        var fill = HudUi.Round(HudUi.Box(liftTrack.transform, "Lift Fill", HudUi.AccentColor), 4f);
+        var fill = HudUi.Round(HudUi.Box(liftTrack.transform, "Lift Fill", HudTheme.Accent), TrackRadiusMm);
         _liftFill = fill.rectTransform;
         _liftFill.anchorMin = Vector2.zero;
         _liftFill.anchorMax = new Vector2(1f, 0f);
@@ -181,7 +180,7 @@ public class StatusStrip : MonoBehaviour
         _liftFill.offsetMin = _liftFill.offsetMax = Vector2.zero;
         _liftFill.sizeDelta = new Vector2(0f, 0f);
         _liftText = Text(root, "Lift Value", lx + 22f, 100f, small);
-        _liftText.color = HudUi.MutedText;
+        _liftText.color = HudTheme.Muted;
 
         bool hasHead = _pan != null || _tilt != null;
         headLabel.gameObject.SetActive(hasHead);
@@ -196,7 +195,7 @@ public class StatusStrip : MonoBehaviour
 
     static RectTransform Marker(Transform track, string name, Vector2 size)
     {
-        var m = HudUi.Round(HudUi.Box(track, name, HudUi.AccentColor), 3f);
+        var m = HudUi.Round(HudUi.Box(track, name, HudTheme.Accent), MarkerRadiusMm);
         var rt = m.rectTransform;
         rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
         rt.sizeDelta = size;
@@ -246,14 +245,14 @@ public class StatusStrip : MonoBehaviour
     {
         if (_publisher == null) return;
         bool connected = !_publisher.HasConnectionError;
-        var c = connected ? HudUi.GoodColor : HudUi.BadColor;
+        var c = connected ? HudTheme.Good : HudTheme.Bad;
         _dot.color = c;
         _conn.color = c;
         _conn.text = connected ? "connected" : "not connected";
 
         bool control = _publisher.controlRobot;
-        var pc = control ? HudUi.BadColor : HudUi.MutedText;
-        _pill.color = control ? new Color(pc.r, pc.g, pc.b, 0.25f) : Color.clear;
+        var pc = control ? HudTheme.Bad : HudTheme.Muted;
+        _pill.color = control ? HudTheme.PillBackground(pc, strong: true) : Color.clear;
         _pillText.color = pc;
         _pillText.text = control ? "CONTROL ON" : "LAYOUT";
 
@@ -262,13 +261,13 @@ public class StatusStrip : MonoBehaviour
         else if (last < 0.0)
         {
             _image.text = "no image";
-            _image.color = HudUi.WarnColor;
+            _image.color = HudTheme.Warn;
         }
         else
         {
             float age = (float)(Time.unscaledTime - last);
             _image.text = $"{_images.Fps(_cameraIndex):F0} fps · {age:F2} s";
-            _image.color = age > 1f ? HudUi.WarnColor : Color.white;
+            _image.color = age > 1f ? HudTheme.Warn : Color.white;
         }
 
         _headText.text = $"pan {PanRad * Mathf.Rad2Deg:F0}\u00B0\ntilt {TiltRad * Mathf.Rad2Deg:F0}\u00B0";
@@ -278,6 +277,6 @@ public class StatusStrip : MonoBehaviour
         var rtt = _rtt != null ? _rtt() : null;
         bool haveRtt = rtt != null && control && rtt.HasRecent;
         _rttText.text = haveRtt ? $"RTT {rtt.RttMs:F0} ms" : "RTT —";
-        _rttText.color = haveRtt ? Color.white : HudUi.MutedText;
+        _rttText.color = haveRtt ? Color.white : HudTheme.Muted;
     }
 }

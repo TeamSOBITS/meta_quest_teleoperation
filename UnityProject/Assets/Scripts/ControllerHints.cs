@@ -36,14 +36,14 @@ public class ControllerHints : MonoBehaviour
     void Add(GameObject controller, string text)
     {
         if (controller == null) return;
-        float body = HudUi.FontAt(HudUi.BodyFontSize, LabelDistance);
+        float body = HudUi.FontAt(HudTheme.BodyFont, LabelDistance);
 
         var label = HudUi.Label(null, "Label", text, body);
         label.textWrappingMode = TextWrappingModes.NoWrap;
         var size = label.GetPreferredValues(text);
         var root = HudUi.CreateCanvas("Hint " + controller.name, transform, Vector3.forward,
             new Vector2(size.x + 2f * body, size.y * 1.7f), interactive: false);
-        var bg = HudUi.Round(HudUi.Box(root, "Background", HudUi.PanelColor), size.y);
+        var bg = HudUi.Round(HudUi.Box(root, "Background", HudTheme.Panel), size.y);
         HudUi.Stretch(bg.rectTransform);
         label.transform.SetParent(root, false);
         HudUi.Stretch(label.rectTransform);

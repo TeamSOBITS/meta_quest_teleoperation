@@ -23,16 +23,12 @@ using UnityEngine.XR.Interaction.Toolkit.UI;
 public class CameraPanel : MonoBehaviour
 {
     // Shared look for all camera blocks (metres).
-    public const float ViewHeight     = 1.2f;
-    public const float NameFontSize   = HudUi.TitleFontSize;
-    public const float TopicFontSize  = HudUi.BodyFontSize;
-    public const float LabelGap       = 0.05f;
+    public const float ViewHeight     = HudTheme.ViewHeight;
+    public const float NameFontSize   = HudTheme.TitleFont;
+    public const float TopicFontSize  = HudTheme.BodyFont;
+    public const float LabelGap       = HudTheme.LabelGap;
 
     const float MmPerMetre = HudUi.MmPerMetre;
-    static readonly Color WaitingColor = new Color(0.15f, 0.15f, 0.15f, 1f);
-    const float OutlineMarginMm = 30f;
-    // Dark card behind the whole block so labels read on any background (same style as the HUD bar).
-    const float CardPaddingMm = 40f, CardRadiusMm = 60f;
 
     public enum Highlight { None, Hover, Drag }
 
@@ -40,7 +36,6 @@ public class CameraPanel : MonoBehaviour
     // displayed frame rate, or "stale" (and a dimmed image) when frames stop arriving.
     public const float StaleAfterSeconds = 1.0f;
     const float FpsWindowSeconds = 0.5f;
-    static readonly Color StaleTint = new Color(0.45f, 0.45f, 0.45f, 1f);
 
     public RobotProfile.CameraConfig Config { get; private set; }
     // Width / height of the view: the real frame size once a frame arrived (built-in robots do not
@@ -58,10 +53,12 @@ public class CameraPanel : MonoBehaviour
     public float AboveViewCentre { get; private set; }
     public float BelowViewCentre { get; private set; }
 
+    CameraCard _card;
+    // The card's parts (kept as fields for the harness).
     RawImage _view;
-    Image _outline, _card;
-    TextMeshProUGUI _name, _topic, _waiting;
+    TextMeshProUGUI _name;
     CameraBadge _badge;
+    Button _rename;
     float _lastFrameTime = -1f, _windowStart, _fps, _nextBadgeRefresh;
     int _framesInWindow;
 
@@ -91,44 +88,16 @@ public class CameraPanel : MonoBehaviour
         Config = config;
         Topic  = topic;
 
-        var canvas = gameObject.AddComponent<Canvas>();
-        canvas.renderMode = RenderMode.WorldSpace;
-        canvas.sortingOrder = HudUi.CanvasSortingOrder;
-        canvas.worldCamera = Camera.main;
-        gameObject.AddComponent<TrackedDeviceGraphicRaycaster>();   // for the Rename button
-        ((RectTransform)transform).localScale = Vector3.one / MmPerMetre;
-
-        // Drawn first, so they sit behind the labels and view: highlight ring around the card, then the card.
-        _outline = HudUi.Ring(HudUi.Box(transform, "Outline", Color.clear), OutlineMarginMm / HudUi.RingThicknessRatio);
-        HudUi.Stretch(_outline.rectTransform, -OutlineMarginMm);
-        _card = HudUi.Round(HudUi.Box(transform, "Card", HudUi.PanelColor), CardRadiusMm);
-        HudUi.Stretch(_card.rectTransform);
-
-        // Labels: same width as the view; text wraps instead of widening the block.
-        // Topics have no spaces, so allow line breaks after each '/'.
-        _name  = CreateLabel("Name",  config.displayName,          NameFontSize);
-        if (showTopic) _topic = CreateLabel("Topic", topic.Replace("/", "/\u200B"), TopicFontSize);
-
-        _view = new GameObject("View", typeof(RectTransform)).AddComponent<RawImage>();
-        _view.transform.SetParent(transform, false);
-        _view.color = WaitingColor;
-        _view.raycastTarget = false;
-
-        float body = TopicFontSize * MmPerMetre;
-        _waiting = HudUi.Label(_view.transform, "Waiting",
-            $"Waiting for\n<color=#FFFFFF>{ShortTopic(topic).Replace("/", "/\u200B")}</color>", body);
-        _waiting.color = HudUi.MutedText;
-        HudUi.Stretch(_waiting.rectTransform, body);
-
-        _badge = CameraBadge.Create(_view.transform, new Vector2(1f, 1f));
-
-        // Rename: shown in layout mode only, above the card's top-right corner.
-        _rename = HudUi.Button(transform, "Rename", TopicFontSize * MmPerMetre, () => RenameRequested?.Invoke(this));
-        var rrt = (RectTransform)_rename.transform;
-        rrt.anchorMin = rrt.anchorMax = rrt.pivot = new Vector2(1f, 1f);
-        rrt.sizeDelta = new Vector2(TopicFontSize * MmPerMetre * 4.6f, TopicFontSize * MmPerMetre * 1.6f);
-        rrt.anchoredPosition = new Vector2(0f, rrt.sizeDelta.y + CardPaddingMm * 0.5f);   // above the card's top edge, right-aligned
-        _rename.gameObject.SetActive(false);
+        // Waiting text: the topic without its namespace; topics have no spaces, so allow line breaks after each '/'.
+        var style = CameraCard.Style.Block();
+        style.WaitingText = $"Waiting for\n<color=#FFFFFF>{ShortTopic(topic).Replace("/", "/\u200B")}</color>";
+        _card = CameraCard.Attach(gameObject, style, config, config.displayName);
+        _card.Renamed += () => RenameRequested?.Invoke(this);
+        _view = _card.View;
+        _name = _card.NameLabel;
+        _badge = _card.Badge;
+        _rename = _card.RenameButton;
+        if (showTopic) _card.AddTopic(topic, TopicFontSize * MmPerMetre);
 
         // Collider over the whole block (canvas units are mm), just behind the canvas so a ray on
         // the Rename button hits the button first; then the interactable that uses it.
@@ -145,13 +114,12 @@ public class CameraPanel : MonoBehaviour
 
     public Metrics Measure(float size)
     {
-        Sizes(size, out float viewW, out float viewH, out float nameH, out float topicH);
-        float gap = LabelGap * MmPerMetre, pad = CardPaddingMm;
+        var m = _card.Measure(ViewMm(size).x, ViewMm(size).y);
         return new Metrics
         {
-            Width = (viewW + 2f * pad) / MmPerMetre,
-            AboveViewCentre = (pad + nameH + gap + viewH / 2f) / MmPerMetre,
-            BelowViewCentre = (viewH / 2f + (_topic != null ? gap + topicH : 0f) + pad) / MmPerMetre,
+            Width = m.Width / MmPerMetre,
+            AboveViewCentre = m.AboveViewCentre / MmPerMetre,
+            BelowViewCentre = m.BelowViewCentre / MmPerMetre,
         };
     }
 
@@ -159,37 +127,21 @@ public class CameraPanel : MonoBehaviour
     public void SetSize(float size)
     {
         Size = size;
-        Sizes(size, out float viewW, out float viewH, out float nameH, out float topicH);
-        float gap = LabelGap * MmPerMetre, pad = CardPaddingMm;
-        float totalH = pad + nameH + gap + viewH + (_topic != null ? gap + topicH : 0f) + pad;
-        float totalW = viewW + 2f * pad;
-        ((RectTransform)transform).sizeDelta = new Vector2(totalW, totalH);
-
-        // Stack from the top of the card downwards.
-        float top = totalH / 2f - pad;
-        Place(_name.rectTransform, top, nameH, viewW);
-        top -= nameH + gap;
-        Place(_view.rectTransform, top, viewH, viewW);
-        top -= viewH + gap;
-        if (_topic != null) Place(_topic.rectTransform, top, topicH, viewW);
-
-        _collider.size = new Vector3(totalW, totalH, 2f);
-        _badge.Fit(new Vector2(viewW, viewH));
-
-        var m = Measure(size);
-        Width  = m.Width;
-        Height = totalH / MmPerMetre;
-        AboveViewCentre = m.AboveViewCentre;
-        BelowViewCentre = m.BelowViewCentre;
+        var view = ViewMm(size);
+        _card.SetSize(view.x, view.y);
+        var m = _card.Size;
+        _collider.size = new Vector3(m.Width, m.Height, 2f);
+        Width  = m.Width / MmPerMetre;
+        Height = m.Height / MmPerMetre;
+        AboveViewCentre = m.AboveViewCentre / MmPerMetre;
+        BelowViewCentre = m.BelowViewCentre / MmPerMetre;
     }
 
-    // Sizes in mm for a given size factor.
-    void Sizes(float size, out float viewW, out float viewH, out float nameH, out float topicH)
+    // View size in mm for a given size factor.
+    Vector2 ViewMm(float size)
     {
-        viewH = ViewHeight * Config.scale * size * MmPerMetre;
-        viewW = viewH * Aspect;
-        nameH  = _name.GetPreferredValues(_name.text, viewW, Mathf.Infinity).y;
-        topicH = _topic != null ? _topic.GetPreferredValues(_topic.text, viewW, Mathf.Infinity).y : 0f;
+        float viewH = ViewHeight * Config.scale * size * MmPerMetre;
+        return new Vector2(viewH * Aspect, viewH);
     }
 
     // Topic without its namespace (absolute topics of added robots start with /<ns>/).
@@ -200,18 +152,6 @@ public class CameraPanel : MonoBehaviour
         return slash > 0 ? topic.Substring(slash + 1) : topic.TrimStart('/');
     }
 
-    TextMeshProUGUI CreateLabel(string objName, string text, float fontSizeMetres)
-        => HudUi.Label(transform, objName, text, fontSizeMetres * MmPerMetre);
-
-    // Anchor a child to the block's centre and place its top edge at y = top.
-    static void Place(RectTransform rt, float top, float height, float width)
-    {
-        rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
-        rt.pivot = new Vector2(0.5f, 1f);
-        rt.sizeDelta = new Vector2(width, height);
-        rt.anchoredPosition = new Vector2(0f, top);
-    }
-
     public bool Visible
     {
         get => gameObject.activeSelf;
@@ -219,28 +159,26 @@ public class CameraPanel : MonoBehaviour
     }
 
     // Name shown above the view; may differ from Config.displayName (which keys saved layouts).
-    public string Label => _name.text;
+    public string Label => _card.Label;
     public event System.Action<CameraPanel> RenameRequested;
-    Button _rename;
 
     public void SetLabel(string label)
     {
-        _name.text = label;
+        _card.SetLabel(label);
         SetSize(Size);   // a longer name may wrap
     }
 
     // Layout mode: the Rename button is available.
-    public void SetEditable(bool editable) => _rename.gameObject.SetActive(editable);
+    public void SetEditable(bool editable) => _card.SetEditable(editable);
 
     public void SetHighlight(Highlight state)
     {
-        var c = HudUi.AccentColor;
-        _outline.color = state switch
+        _card.SetHighlight(state switch
         {
-            Highlight.Hover => new Color(c.r, c.g, c.b, 0.35f),
-            Highlight.Drag  => new Color(c.r, c.g, c.b, 0.7f),
+            Highlight.Hover => HudTheme.WithAlpha(HudTheme.Accent, HudTheme.HoverRingAlpha),
+            Highlight.Drag  => HudTheme.WithAlpha(HudTheme.Accent, HudTheme.DragRingAlpha),
             _               => Color.clear,
-        };
+        });
     }
 
     public void SetTexture(Texture texture)
@@ -248,18 +186,13 @@ public class CameraPanel : MonoBehaviour
         float now = Time.unscaledTime;
         if (_lastFrameTime < 0f)
         {
-            _waiting.gameObject.SetActive(false);
             _badge.Show(true);
             _windowStart = now;
         }
         _lastFrameTime = now;
         _framesInWindow++;
 
-        _view.texture = texture;
-        _view.color = Color.white;
-        _view.uvRect = new Rect(
-            Config.flipHorizontal ? 1f : 0f, Config.flipVertical ? 1f : 0f,
-            Config.flipHorizontal ? -1f : 1f, Config.flipVertical ? -1f : 1f);
+        _card.SetTexture(texture);
     }
 
     void Update()
@@ -280,13 +213,13 @@ public class CameraPanel : MonoBehaviour
         if (age > StaleAfterSeconds)
         {
             State = FeedState.Stale;
-            _view.color = StaleTint;
-            _badge.Set($"stale {age:F1} s", HudUi.WarnColor);
+            _card.SetStale(true);
+            _badge.Set($"stale {age:F1} s", HudTheme.Warn);
         }
         else
         {
             State = FeedState.Live;
-            _badge.Set($"{Mathf.RoundToInt(_fps)} fps", HudUi.GoodColor);
+            _badge.Set($"{Mathf.RoundToInt(_fps)} fps", HudTheme.Good);
         }
     }
 }
@@ -323,7 +256,8 @@ public class CameraBadge
 
     // Size relative to the view it decorates: font height = 7 % of the view's height, clamped to
     // [MinFontMm, MaxFontMm]; corner radius = font; margin from the top-right corner = 3 % of the view's width.
-    public const float FontRatio = 0.07f, MarginRatio = 0.03f, MinFontMm = 8f, MaxFontMm = 120f;
+    public const float FontRatio = HudTheme.BadgeFontRatio, MarginRatio = HudTheme.BadgeMarginRatio,
+                       MinFontMm = HudTheme.BadgeMinFontMm, MaxFontMm = HudTheme.BadgeMaxFontMm;
 
     CameraBadge(Image bg, TextMeshProUGUI text) { _bg = bg; _text = text; }
 
@@ -333,7 +267,7 @@ public class CameraBadge
     // Hidden until the first frame (Show / Tick turn it on). `viewMm` is the view's size in canvas units.
     public static CameraBadge Create(Transform view, Vector2 viewMm)
     {
-        var bg = HudUi.Round(HudUi.Box(view, "Badge", new Color(0f, 0f, 0f, 0.55f)), 10f);
+        var bg = HudUi.Round(HudUi.Box(view, "Badge", HudTheme.BadgeBackground), 10f);
         var rt = bg.rectTransform;
         rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(1f, 1f);
         var text = HudUi.Label(bg.transform, "Label", "", 10f);
@@ -385,8 +319,8 @@ public class CameraBadge
         Show(true);
         float age = (float)(Time.unscaledTime - last);
         _stale = age > CameraPanel.StaleAfterSeconds;
-        if (_stale) Set($"stale {age:F1} s", HudUi.WarnColor);
-        else Set($"{Mathf.RoundToInt(images.Fps(index))} fps", HudUi.GoodColor);
+        if (_stale) Set($"stale {age:F1} s", HudTheme.Warn);
+        else Set($"{Mathf.RoundToInt(images.Fps(index))} fps", HudTheme.Good);
         return _stale;
     }
 }

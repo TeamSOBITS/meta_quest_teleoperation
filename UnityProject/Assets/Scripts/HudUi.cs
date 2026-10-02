@@ -7,30 +7,13 @@ using UnityEngine.XR.Interaction.Toolkit.UI;
 
 /// <summary>
 /// Small toolkit for the code-built, head-locked HUD (camera blocks, ROS IP block, control panel).
-/// Canvases use 1 unit = 1 mm. Font sizes are given for <see cref="ReferenceDistance"/> and scaled
-/// with each canvas's distance, so text looks the same size whether a panel is near or far.
+/// Canvases use 1 unit = 1 mm. Font sizes are given for <see cref="HudTheme.ReferenceDistance"/> and scaled
+/// with each canvas's distance, so text looks the same size whether a panel is near or far. Sizes and
+/// colours live in <see cref="HudTheme"/>.
 /// </summary>
 public static class HudUi
 {
-    // Distance the camera blocks sit at; sizes below are tuned for it (metres).
-    public const float ReferenceDistance = 4.3f;
-    public const float TitleFontSize = 0.14f;   // camera names, ROS IP
-    public const float BodyFontSize  = 0.09f;   // topics, control panel entries
-
     public const float MmPerMetre = 1000f;
-
-    // HUD canvases draw after transparent scenery (e.g. a grid floor). UI does not write depth,
-    // so without this a large transparent floor sorted later is blended on top of the panels.
-    public const int CanvasSortingOrder = 100;
-
-    // A step lighter than StudioEnvironment.Background so cards read as surfaces on it.
-    public static readonly Color PanelColor   = new Color(0.14f, 0.16f, 0.20f, 0.92f);
-    public static readonly Color ControlColor = new Color(0.25f, 0.27f, 0.32f, 1f);
-    public static readonly Color AccentColor  = new Color(0.30f, 0.65f, 1f, 1f);
-    public static readonly Color MutedText    = new Color(1f, 1f, 1f, 0.6f);
-    public static readonly Color GoodColor    = new Color(0.38f, 0.88f, 0.50f, 1f);
-    public static readonly Color BadColor     = new Color(1f, 0.38f, 0.38f, 1f);
-    public static readonly Color WarnColor    = new Color(1f, 0.71f, 0.28f, 1f);
 
     // Rounded-rectangle sprite for sliced Images; corner radius is set per Image via Round().
     const int RoundedSpriteSize = 64, RoundedSpriteBorder = 16;
@@ -47,7 +30,7 @@ public static class HudUi
         go.transform.SetParent(parent, false);
         var canvas = go.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.WorldSpace;
-        canvas.sortingOrder = CanvasSortingOrder;
+        canvas.sortingOrder = HudTheme.SortingOrder;
         if (interactive)
         {
             canvas.worldCamera = Camera.main;
@@ -64,7 +47,7 @@ public static class HudUi
 
     // Font size in canvas units for text that should look like `sizeAtReference` seen from ReferenceDistance.
     public static float FontAt(float sizeAtReference, float distance)
-        => sizeAtReference * distance / ReferenceDistance * MmPerMetre;
+        => sizeAtReference * distance / HudTheme.ReferenceDistance * MmPerMetre;
 
     public static TextMeshProUGUI Label(Transform parent, string name, string text, float fontSize,
                                         TextAlignmentOptions alignment = TextAlignmentOptions.Center)
@@ -155,32 +138,51 @@ public static class HudUi
 
     public static Button Button(Transform parent, string text, float fontSize, UnityAction onClick)
     {
-        var bg = Box(parent, "Button " + text, ControlColor, raycastTarget: true);
+        var bg = Box(parent, "Button " + text, HudTheme.Control, raycastTarget: true);
         Round(bg, fontSize * 0.35f);
         var button = bg.gameObject.AddComponent<Button>();
         button.targetGraphic = bg;
-        button.colors = HoverColors;
+        button.colors = HudTheme.Hover;
         if (onClick != null) button.onClick.AddListener(onClick);
         var label = Label(bg.transform, "Label", text, fontSize);
         Stretch(label.rectTransform);
         return button;
     }
 
+    // Rounded chip with a centred, non-wrapping label: `height` mm tall (fully rounded), `fontSize` mm text.
+    // Size and position it with Place; set its look later with SetPill.
+    public static (Image background, TextMeshProUGUI label) Pill(Transform parent, string name, string text, float fontSize,
+                                                                 float height, Color background, Color textColor, bool bold = false)
+    {
+        var bg = Round(Box(parent, name, background), height / 2f);
+        var label = Label(bg.transform, "Label", text, fontSize);
+        label.color = textColor;
+        if (bold) label.fontStyle = FontStyles.Bold;
+        label.textWrappingMode = TextWrappingModes.NoWrap;
+        Stretch(label.rectTransform);
+        return (bg, label);
+    }
+
+    // Chip tinted with `tint`: text in the colour, background a faint version of it (HudTheme.PillBackground).
+    public static (Image background, TextMeshProUGUI label) Pill(Transform parent, string name, string text, float fontSize,
+                                                                 float height, Color tint, bool strong = false, bool bold = false)
+        => Pill(parent, name, text, fontSize, height, HudTheme.PillBackground(tint, strong), tint, bold);
+
     // Row with a check box on the left and the label to its right; the whole row is clickable.
     public static Toggle Toggle(Transform parent, string text, float fontSize, bool isOn, Action<bool> onChanged)
     {
-        var row = Box(parent, "Toggle " + text, new Color(0f, 0f, 0f, 0f), raycastTarget: true);
+        var row = Box(parent, "Toggle " + text, Color.clear, raycastTarget: true);
         var toggle = row.gameObject.AddComponent<HudToggle>();
 
         float boxSize = fontSize * 1.1f;
-        var box = Round(Box(row.transform, "Box", ControlColor), boxSize * 0.2f);
+        var box = Round(Box(row.transform, "Box", HudTheme.Control), boxSize * 0.2f);
         var boxRt = box.rectTransform;
         boxRt.anchorMin = boxRt.anchorMax = new Vector2(0f, 0.5f);
         boxRt.pivot = new Vector2(0f, 0.5f);
         boxRt.sizeDelta = new Vector2(boxSize, boxSize);
         boxRt.anchoredPosition = Vector2.zero;
 
-        var check = Round(Box(box.transform, "Check", AccentColor), boxSize * 0.12f);
+        var check = Round(Box(box.transform, "Check", HudTheme.Accent), boxSize * 0.12f);
         Stretch(check.rectTransform, boxSize * 0.2f);
 
         var label = Label(row.transform, "Label", text, fontSize, TextAlignmentOptions.Left);
@@ -189,26 +191,13 @@ public static class HudUi
 
         toggle.targetGraphic = box;
         toggle.graphic = check;
-        toggle.colors = HoverColors;
+        toggle.colors = HudTheme.Hover;
         // Instant on/off: a fading check mark would be cut short by HudToggle's hover tint fade.
         toggle.toggleTransition = UnityEngine.UI.Toggle.ToggleTransition.None;
         toggle.isOn = isOn;
         toggle.onValueChanged.AddListener(v => onChanged(v));
         return toggle;
     }
-
-    // Darken controls while the controller ray points at them (and more while pressed).
-    // Selected = normal, so a control doesn't stay tinted after it has been clicked.
-    public static readonly ColorBlock HoverColors = new ColorBlock
-    {
-        normalColor      = Color.white,
-        highlightedColor = new Color(0.62f, 0.62f, 0.62f, 1f),
-        pressedColor     = new Color(0.45f, 0.45f, 0.45f, 1f),
-        selectedColor    = Color.white,
-        disabledColor    = new Color(0.6f, 0.6f, 0.6f, 0.5f),
-        colorMultiplier  = 1f,
-        fadeDuration     = 0.08f,
-    };
 
     // Fill the parent rect, optionally inset by `inset` on every side.
     public static void Stretch(RectTransform rt, float inset = 0f)

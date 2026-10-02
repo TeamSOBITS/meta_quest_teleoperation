@@ -28,10 +28,11 @@ using UnityEngine.UI;
 /// </summary>
 public class HudBar : MonoBehaviour
 {
-    // Sizes in mm on a canvas at HudUi.ReferenceDistance.
-    const float WidthMm = 5000f, PaddingMm = 50f, GapMm = 40f, RadiusMm = 60f, OutlineMm = 22f;
-    const float HeaderHeightMm = 220f, RowHeightMm = 150f;
-    const float JoyColumnMm = 2000f, ButtonColumnMm = 560f, EditWidthMm = 420f, PillWidthMm = 640f;
+    // Sizes in mm on a canvas at HudTheme.ReferenceDistance.
+    const float WidthMm = 5000f, PaddingMm = HudTheme.Padding, GapMm = HudTheme.Gap, OutlineMm = 22f;
+    const float HeaderHeightMm = 220f, RowHeightMm = 150f, DividerMm = 4f, EditInsetMm = 30f;
+    const float JoyColumnMm = 2000f, ButtonColumnMm = 560f, PillWidthMm = 640f, LayoutLabelMm = 640f;
+    const float JoyOutlineAlpha = 0.6f, SelectedSegmentAlpha = 0.25f, SaveTint = 0.55f;
     const int CameraColumns = 2, LeftColumnRows = 4;
     // Space between the lowest camera block and the bar (metres). Blocks are turned to face
     // the eye, which brings their lower outer corners slightly down in view; this gap absorbs it.
@@ -67,19 +68,19 @@ public class HudBar : MonoBehaviour
         // images, Robot model) and the Camera layout row.
         // Added robots get "Find cameras" and "Joy namespace" buttons in the next free slots of
         // the camera toggles.
-        int cameraSlots = images.Panels.Count + (images.Profile.isCustom ? 2 : 0);
+        int cameraSlots = CameraSlots(images);
         // Models: the first-person hint takes the row below the camera toggles; Recenter takes a
         // button slot (shown while the model is on).
         bool hasModel = images.Profile.HasModel;
         if (hasModel) buttonRows = Mathf.Max(buttonRows, 3);
-        int cameraRows = Mathf.CeilToInt(cameraSlots / (float)CameraColumns);
+        int cameraRows = CameraRows(images);
         int controlRows = Mathf.Max(LeftColumnRows, buttonRows, cameraRows + (hasModel ? 1 : 0));
         float controlsH = controlRows * RowHeightMm + (controlRows - 1) * GapMm;
-        float heightMm = PaddingMm + HeaderHeightMm + GapMm + 4f + GapMm + controlsH + PaddingMm;
+        float heightMm = PaddingMm + HeaderHeightMm + GapMm + DividerMm + GapMm + controlsH + PaddingMm;
 
         // Top edge just below the lowest point the camera blocks may reach.
         float topY = images.minBottom - GapBelowCamerasM;
-        var position = new Vector3(0f, topY - heightMm * CompactScale / HudUi.MmPerMetre / 2f, HudUi.ReferenceDistance);
+        var position = new Vector3(0f, topY - heightMm * CompactScale / HudUi.MmPerMetre / 2f, HudTheme.ReferenceDistance);
 
         var root = HudUi.CreateCanvas("HUD Bar", parent, position, new Vector2(WidthMm, heightMm), interactive: true);
         root.localScale *= CompactScale;
@@ -94,20 +95,62 @@ public class HudBar : MonoBehaviour
         return bar;
     }
 
+    // Camera toggles, plus "Find cameras" and "Joy namespace" for added robots, fill the camera columns row by row.
+    static int CameraSlots(ImageSubscriber images) => images.Panels.Count + (images.Profile.isCustom ? 2 : 0);
+    static int CameraRows(ImageSubscriber images) => Mathf.CeilToInt(CameraSlots(images) / (float)CameraColumns);
+
+    // Columns of the control area, in mm from the bar's top-left corner; `Top` is where its first row starts.
+    struct Cursor
+    {
+        public float Top;
+        public float Half, RightX;                 // the left column holds two toggles per row
+        public float CameraLeft, CameraWidth, CameraColW;
+        public float ButtonsLeft;
+
+        public static Cursor At(float top)
+        {
+            float inner = WidthMm - 2f * PaddingMm;
+            var c = new Cursor { Top = top };
+            c.Half = (JoyColumnMm - GapMm) / 2f;
+            c.RightX = PaddingMm + c.Half + GapMm;
+            c.CameraLeft = PaddingMm + JoyColumnMm + GapMm;
+            c.CameraWidth = inner - JoyColumnMm - GapMm - ButtonColumnMm - GapMm;
+            c.CameraColW = (c.CameraWidth - (CameraColumns - 1) * GapMm) / CameraColumns;
+            c.ButtonsLeft = WidthMm - PaddingMm - ButtonColumnMm;
+            return c;
+        }
+
+        public float Row(int i) => Top + i * (RowHeightMm + GapMm);
+        // Slot i of the camera columns (filled left to right, then down).
+        public void CameraSlot(int i, out float left, out float top)
+        {
+            left = CameraLeft + (i % CameraColumns) * (CameraColW + GapMm);
+            top = Row(i / CameraColumns);
+        }
+    }
+
     void Build(RectTransform root, ImageSubscriber images, TeleopHud hud, float heightMm)
     {
-        float title = HudUi.TitleFontSize * HudUi.MmPerMetre;
-        float body  = HudUi.BodyFontSize  * HudUi.MmPerMetre;
-        float inner = WidthMm - 2 * PaddingMm;
-
-        HudUi.Stretch(HudUi.Round(HudUi.Box(root, "Background", HudUi.PanelColor), RadiusMm).rectTransform);
+        HudUi.Stretch(HudUi.Round(HudUi.Box(root, "Background", HudTheme.Panel), HudTheme.PanelRadius).rectTransform);
         // Ring just outside the bar; its thickness is radius x RingThicknessRatio.
-        float ringRadius = OutlineMm / HudUi.RingThicknessRatio;
-        _outline = HudUi.Ring(HudUi.Box(root, "Outline", Color.clear), ringRadius);
+        _outline = HudUi.Ring(HudUi.Box(root, "Outline", Color.clear), OutlineMm / HudUi.RingThicknessRatio);
         HudUi.Stretch(_outline.rectTransform, -OutlineMm);
 
-        // --- Header left: robot name and Joy state chip ---
+        var cursor = Cursor.At(BuildHeader(root, images));
+        BuildControls(root, cursor, images, hud);
+        BuildCameraToggles(root, cursor, images);
+        BuildActions(root, cursor, images, hud);
+        SyncView();
+    }
+
+    // Robot name and Joy state chip on the left; ROS IP, connection pill and Edit on the right; then the divider.
+    // Returns the top of the control rows.
+    float BuildHeader(RectTransform root, ImageSubscriber images)
+    {
+        float title = HudTheme.TitleFont * HudUi.MmPerMetre;
+        float body  = HudTheme.BodyFont  * HudUi.MmPerMetre;
         float top = PaddingMm;
+
         string robotName = images.Profile != null ? images.Profile.displayName : "";
         var name = HudUi.Label(root, "Robot", robotName, title, TextAlignmentOptions.Left);
         name.fontStyle = FontStyles.Bold;
@@ -116,29 +159,23 @@ public class HudBar : MonoBehaviour
         HudUi.Place(name.rectTransform, PaddingMm, top, nameW, HeaderHeightMm);
 
         float chipH = body * 1.7f;
-        _joyChip = HudUi.Round(HudUi.Box(root, "Joy State", Color.clear), chipH / 2f);
-        _joyText = HudUi.Label(_joyChip.transform, "Label", "", body);
-        _joyText.fontStyle = FontStyles.Bold;
-        _joyText.textWrappingMode = TextWrappingModes.NoWrap;
-        HudUi.Stretch(_joyText.rectTransform);
+        (_joyChip, _joyText) = HudUi.Pill(root, "Joy State", "", body, chipH, Color.clear, Color.white, bold: true);
         float chipW = Mathf.Max(_joyText.GetPreferredValues(JoyOnText).x, _joyText.GetPreferredValues(JoyOffText).x,
                                 images.InSetup ? _joyText.GetPreferredValues(SetupChipText(images)).x : 0f) + 2f * body;
         float chipLeft = PaddingMm + nameW + GapMm;
         HudUi.Place(_joyChip.rectTransform, chipLeft, top + (HeaderHeightMm - chipH) / 2f, chipW, chipH);
 
-        // --- Header right: ROS IP, connection pill, Edit ---
+        // ROS IP, connection pill, Edit
         var edit = HudUi.Button(root, "Edit", body, _publisher.OpenIpKeyboard);
-        float editLeft = WidthMm - PaddingMm - EditWidthMm;
-        HudUi.Place((RectTransform)edit.transform, editLeft, top + 30f, EditWidthMm, HeaderHeightMm - 60f);
+        float editLeft = WidthMm - PaddingMm - HudTheme.EditButtonWidth;
+        HudUi.Place((RectTransform)edit.transform, editLeft, top + EditInsetMm, HudTheme.EditButtonWidth, HeaderHeightMm - 2f * EditInsetMm);
 
         float pillLeft = editLeft - GapMm - PillWidthMm;
-        _pill = HudUi.Round(HudUi.Box(root, "Status", Color.clear), chipH / 2f);
+        (_pill, _pillText) = HudUi.Pill(root, "Status", "", body, chipH, Color.clear, Color.white);
         HudUi.Place(_pill.rectTransform, pillLeft, top + (HeaderHeightMm - chipH) / 2f, PillWidthMm, chipH);
-        _pillText = HudUi.Label(_pill.transform, "Label", "", body);
-        HudUi.Stretch(_pillText.rectTransform);
 
         var caption = HudUi.Label(root, "Caption", "ROS IP", body, TextAlignmentOptions.Left);
-        caption.color = HudUi.MutedText;
+        caption.color = HudTheme.Muted;
         caption.textWrappingMode = TextWrappingModes.NoWrap;
         float captionW = caption.GetPreferredValues("ROS IP").x;
         float captionLeft = chipLeft + chipW + 3f * GapMm;
@@ -151,28 +188,30 @@ public class HudBar : MonoBehaviour
         HudUi.Place(_ip.rectTransform, ipLeft, top, pillLeft - GapMm - ipLeft, HeaderHeightMm);
         top += HeaderHeightMm + GapMm;
 
-        var divider = HudUi.Box(root, "Divider", new Color(1f, 1f, 1f, 0.12f));
-        HudUi.Place(divider.rectTransform, PaddingMm, top, inner, 4f);
-        top += 4f + GapMm;
+        var divider = HudUi.Box(root, "Divider", HudTheme.Divider);
+        HudUi.Place(divider.rectTransform, PaddingMm, top, WidthMm - 2f * PaddingMm, DividerMm);
+        return top + DividerMm + GapMm;
+    }
 
-        // --- Controls: left column | camera toggles | Reset layout / Back to robots ---
-        // Two toggles per row; each is half the column.
-        float half = (JoyColumnMm - GapMm) / 2f, rightX = PaddingMm + half + GapMm;
-        float row1 = top + RowHeightMm + GapMm, row2 = top + 2f * (RowHeightMm + GapMm), row3 = top + 3f * (RowHeightMm + GapMm);
+    // Left column: two toggles per row (Control robot, Lazy follow, Passthrough, Compressed, Robot model) and the
+    // Camera layout row.
+    void BuildControls(RectTransform root, Cursor at, ImageSubscriber images, TeleopHud hud)
+    {
+        float body = HudTheme.BodyFont * HudUi.MmPerMetre;
 
         // Control robot: TF (head/controller poses) + Joy. Off = the robot receives nothing.
         var joy = HudUi.Toggle(root, "Control robot", body, _publisher.controlRobot, on => _publisher.controlRobot = on);
         joy.interactable = !images.InSetup;  // setup mode stays in layout mode
-        HudUi.Place((RectTransform)joy.transform, PaddingMm, top, half, RowHeightMm);
+        HudUi.Place((RectTransform)joy.transform, PaddingMm, at.Row(0), at.Half, RowHeightMm);
         var lazy = HudUi.Toggle(root, "Lazy follow", body, hud.LazyFollow, hud.SetLazyFollow);
-        HudUi.Place((RectTransform)lazy.transform, rightX, top, half, RowHeightMm);
+        HudUi.Place((RectTransform)lazy.transform, at.RightX, at.Row(0), at.Half, RowHeightMm);
 
         var passthrough = HudUi.Toggle(root, "Passthrough", body, PassthroughMode.Enabled, on =>
         {
             PassthroughMode.Enabled = on;
             PassthroughMode.Apply(Camera.main, on);
         });
-        HudUi.Place((RectTransform)passthrough.transform, PaddingMm, row1, half, RowHeightMm);
+        HudUi.Place((RectTransform)passthrough.transform, PaddingMm, at.Row(1), at.Half, RowHeightMm);
 
         // Compressed images (global, default on). Off = raw image topics. Topics cannot be unsubscribed,
         // so a change reopens the robot screen through the selection screen (RobotSelectionHud.AutoOpen).
@@ -185,104 +224,107 @@ public class HudBar : MonoBehaviour
             _publisher.BackToRobotSelection();
         });
         compressed.interactable = !images.InSetup;   // reopening would drop the robot being set up
-        HudUi.Place((RectTransform)compressed.transform, rightX, row1, half, RowHeightMm);
+        HudUi.Place((RectTransform)compressed.transform, at.RightX, at.Row(1), at.Half, RowHeightMm);
 
         // Robot model: needs the robot's 3D model; without one the toggle is greyed out.
-        bool hasModel = images.Profile.HasModel;
-        _modelToggle = HudUi.Toggle(root, "Robot model", body,
-            hud.RobotModelOn, on => hud.SetRobotModel(on));
-        _modelToggle.interactable = hasModel && !images.InSetup;
-        HudUi.Place((RectTransform)_modelToggle.transform, PaddingMm, row2, half, RowHeightMm);
+        _modelToggle = HudUi.Toggle(root, "Robot model", body, hud.RobotModelOn, on => hud.SetRobotModel(on));
+        _modelToggle.interactable = images.Profile.HasModel && !images.InSetup;
+        HudUi.Place((RectTransform)_modelToggle.transform, PaddingMm, at.Row(2), at.Half, RowHeightMm);
 
         // Camera layout: segmented Blocks | First person, only usable while the model is on.
-        float segFont = body * 0.9f, labelW = 640f, segW = (JoyColumnMm - labelW - 2f * GapMm) / 2f;
+        float segFont = body * 0.9f, segW = (JoyColumnMm - LayoutLabelMm - 2f * GapMm) / 2f;
         var layoutLabel = HudUi.Label(root, "Camera layout", "Camera layout", body, TextAlignmentOptions.Left);
         layoutLabel.textWrappingMode = TextWrappingModes.NoWrap;
-        HudUi.Place(layoutLabel.rectTransform, PaddingMm, row3, labelW, RowHeightMm);
+        HudUi.Place(layoutLabel.rectTransform, PaddingMm, at.Row(3), LayoutLabelMm, RowHeightMm);
         _blocksButton = HudUi.Button(root, "Blocks", segFont, () => hud.SetCameraLayout(FirstPersonView.LayoutBlocks));
-        HudUi.Place((RectTransform)_blocksButton.transform, PaddingMm + labelW + GapMm, row3, segW, RowHeightMm);
+        HudUi.Place((RectTransform)_blocksButton.transform, PaddingMm + LayoutLabelMm + GapMm, at.Row(3), segW, RowHeightMm);
         _firstPersonButton = HudUi.Button(root, "First person", segFont, () => hud.SetCameraLayout(FirstPersonView.LayoutFirstPerson));
-        HudUi.Place((RectTransform)_firstPersonButton.transform, PaddingMm + labelW + 2f * GapMm + segW, row3, segW, RowHeightMm);
+        HudUi.Place((RectTransform)_firstPersonButton.transform, PaddingMm + LayoutLabelMm + 2f * GapMm + segW, at.Row(3), segW, RowHeightMm);
+    }
 
-        float camLeft = PaddingMm + JoyColumnMm + GapMm;
-        float camWidth = inner - JoyColumnMm - GapMm - ButtonColumnMm - GapMm;
-        float colW = (camWidth - (CameraColumns - 1) * GapMm) / CameraColumns;
+    // Middle columns: one toggle per camera (and, for added robots, Find cameras / Joy namespace); the
+    // first-person hint takes the row below them.
+    void BuildCameraToggles(RectTransform root, Cursor at, ImageSubscriber images)
+    {
+        float body = HudTheme.BodyFont * HudUi.MmPerMetre;
         for (int i = 0; i < images.Panels.Count; i++)
         {
             var cam = images.Panels[i];
             var t = HudUi.Toggle(root, cam.Label, body, images.IsOn(cam), on => images.SetCameraVisible(cam, on));
             _cameraToggles.Add((cam, t));
-            HudUi.Place((RectTransform)t.transform,
-                camLeft + (i % CameraColumns) * (colW + GapMm),
-                top + (i / CameraColumns) * (RowHeightMm + GapMm),
-                colW, RowHeightMm);
+            at.CameraSlot(i, out float left, out float top);
+            HudUi.Place((RectTransform)t.transform, left, top, at.CameraColW, RowHeightMm);
         }
 
         if (images.Profile.isCustom)
         {
-            int i = images.Panels.Count;
-            var find = HudUi.Button(root, FindCamerasText, body, null);
-            var findLabel = find.GetComponentInChildren<TextMeshProUGUI>();
-            find.onClick.AddListener(() =>
-            {
-                if (findLabel.text != FindCamerasText) return;   // a search is already running
-                findLabel.text = "Searching\u2026";
-                images.FindNewCameras(added =>
-                {
-                    // When cameras were added the bar is rebuilt (TeleopHud); otherwise say so briefly.
-                    if (this == null || added > 0) return;
-                    findLabel.text = "No new cameras";
-                    StartCoroutine(ResetLabelLater(findLabel));
-                });
-            });
-            HudUi.Place((RectTransform)find.transform,
-                camLeft + (i % CameraColumns) * (colW + GapMm),
-                top + (i / CameraColumns) * (RowHeightMm + GapMm),
-                colW, RowHeightMm);
-
-            // Joy namespace: typed on the Quest keyboard; confirming it empty means no namespace.
-            i++;
-            var ns = HudUi.Button(root, NamespaceButtonText(images.Profile), body, null);
-            _namespaceLabel = ns.GetComponentInChildren<TextMeshProUGUI>();
-            ns.onClick.AddListener(() => _namespaceKeyboard.Open(images.Profile.robotNamespace, allowEmpty: true));
-            HudUi.Place((RectTransform)ns.transform,
-                camLeft + (i % CameraColumns) * (colW + GapMm),
-                top + (i / CameraColumns) * (RowHeightMm + GapMm),
-                colW, RowHeightMm);
+            at.CameraSlot(images.Panels.Count, out float findLeft, out float findTop);
+            HudUi.Place((RectTransform)BuildFindCameras(root, body, images).transform, findLeft, findTop, at.CameraColW, RowHeightMm);
+            at.CameraSlot(images.Panels.Count + 1, out float nsLeft, out float nsTop);
+            HudUi.Place((RectTransform)BuildNamespaceButton(root, body, images).transform, nsLeft, nsTop, at.CameraColW, RowHeightMm);
         }
 
-        if (hasModel)
+        if (images.Profile.HasModel)
         {
-            int cameraRows = Mathf.CeilToInt((images.Panels.Count + (images.Profile.isCustom ? 2 : 0)) / (float)CameraColumns);
             _fpHint = HudUi.Label(root, "First person hint", "You see the robot's arms twice (image + model) \u2014 expected.",
                                   body * 0.85f, TextAlignmentOptions.Left);
-            _fpHint.color = HudUi.MutedText;
-            HudUi.Place(_fpHint.rectTransform, camLeft, top + cameraRows * (RowHeightMm + GapMm), camWidth, RowHeightMm);
+            _fpHint.color = HudTheme.Muted;
+            HudUi.Place(_fpHint.rectTransform, at.CameraLeft, at.Row(CameraRows(images)), at.CameraWidth, RowHeightMm);
         }
+    }
 
-        float buttonsLeft = WidthMm - PaddingMm - ButtonColumnMm;
+    Button BuildFindCameras(RectTransform root, float body, ImageSubscriber images)
+    {
+        var find = HudUi.Button(root, FindCamerasText, body, null);
+        var findLabel = find.GetComponentInChildren<TextMeshProUGUI>();
+        find.onClick.AddListener(() =>
+        {
+            if (findLabel.text != FindCamerasText) return;   // a search is already running
+            findLabel.text = "Searching\u2026";
+            images.FindNewCameras(added =>
+            {
+                // When cameras were added the bar is rebuilt (TeleopHud); otherwise say so briefly.
+                if (this == null || added > 0) return;
+                findLabel.text = "No new cameras";
+                StartCoroutine(ResetLabelLater(findLabel));
+            });
+        });
+        return find;
+    }
+
+    // Joy namespace: typed on the Quest keyboard; confirming it empty means no namespace.
+    Button BuildNamespaceButton(RectTransform root, float body, ImageSubscriber images)
+    {
+        var ns = HudUi.Button(root, NamespaceButtonText(images.Profile), body, null);
+        _namespaceLabel = ns.GetComponentInChildren<TextMeshProUGUI>();
+        ns.onClick.AddListener(() => _namespaceKeyboard.Open(images.Profile.robotNamespace, allowEmpty: true));
+        return ns;
+    }
+
+    // Right column: Reset layout, then Back to robots (setup mode: Save robot and Cancel), then Recenter (models).
+    void BuildActions(RectTransform root, Cursor at, ImageSubscriber images, TeleopHud hud)
+    {
+        float body = HudTheme.BodyFont * HudUi.MmPerMetre;
         var reset = HudUi.Button(root, "Reset layout", body, images.ResetLayout);
-        HudUi.Place((RectTransform)reset.transform, buttonsLeft, top, ButtonColumnMm, RowHeightMm);
+        HudUi.Place((RectTransform)reset.transform, at.ButtonsLeft, at.Row(0), ButtonColumnMm, RowHeightMm);
         if (images.InSetup)
         {
             var save = HudUi.Button(root, "Save robot", body, hud.SaveSetup);
-            var a = HudUi.AccentColor;
-            save.GetComponent<Image>().color = new Color(a.r * 0.55f, a.g * 0.55f, a.b * 0.55f, 1f);
-            HudUi.Place((RectTransform)save.transform, buttonsLeft, top + RowHeightMm + GapMm, ButtonColumnMm, RowHeightMm);
+            save.GetComponent<Image>().color = HudTheme.WithAlpha(HudTheme.Accent * SaveTint, 1f);
+            HudUi.Place((RectTransform)save.transform, at.ButtonsLeft, at.Row(1), ButtonColumnMm, RowHeightMm);
             var cancel = HudUi.Button(root, "Cancel", body, hud.CancelSetup);
-            HudUi.Place((RectTransform)cancel.transform, buttonsLeft, top + 2f * (RowHeightMm + GapMm), ButtonColumnMm, RowHeightMm);
+            HudUi.Place((RectTransform)cancel.transform, at.ButtonsLeft, at.Row(2), ButtonColumnMm, RowHeightMm);
         }
         else
         {
-            var back = HudUi.Button(root, "← Robots", body, _publisher.BackToRobotSelection);
-            HudUi.Place((RectTransform)back.transform, buttonsLeft, top + RowHeightMm + GapMm, ButtonColumnMm, RowHeightMm);
+            var back = HudUi.Button(root, "\u2190 Robots", body, _publisher.BackToRobotSelection);
+            HudUi.Place((RectTransform)back.transform, at.ButtonsLeft, at.Row(1), ButtonColumnMm, RowHeightMm);
         }
-        if (hasModel)
+        if (images.Profile.HasModel)
         {
             _recenter = HudUi.Button(root, "Recenter", body, hud.Recenter);
-            HudUi.Place((RectTransform)_recenter.transform, buttonsLeft, top + 2f * (RowHeightMm + GapMm), ButtonColumnMm, RowHeightMm);
+            HudUi.Place((RectTransform)_recenter.transform, at.ButtonsLeft, at.Row(2), ButtonColumnMm, RowHeightMm);
         }
-        SyncView();
     }
 
     // The model or the layout changed (or a toggle press was refused): follow it. The layout buttons
@@ -305,8 +347,7 @@ public class HudBar : MonoBehaviour
     {
         if (button == null) return;
         button.interactable = interactable;
-        var a = HudUi.AccentColor;
-        button.GetComponent<Image>().color = selected ? new Color(a.r, a.g, a.b, 0.25f) : HudUi.ControlColor;
+        button.GetComponent<Image>().color = selected ? HudTheme.WithAlpha(HudTheme.Accent, SelectedSegmentAlpha) : HudTheme.Control;
         var text = button.GetComponentInChildren<TextMeshProUGUI>();
         if (text != null) text.color = Color.white;
     }
@@ -382,8 +423,8 @@ public class HudBar : MonoBehaviour
         if (_shownConnected != connected)
         {
             _shownConnected = connected;
-            var c = connected ? HudUi.GoodColor : HudUi.BadColor;
-            _pill.color = new Color(c.r, c.g, c.b, 0.18f);
+            var c = connected ? HudTheme.Good : HudTheme.Bad;
+            _pill.color = HudTheme.PillBackground(c);
             _pillText.color = c;
             _pillText.text = connected ? "connected" : "not connected";
         }
@@ -394,20 +435,19 @@ public class HudBar : MonoBehaviour
             if (_shownJoy == null)
             {
                 _shownJoy = false;
-                var a = HudUi.AccentColor;
-                _joyChip.color = new Color(a.r, a.g, a.b, 0.18f);
-                _joyText.color = a;
+                _joyChip.color = HudTheme.PillBackground(HudTheme.Accent);
+                _joyText.color = HudTheme.Accent;
                 _joyText.text = SetupChipText(_images);
             }
         }
         else if (_shownJoy != joy)
         {
             _shownJoy = joy;
-            var c = joy ? HudUi.WarnColor : HudUi.AccentColor;
-            _joyChip.color = new Color(c.r, c.g, c.b, 0.18f);
+            var c = joy ? HudTheme.Warn : HudTheme.Accent;
+            _joyChip.color = HudTheme.PillBackground(c);
             _joyText.color = c;
             _joyText.text = joy ? JoyOnText : JoyOffText;
-            _outline.color = joy ? new Color(c.r, c.g, c.b, 0.6f) : Color.clear;
+            _outline.color = joy ? HudTheme.WithAlpha(c, JoyOutlineAlpha) : Color.clear;
         }
     }
 }

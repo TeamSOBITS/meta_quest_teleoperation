@@ -429,21 +429,21 @@ public class TeleopHud : MonoBehaviour
     // Shown in setup mode until camera topics have been found or the user continues without.
     void ShowWaiting()
     {
-        float title = HudUi.TitleFontSize * HudUi.MmPerMetre;
-        float body = HudUi.BodyFontSize * HudUi.MmPerMetre;
+        float title = HudTheme.TitleFont * HudUi.MmPerMetre;
+        float body = HudTheme.BodyFont * HudUi.MmPerMetre;
         const float w = 3300f, h = 760f, pad = 80f, buttonW = 980f, buttonH = 150f, gap = 50f;
 
-        var root = HudUi.CreateCanvas("Setup Status", hudParent, new Vector3(0f, 0.2f, HudUi.ReferenceDistance),
+        var root = HudUi.CreateCanvas("Setup Status", hudParent, new Vector3(0f, 0.2f, HudTheme.ReferenceDistance),
             new Vector2(w, h), interactive: true);
         _waiting = root.gameObject;
-        HudUi.Stretch(HudUi.Round(HudUi.Box(root, "Background", HudUi.PanelColor), 60f).rectTransform);
+        HudUi.Stretch(HudUi.Round(HudUi.Box(root, "Background", HudTheme.Panel), HudTheme.PanelRadius).rectTransform);
 
         var heading = HudUi.Label(root, "Heading", $"Setting up {images.Profile.displayName}", title);
         heading.fontStyle = FontStyles.Bold;
         HudUi.Place(heading.rectTransform, pad, pad, w - 2 * pad, title * 1.5f);
 
         _waitingStatus = HudUi.Label(root, "Status", "", body);
-        _waitingStatus.color = HudUi.MutedText;
+        _waitingStatus.color = HudTheme.Muted;
         HudUi.Place(_waitingStatus.rectTransform, pad, pad + title * 1.6f, w - 2 * pad, body * 3f);
 
         // Search again | Continue without cameras (e.g. a robot driven by Joy only) | Cancel

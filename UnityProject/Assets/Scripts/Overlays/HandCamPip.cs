@@ -5,8 +5,8 @@ using UnityEngine.UI;
 using UnityEngine.XR.Interaction.Toolkit.UI;
 
 /// <summary>
-/// Hand cameras in first person: one small card per hand camera of the robot (role Hand in the profile;
-/// RawImage on a rounded PanelColor box, a muted label with the camera's name).
+/// Hand cameras in first person: one small <see cref="CameraCard"/> per hand camera of the robot (role Hand in the
+/// profile; a rounded Panel box with a muted label with the camera's name, no highlight ring).
 /// A card floats outboard of and a little below its mount frame (the camera's mountFrame, else the end effector
 /// of the arm on the camera's side, else the only arm's), to the camera's side of the line of sight
 /// so it never covers what the head camera shows there, and faces the head. Created by TeleopHud in
@@ -17,20 +17,20 @@ public class HandCamPip : MonoBehaviour
 {
     const float CardWidthM = 0.22f, OutboardM = 0.28f, BelowHandM = 0.05f;
     const float PaddingMm = 8f, RadiusMm = 14f, LabelMm = 30f;
-    static readonly Color WaitingColor = new Color(0.15f, 0.15f, 0.15f, 1f);
+    const float LabelHeightRatio = 1.2f, WaitingFontRatio = 0.8f;   // of LabelMm
+    const int SortingOrderBelowHud = 5;
 
     class Card
     {
         public int index;
         public bool left, on = true;
         public GameObject go;
+        public CameraCard card;
         public CameraBadge badge;
         public Transform link;
         public RectTransform rt;
         public RawImage view;
-        public TextMeshProUGUI waiting;
         public float aspect;
-        public RobotProfile.CameraConfig config;
         public bool sized;
         public TextMeshProUGUI name;
         public Button rename;
@@ -85,48 +85,25 @@ public class HandCamPip : MonoBehaviour
         var link = model.Frame(mount);
         if (link == null) { Debug.LogWarning($"HandCams: frame '{mount}' not in the model, skipping the {label} camera"); return; }
 
-        var card = new Card { index = index, left = config.side == RobotProfile.Side.Left, link = link, config = config, aspect = config.Aspect };
-        var go = new GameObject("Hand Cam " + label, typeof(RectTransform));
-        card.go = go;
-        go.transform.SetParent(transform, false);
-        var canvas = go.AddComponent<Canvas>();
-        go.AddComponent<TrackedDeviceGraphicRaycaster>();   // for the Rename button
-        canvas.renderMode = RenderMode.WorldSpace;
-        canvas.sortingOrder = HudUi.CanvasSortingOrder - 5;   // above the FPV image, behind the HUD
-        canvas.worldCamera = Camera.main;
-        card.rt = (RectTransform)go.transform;
-        card.rt.localScale = Vector3.one / HudUi.MmPerMetre;
-
-        var bg = HudUi.Round(HudUi.Box(card.rt, "Card", HudUi.PanelColor), RadiusMm);
-        HudUi.Stretch(bg.rectTransform);
-        card.view = new GameObject("View", typeof(RectTransform)).AddComponent<RawImage>();
-        card.view.transform.SetParent(card.rt, false);
-        card.view.color = WaitingColor;
-        card.view.raycastTarget = false;
-        card.waiting = HudUi.Label(card.view.transform, "Waiting", "Waiting", LabelMm * 0.8f);
-        card.waiting.color = HudUi.MutedText;
-        HudUi.Stretch(card.waiting.rectTransform);
-        card.badge = CameraBadge.Create(card.view.transform, card.view.rectTransform.sizeDelta);
-        var name = card.name = HudUi.Label(card.rt, "Name", _images.Panels[index].Label, LabelMm);
-        name.color = HudUi.MutedText;
-        name.textWrappingMode = TextWrappingModes.NoWrap;
-        name.enableAutoSizing = true;   // renamed cameras can have long names
-        name.fontSizeMin = LabelMm * 0.5f;
-        name.fontSizeMax = LabelMm;
-        name.rectTransform.anchorMin = new Vector2(0f, 1f);
-        name.rectTransform.anchorMax = new Vector2(1f, 1f);
-        name.rectTransform.pivot = new Vector2(0.5f, 1f);
-        name.rectTransform.anchoredPosition = new Vector2(0f, -PaddingMm * 0.5f);
-        name.rectTransform.sizeDelta = new Vector2(0f, LabelMm * 1.2f);
-
-        // Rename: layout mode only, above the card's top-right corner (same look as a camera block's).
+        var card = new Card { index = index, left = config.side == RobotProfile.Side.Left, link = link, aspect = config.Aspect };
+        var style = new CameraCard.Style
+        {
+            PadMm = PaddingMm, RadiusMm = RadiusMm,
+            NameFontMm = LabelMm, NameHeightMm = LabelMm * LabelHeightRatio, NameRaiseMm = PaddingMm * 0.5f,
+            NameFullWidth = true, NameCompact = true,
+            WaitingText = "Waiting", WaitingFontMm = LabelMm * WaitingFontRatio,
+            RenameFontMm = LabelMm,
+            SortingOrder = HudTheme.SortingOrder - SortingOrderBelowHud,   // above the FPV image, behind the HUD
+        };
+        card.card = CameraCard.Create(transform, "Hand Cam " + label, style, config, _images.Panels[index].Label);
         int panelIndex = index;
-        card.rename = HudUi.Button(card.rt, "Rename", LabelMm, () => _images.BeginRename(_images.Panels[panelIndex]));
-        var rrt = (RectTransform)card.rename.transform;
-        rrt.anchorMin = rrt.anchorMax = rrt.pivot = new Vector2(1f, 1f);
-        rrt.sizeDelta = new Vector2(LabelMm * 4.6f, LabelMm * 1.6f);
-        rrt.anchoredPosition = new Vector2(0f, rrt.sizeDelta.y + PaddingMm * 0.5f);
-        card.rename.gameObject.SetActive(false);
+        card.card.Renamed += () => _images.BeginRename(_images.Panels[panelIndex]);
+        card.go = card.card.gameObject;
+        card.rt = card.card.Rect;
+        card.view = card.card.View;
+        card.badge = card.card.Badge;
+        card.name = card.card.NameLabel;
+        card.rename = card.card.RenameButton;
 
         _cards.Add(card);
         ApplySize(card);
@@ -143,7 +120,7 @@ public class HandCamPip : MonoBehaviour
     void OnLabels()
     {
         if (this == null) return;
-        foreach (var c in _cards) c.name.text = _images.Panels[c.index].Label;
+        foreach (var c in _cards) c.card.SetLabel(_images.Panels[c.index].Label);
     }
 
     void OnCameraVisibility(int index, bool on)
@@ -165,15 +142,7 @@ public class HandCamPip : MonoBehaviour
     void ApplySize(Card c)
     {
         float viewW = CardWidthM * HudUi.MmPerMetre - 2f * PaddingMm;
-        float viewH = viewW / Mathf.Max(c.aspect, 0.1f);
-        float top = PaddingMm + LabelMm * 1.2f;
-        c.rt.sizeDelta = new Vector2(viewW + 2f * PaddingMm, top + viewH + PaddingMm);
-        var v = c.view.rectTransform;
-        v.anchorMin = v.anchorMax = new Vector2(0.5f, 1f);
-        v.pivot = new Vector2(0.5f, 1f);
-        v.sizeDelta = new Vector2(viewW, viewH);
-        v.anchoredPosition = new Vector2(0f, -top);
-        c.badge?.Fit(v.sizeDelta);
+        c.card.SetSize(viewW, viewW / Mathf.Max(c.aspect, 0.1f));
     }
 
     void OnFrame(int index, Texture2D tex)
@@ -182,12 +151,7 @@ public class HandCamPip : MonoBehaviour
         foreach (var c in _cards)
         {
             if (c.index != index) continue;
-            c.waiting.gameObject.SetActive(false);
-            c.view.color = Color.white;
-            c.view.texture = tex;   // raw decoding can replace the instance
-            c.view.uvRect = new Rect(                     // same flips as CameraPanel.SetTexture
-                c.config.flipHorizontal ? 1f : 0f, c.config.flipVertical ? 1f : 0f,
-                c.config.flipHorizontal ? -1f : 1f, c.config.flipVertical ? -1f : 1f);
+            c.card.SetTexture(tex);   // raw decoding can replace the instance
             if (!c.sized && tex.height > 0)
             {
                 c.sized = true;

@@ -34,12 +34,10 @@ public class FirstPersonView : MonoBehaviour
     // Distance of the image quad from the camera frame (metres).
     const float QuadDistance = 1.5f;
     const float NearClip = 0.1f;
-    // The camera blocks' card (CameraPanel: padding 40 mm, radius 60 mm, outline margin 30 mm, label gap 0.05 m)
-    // shrinks with the distance ratio quad / block distance.
-    const float CardPaddingMm = 40f, CardRadiusMm = 60f, CardOutlineMm = 30f;
-    const float CardScale = QuadDistance / HudUi.ReferenceDistance;
+    // The camera blocks' card (CameraCard.Style.Block) shrinks with the distance ratio quad / block distance.
+    const float CardScale = QuadDistance / HudTheme.ReferenceDistance;
+    const float WaitingFontRatio = 3f;   // "Waiting for head camera" in the card's name font size x this
     const float LogSeconds = 5f;
-    static readonly Color WaitingColor = new Color(0.15f, 0.15f, 0.15f, 1f);
 
     // Set by the launch intent (autonomous tests): "firstperson" (model on + first-person layout),
     // "model" (model on + blocks layout) or "blocks" (model off) for the next robot screen only,
@@ -59,12 +57,13 @@ public class FirstPersonView : MonoBehaviour
     float _prevNearClip = -1f;
     readonly List<XRInputSubsystem> _inputs = new List<XRInputSubsystem>();
 
-    // Image quad
+    // Image quad: a CameraCard whose view is the quad (its parts are kept as fields for the harness).
+    CameraCard _card;
     RectTransform _canvasRt, _viewRt;
     RawImage _view;
-    TextMeshProUGUI _waiting, _name;
+    TextMeshProUGUI _name;
     CameraBadge _badge;
-    RectTransform _cardRt, _outlineRt;
+    RectTransform _cardRt;
     int _cameraIndex = -1;
     int _frames;
     float _nextLog;
@@ -248,8 +247,8 @@ public class FirstPersonView : MonoBehaviour
         _images.LabelsChanged -= OnLabels;
         if (_cameraIndex >= 0) _images.ForceDecode(_cameraIndex, false);
         if (_canvasRt != null) Destroy(_canvasRt.gameObject);
-        _canvasRt = _viewRt = _cardRt = _outlineRt = null;
-        _view = null; _waiting = null; _name = null; _badge = null; _rename = null;
+        _canvasRt = _viewRt = _cardRt = null;
+        _card = null; _view = null; _name = null; _badge = null; _rename = null;
         _quadFramed = false;
     }
 
@@ -263,51 +262,26 @@ public class FirstPersonView : MonoBehaviour
     {
         Transform parent = _camFrame != null ? _camFrame : _model.Root;
 
-        var go = new GameObject("FPV Image", typeof(RectTransform));
-        go.transform.SetParent(parent, false);
-        var canvas = go.AddComponent<Canvas>();
-        canvas.renderMode = RenderMode.WorldSpace;
-        canvas.sortingOrder = HudUi.CanvasSortingOrder - 10;   // behind the HUD
-        canvas.worldCamera = Camera.main;
-        go.AddComponent<TrackedDeviceGraphicRaycaster>();   // for the Rename button
-        _canvasRt = (RectTransform)go.transform;
-        _canvasRt.localScale = Vector3.one / HudUi.MmPerMetre;
+        var style = CameraCard.Style.Block(CardScale);
+        style.SortingOrder = HudTheme.SortingOrder - 10;   // behind the HUD
+        style.WaitingText = "Waiting for head camera";
+        style.WaitingFontMm = style.NameFontMm * WaitingFontRatio;
+        style.WaitingInsetMm = 0f;
+        style.PinView = true;
+        _card = CameraCard.Create(parent, "FPV Image", style, null, "Head Camera");
+        _canvasRt = _card.Rect;
         _canvasRt.localPosition = new Vector3(0f, 0f, QuadDistance);
         _canvasRt.localRotation = Quaternion.identity;
-
-        // Same name frame as a camera block (CameraPanel), scaled from the block distance to the
-        // quad's: outline ring and rounded card first so they sit behind the label and the image.
-        var outline = HudUi.Ring(HudUi.Box(go.transform, "Outline", Color.clear), CardOutlineMm * CardScale / HudUi.RingThicknessRatio);
-        _outlineRt = outline.rectTransform;
-        var card = HudUi.Round(HudUi.Box(go.transform, "Card", HudUi.PanelColor), CardRadiusMm * CardScale);
-        _cardRt = card.rectTransform;
-        _name = HudUi.Label(go.transform, "Name", "Head Camera", CameraPanel.NameFontSize * HudUi.MmPerMetre * CardScale);
-
-        _view = new GameObject("View", typeof(RectTransform)).AddComponent<RawImage>();
-        _view.transform.SetParent(go.transform, false);
-        _view.color = WaitingColor;
-        _view.raycastTarget = false;
-        _viewRt = _view.rectTransform;
-        _viewRt.anchorMin = _viewRt.anchorMax = _viewRt.pivot = new Vector2(0.5f, 0.5f);
-
-        float body = HudUi.TitleFontSize * HudUi.MmPerMetre * QuadDistance / HudUi.ReferenceDistance * 3f;
-        _waiting = HudUi.Label(_view.transform, "Waiting", "Waiting for head camera", body);
-        _waiting.color = HudUi.MutedText;
-        HudUi.Stretch(_waiting.rectTransform);
-
-        // Same fps / stale badge as a camera block, at the card's scale.
-        _badge = CameraBadge.Create(_view.transform, _viewRt.sizeDelta);
-
-        // Rename (layout mode only): above the card's top-right corner, like a camera block's; placed in ApplyCard.
-        float font = CameraPanel.TopicFontSize * HudUi.MmPerMetre * CardScale;
-        _rename = HudUi.Button(go.transform, "Rename", font, () =>
+        _card.Renamed += () =>
         {
             if (_cameraIndex >= 0) _images.BeginRename(_images.Panels[_cameraIndex]);
-        });
-        var rrt = (RectTransform)_rename.transform;
-        rrt.anchorMin = rrt.anchorMax = rrt.pivot = new Vector2(0.5f, 0.5f);
-        rrt.sizeDelta = new Vector2(font * 4.6f, font * 1.6f);
-        _rename.gameObject.SetActive(false);
+        };
+        _viewRt = _card.ViewRect;
+        _view = _card.View;
+        _name = _card.NameLabel;
+        _cardRt = _card.CardRect;
+        _badge = _card.Badge;
+        _rename = _card.RenameButton;
 
         ApplyQuadSize();
     }
@@ -329,40 +303,8 @@ public class FirstPersonView : MonoBehaviour
             widthM = 2f * QuadDistance * Mathf.Tan((_profile.defaultHfov > 0f ? _profile.defaultHfov : RobotProfile.FallbackHfov) / 2f);
             heightM = widthM / _textureAspect;
         }
-        _viewRt.sizeDelta = new Vector2(widthM, heightM) * HudUi.MmPerMetre;
-        _viewRt.anchoredPosition = new Vector2(shiftXM, shiftYM) * HudUi.MmPerMetre;
-        _canvasRt.sizeDelta = _viewRt.sizeDelta;
-        ApplyCard();
-    }
-
-    // Card behind the image with the camera name above it (no topic line), around the view rect.
-    void ApplyCard()
-    {
-        if (_cardRt == null || _name == null) return;
-        float pad = CardPaddingMm * CardScale, gap = CameraPanel.LabelGap * HudUi.MmPerMetre * CardScale;
-        Vector2 view = _viewRt.sizeDelta;
-        _badge?.Fit(view);
-        float nameH = _name.GetPreferredValues(_name.text, view.x, Mathf.Infinity).y;
-        Vector2 centre = _viewRt.anchoredPosition;
-
-        var card = new Vector2(view.x + 2f * pad, pad + nameH + gap + view.y + pad);
-        foreach (var rt in new[] { _cardRt, _outlineRt })
-        {
-            rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
-            rt.sizeDelta = card + (rt == _outlineRt ? Vector2.one * 2f * CardOutlineMm * CardScale : Vector2.zero);
-            rt.anchoredPosition = centre + new Vector2(0f, (nameH + gap) / 2f);
-        }
-        _name.rectTransform.anchorMin = _name.rectTransform.anchorMax = _name.rectTransform.pivot = new Vector2(0.5f, 0.5f);
-        _name.rectTransform.sizeDelta = new Vector2(view.x, nameH);
-        _name.rectTransform.anchoredPosition = centre + new Vector2(0f, view.y / 2f + gap + nameH / 2f);
-
-        if (_rename != null)   // above the card's top-right corner, right-aligned
-        {
-            var rrt = (RectTransform)_rename.transform;
-            var cardCentre = centre + new Vector2(0f, (nameH + gap) / 2f);
-            rrt.anchoredPosition = cardCentre + new Vector2(card.x / 2f - rrt.sizeDelta.x / 2f,
-                                                            card.y / 2f + rrt.sizeDelta.y / 2f + pad * 0.5f);
-        }
+        _card.Config = _cameraIndex >= 0 ? _images.Panels[_cameraIndex].Config : null;
+        _card.SetSize(widthM * HudUi.MmPerMetre, heightM * HudUi.MmPerMetre, new Vector2(shiftXM, shiftYM) * HudUi.MmPerMetre);
     }
 
     void UseTexture()
@@ -374,7 +316,7 @@ public class FirstPersonView : MonoBehaviour
         }
         var config = _images.Panels[_cameraIndex].Config;
         _textureAspect = config.Aspect;
-        _name.text = _images.Panels[_cameraIndex].Label;
+        _card.SetLabel(_images.Panels[_cameraIndex].Label);
         ApplyQuadSize();
         _images.FrameReady += OnFrame;
         _images.CameraVisibilityChanged += OnCameraVisibility;
@@ -385,9 +327,8 @@ public class FirstPersonView : MonoBehaviour
     // A camera was renamed: the card shows the head camera's name.
     void OnLabels()
     {
-        if (this == null || _name == null || _cameraIndex < 0) return;
-        _name.text = _images.Panels[_cameraIndex].Label;
-        ApplyCard();
+        if (this == null || _card == null || _cameraIndex < 0) return;
+        _card.SetLabel(_images.Panels[_cameraIndex].Label);
     }
 
     void OnCameraVisibility(int index, bool on)
@@ -417,21 +358,14 @@ public class FirstPersonView : MonoBehaviour
         if (!_quadFramed)
         {
             _quadFramed = true;
-            _waiting.gameObject.SetActive(false);
-            _view.color = Color.white;
             if (!_hasInfo)
             {
                 _textureAspect = (float)tex.width / tex.height;
                 ApplyQuadSize();
             }
         }
-        _view.texture = tex;   // raw decoding can replace the instance
-
-        // Same flips as CameraPanel.SetTexture.
-        var config = _images.Panels[_cameraIndex].Config;
-        _view.uvRect = new Rect(
-            config.flipHorizontal ? 1f : 0f, config.flipVertical ? 1f : 0f,
-            config.flipHorizontal ? -1f : 1f, config.flipVertical ? -1f : 1f);
+        _card.Config = _images.Panels[_cameraIndex].Config;
+        _card.SetTexture(tex);   // raw decoding can replace the instance
     }
 
     void SubscribeCameraInfo()

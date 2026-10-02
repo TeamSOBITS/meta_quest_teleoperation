@@ -27,7 +27,7 @@ public class BaseVelocity : MonoBehaviour
     // The arrow starts this far out from the base centre: seen from the head, the robot's own base
     // and torso hide the floor up to about 0.3 m (the first picture showed only the arrow head).
     const float StartM = 0.35f;
-    const float ChipRiseM = 0.15f, ChipDistanceM = 1.5f, ChipPadMm = 14f;
+    const float ChipRiseM = 0.15f, ChipDistanceM = 1.5f, ChipPadMm = 14f, ChipRadiusMm = 14f;
 
     static ROSConnection _subscribedOn;   // each robot screen has its own ROSConnection
     static string _subscribedTopic;
@@ -88,14 +88,14 @@ public class BaseVelocity : MonoBehaviour
         _arrowMesh.triangles = new[] { 0, 1, 2, 0, 2, 3, 4, 5, 6 };   // clockwise seen from above
         _arrowMesh.RecalculateNormals();
         _arrowR = AddRenderer(arrow, _arrowMesh, OverlayMaterials.Transparent(
-            OverlayMaterials.Tinted(source, new Color(HudUi.AccentColor.r, HudUi.AccentColor.g, HudUi.AccentColor.b, Alpha))));
+            OverlayMaterials.Tinted(source, HudTheme.WithAlpha(HudTheme.Accent, Alpha))));
 
         var arc = new GameObject("Turn");
         _arcT = arc.transform;
         _arcT.SetParent(transform, false);
         _arcMesh = new Mesh { name = "Base velocity turn" };
         _arcR = AddRenderer(arc, _arcMesh, OverlayMaterials.Transparent(
-            OverlayMaterials.Tinted(source, new Color(HudUi.WarnColor.r, HudUi.WarnColor.g, HudUi.WarnColor.b, Alpha))));
+            OverlayMaterials.Tinted(source, HudTheme.WithAlpha(HudTheme.Warn, Alpha))));
     }
 
     static MeshRenderer AddRenderer(GameObject go, Mesh mesh, Material material)
@@ -116,14 +116,14 @@ public class BaseVelocity : MonoBehaviour
         go.transform.SetParent(transform, false);
         var canvas = go.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.WorldSpace;
-        canvas.sortingOrder = HudUi.CanvasSortingOrder - 5;
+        canvas.sortingOrder = HudTheme.SortingOrder - 5;
         canvas.worldCamera = Camera.main;
         _chipRt = (RectTransform)go.transform;
         _chipRt.localScale = Vector3.one / HudUi.MmPerMetre;
         _chipT = go.transform;
-        var bg = HudUi.Round(HudUi.Box(_chipRt, "Card", HudUi.PanelColor), 14f);
+        var bg = HudUi.Round(HudUi.Box(_chipRt, "Card", HudTheme.Panel), ChipRadiusMm);
         _chipBg = bg.rectTransform;
-        _chipText = HudUi.Label(_chipRt, "Value", "", HudUi.FontAt(HudUi.BodyFontSize, ChipDistanceM));
+        _chipText = HudUi.Label(_chipRt, "Value", "", HudUi.FontAt(HudTheme.BodyFont, ChipDistanceM));
         _chipText.textWrappingMode = TextWrappingModes.NoWrap;
         _chipText.verticalAlignment = VerticalAlignmentOptions.Middle;
         HudUi.Stretch(_chipText.rectTransform);
