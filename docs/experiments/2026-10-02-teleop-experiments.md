@@ -106,3 +106,33 @@ targets for 10 s, moved the left arm and sent a linear + angular cmd_vel burst (
   recording (72 Hz display); image fps 8–12 while recording, 14 after; no Unity exceptions. Frames show
   the strip, the hand-cam cards, both target markers with lines, and the arrow tip during
   the burst (the recorder looks level, so the floor arrow is mostly below its view).
+
+## Feedback round 2
+
+1. **fps badge in first person**: the head-camera card and the hand cards show the same "15 fps" / "stale 1.2 s"
+   badge as the camera blocks (`CameraBadge` in CameraPanel.cs, fed from `ImageSubscriber.Fps` / `LastFrameTime`, ~5 Hz).
+2. **Camera toggles in first person**: the bar's camera checkboxes also show/hide the head-camera card (with its
+   "Waiting" label) and each hand card. `ImageSubscriber.CameraVisibilityChanged(index, on)`; a camera that is
+   off in first person is no longer decoded (ForceDecode dropped), and decoded again when turned on.
+3. **No topic line on camera blocks**: only setup mode (new robots, auto-generated names) shows it; the cards
+   are shorter and the layout measures them as before. Rename and the name label are unchanged.
+4. **Status strip in both modes**, active only while the bar is hidden. Blocks mode: no model, so no HEAD/LIFT
+   and "TF —"; it sits at the bar's bottom row (4.3 m, text as large as the bar's). First person: as before.
+5. **Controller and hand visuals hidden in first person while the bar is hidden** (renderers, ray line visual,
+   hand mesh controller; objects and interactors stay active, so the menu button and gesture still work).
+   Logged as `[TeleopHud] controller visuals hidden/shown`.
+
+**Status: tested (harness) + built.** A new Editor harness against the live sim (ExperimentsVerify3, 40 checks) passed:
+fps badges on the head card and hand cards ("15 fps", "stale 2.7 s" when the head camera is throttled to 0.2 fps);
+camera toggles in first person (head card hidden and no frames decoded while off, hand card count follows,
+Reset layout turns all back on, camera blocks stay hidden throughout); no topic line outside setup mode (and present
+in setup mode, AddRobotTest), with matching layout metrics and no overlaps; status strip in blocks mode (no model,
+"TF —") active exactly while the bar is hidden, below the blocks and at the bar's place, also after a bar rebuild;
+controller/hand renderers off in first person while the bar is hidden, back on with the bar or in blocks mode,
+with objects and interactors left active. The earlier harnesses still pass (ExperimentsVerify 60, ExperimentsVerify2 84,
+FirstPersonVerify 50, LayoutVerifier 107, AddRobotTest 40, SelectionShot 10). The APK was rebuilt and installed on the Quest.
+The hidden controllers can't be shown in the Editor (no tracked controllers), so they still need a check on the headset.
+
+Pictures: `15_fp_badges.png` (first person, badges on the head card's top right and on both hand cards),
+`16_strip_blocks_mode.png` (blocks mode, bar hidden, strip under the blocks), `17_blocks_no_topic.png`
+(blocks without topic lines, layout mode with Rename shown).
