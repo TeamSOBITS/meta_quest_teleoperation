@@ -108,6 +108,7 @@ public class ImageSubscriber : MonoBehaviour
             Debug.LogError("ImageSubscriber: no robot selected and no default profile set.");
             return;
         }
+        Settings.EnsureMigrated(RobotLibrary.LoadAll().Prepend(profile));   // no-op once done
 
         if (panelParent == null && Camera.main != null)
             panelParent = Camera.main.transform;
@@ -135,8 +136,7 @@ public class ImageSubscriber : MonoBehaviour
     // "Compressed images" (HUD bar, default on): off = the compressed topics of the robot are not
     // used, their raw twin is (sensor_msgs/Image) instead. Global; changing it reopens the robot
     // screen (subscriptions cannot be dropped, see HudBar).
-    public const string CompressedKey = "Images/Compressed";
-    public static bool Compressed => PlayerPrefs.GetInt(CompressedKey, 1) == 1;
+    public static bool Compressed => Settings.Compressed;
 
     // Topic that is subscribed for `cam`, and whether it carries raw images.
     string EffectiveTopic(RobotProfile.CameraConfig cam, out bool raw)
@@ -156,7 +156,7 @@ public class ImageSubscriber : MonoBehaviour
         string topic = EffectiveTopic(cam, out bool raw);
         int index = _panels.Count;
         var panel = CameraPanel.Create(panelParent, cam, topic, InSetup);   // topic line: setup mode only
-        string label = PlayerPrefs.GetString(LabelKey(_profile, cam), "");
+        string label = Settings.For(_profile).Camera(cam).Label;
         if (label.Length > 0) panel.SetLabel(label);
         panel.RenameRequested += BeginRename;
         _panels.Add(panel);
@@ -348,7 +348,7 @@ public class ImageSubscriber : MonoBehaviour
         get
         {
             foreach (var p in _panels)
-                if (PlayerPrefs.HasKey(PositionKey(p))) return true;
+                if (CamSettings(p).Position != null) return true;
             return false;
         }
     }
@@ -358,8 +358,8 @@ public class ImageSubscriber : MonoBehaviour
     public void SetCameraVisible(CameraPanel panel, bool visible)
     {
         SetOn(panel, visible);
-        PlayerPrefs.SetInt(VisibleKey(panel), visible ? 1 : 0);
-        PlayerPrefs.Save();
+        CamSettings(panel).Visible = visible;
+        Settings.Save();
         if (!HasCustomLayout) Layout();
     }
 
@@ -368,25 +368,12 @@ public class ImageSubscriber : MonoBehaviour
     {
         foreach (var p in _panels)
         {
-            PlayerPrefs.DeleteKey(PositionKey(p));
-            PlayerPrefs.DeleteKey(VisibleKey(p));
+            CamSettings(p).ResetLayout();
             SetOn(p, true);
         }
-        PlayerPrefs.Save();
+        Settings.Save();
         Layout();
         VisibilityReset?.Invoke();
-    }
-
-    // Forget a robot's saved positions, shown/hidden cameras and camera names (e.g. when it is removed).
-    public static void ForgetLayout(RobotProfile robot)
-    {
-        foreach (var cam in robot.cameras)
-        {
-            PlayerPrefs.DeleteKey(PositionKey(robot, cam));
-            PlayerPrefs.DeleteKey(VisibleKey(robot, cam));
-            PlayerPrefs.DeleteKey(LabelKey(robot, cam));
-        }
-        PlayerPrefs.Save();
     }
 
     // --- Renaming (layout mode): the Quest keyboard starts empty; confirming it empty restores
@@ -409,11 +396,11 @@ public class ImageSubscriber : MonoBehaviour
         label = (label ?? "").Trim();
         if (label.Length == 0 || label == panel.Config.displayName)
         {
-            PlayerPrefs.DeleteKey(LabelKey(_profile, panel.Config));
+            CamSettings(panel).Label = "";
             label = panel.Config.displayName;
         }
-        else PlayerPrefs.SetString(LabelKey(_profile, panel.Config), label);
-        PlayerPrefs.Save();
+        else CamSettings(panel).Label = label;
+        Settings.Save();
         panel.SetLabel(label);
         if (!HasCustomLayout) Layout();
         LabelsChanged?.Invoke();
@@ -437,7 +424,7 @@ public class ImageSubscriber : MonoBehaviour
     void ApplySavedVisibility()
     {
         foreach (var p in _panels)
-            if (PlayerPrefs.GetInt(VisibleKey(p), 1) == 0) SetOn(p, false);
+            if (!CamSettings(p).Visible) SetOn(p, false);
     }
 
     // Remember where the user dragged or resized a block, per robot and camera. Saved as
@@ -445,36 +432,25 @@ public class ImageSubscriber : MonoBehaviour
     public void SavePosition(CameraPanel panel)
     {
         var v = panel.transform.localPosition;
-        PlayerPrefs.SetString(PositionKey(panel),
-            string.Format(CultureInfo.InvariantCulture, "{0};{1};{2};{3}", v.x, v.y, v.z, panel.Size));
-        PlayerPrefs.Save();
+        CamSettings(panel).SetPlacement(v, panel.Size);
+        Settings.Save();
     }
 
     void ApplySavedPositions()
     {
         foreach (var p in _panels)
         {
-            var parts = PlayerPrefs.GetString(PositionKey(p), "").Split(';');
-            if (parts.Length >= 4 &&
-                float.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out float size))
-                p.SetSize(size);   // older saves (x;y;z) keep the automatic size
-            if (parts.Length >= 3 &&
-                float.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out float x) &&
-                float.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out float y) &&
-                float.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out float z))
+            var saved = CamSettings(p);
+            if (saved.Size is float size) p.SetSize(size);   // older saves (x;y;z) keep the automatic size
+            if (saved.Position is Vector3 pos)
             {
-                var pos = new Vector3(x, y, z);
                 p.transform.localPosition = pos;
                 p.transform.localRotation = Quaternion.LookRotation(pos);
             }
         }
     }
 
-    string PositionKey(CameraPanel p) => PositionKey(_profile, p.Config);
-    string VisibleKey(CameraPanel p) => VisibleKey(_profile, p.Config);
-    static string PositionKey(RobotProfile r, RobotProfile.CameraConfig c) => $"PanelPosition/{r.name}/{c.displayName}";
-    static string VisibleKey(RobotProfile r, RobotProfile.CameraConfig c) => $"PanelVisible/{r.name}/{c.displayName}";
-    static string LabelKey(RobotProfile r, RobotProfile.CameraConfig c) => $"CameraLabel/{r.name}/{c.displayName}";
+    CameraSettings CamSettings(CameraPanel p) => Settings.For(_profile).Camera(p.Config);
 
     // Automatic layout of the visible cameras: pick the column count that allows the largest
     // views within the layout area, size the views relative to the all-cameras layout (so with

@@ -179,8 +179,8 @@ public class HudBar : MonoBehaviour
         var compressed = HudUi.Toggle(root, "Compressed", body, ImageSubscriber.Compressed, on =>
         {
             if (on == ImageSubscriber.Compressed) return;
-            PlayerPrefs.SetInt(ImageSubscriber.CompressedKey, on ? 1 : 0);
-            PlayerPrefs.Save();
+            Settings.Compressed = on;
+            Settings.Save();
             RobotSelectionHud.AutoOpen = images.Profile;
             _publisher.BackToRobotSelection();
         });

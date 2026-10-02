@@ -554,8 +554,7 @@ public static class ExperimentsVerify2
         // ================= second robot screen: statics survive, ROSConnection is new =================
         EditorApplication.ExitPlaymode();
         while (Application.isPlaying) yield return Seconds(0.1);
-        PlayerPrefs.SetInt($"RobotModel/{Spec.Asset}", 1); PlayerPrefs.SetString($"CameraLayout/{Spec.Asset}", "firstperson");
-        PlayerPrefs.Save();
+        { var saved = Settings.For(profile); saved.ModelOn = true; saved.Layout = "firstperson"; Settings.Save(); }   // already migrated in this run: seed the new keys
         EditorSceneManager.OpenScene("Assets/Scenes/TeleopScene.unity");
         RobotProfile.Selected = profile;
         EditorApplication.EnterPlaymode();

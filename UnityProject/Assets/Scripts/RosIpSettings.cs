@@ -2,26 +2,24 @@ using UnityEngine;
 
 /// <summary>
 /// The ROS PC's IP as typed by the user, shared by the robot selection screen and the robot
-/// screens. Saved in PlayerPrefs so it survives app restarts.
+/// screens. Saved in <see cref="Settings"/> so it survives app restarts.
 /// </summary>
 public static class RosIpSettings
 {
-    const string PrefsKey = "RosIPAddress";
     public const int Port = 10000;
 
     // Saved IP, or `fallback` when none has been typed yet.
     public static string Load(string fallback)
     {
-        string ip = PlayerPrefs.GetString(PrefsKey, "");
-        return string.IsNullOrEmpty(ip) ? fallback : ip;
+        return Settings.HasRosIp ? Settings.RosIp : fallback;
     }
 
-    public static bool HasSaved => !string.IsNullOrEmpty(PlayerPrefs.GetString(PrefsKey, ""));
+    public static bool HasSaved => Settings.HasRosIp;
 
     public static void Save(string ip)
     {
-        PlayerPrefs.SetString(PrefsKey, ip);
-        PlayerPrefs.Save();  // flush now; the app may be killed from the Quest menu without a clean quit
+        Settings.RosIp = ip;
+        Settings.Save();  // flush now; the app may be killed from the Quest menu without a clean quit
     }
 }
 

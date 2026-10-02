@@ -139,7 +139,7 @@ public static class AddRobotTest
         var texts = card.GetComponentsInChildren<TMPro.TextMeshProUGUI>().Select(t => t.text).ToList();
         Check(texts.Contains("R3") && texts.Contains("/sobit_light  ·  4 cameras"), $"new card shows initials and details ({string.Join(" | ", texts)})");
         Check(card.GetComponentsInChildren<Transform>().Any(t => t.name == "Last used"), "new robot is tagged Last used");
-        Check(PlayerPrefs.GetInt("PanelVisible/custom_robot_3/Back Camera", 1) == 0, "hidden camera choice kept for the new robot");
+        Check(RobotLibrary.LoadAll().FirstOrDefault(r => r.name == "custom_robot_3") is RobotProfile r3 && !Settings.For(r3).Camera(r3.cameras.First(c => c.displayName == "Back Camera")).Visible, "hidden camera choice kept for the new robot");
         Shot(Path.Combine(shot, "AddRobot_selection.png"));
 
         // Open it again: 4 blocks, back camera still hidden, not in setup mode.

@@ -35,7 +35,6 @@ public class RobotSelectionHud : MonoBehaviour
     const float CardWidthMm = 1500f, CardPaddingMm = 60f, CardGapMm = 160f, RadiusMm = 60f;
     const float IpRowWidthMm = 3000f, IpRowHeightMm = 260f, EditWidthMm = 420f;
     const float TitleFontScale = 1.5f, BackdropPaddingMm = 110f;
-    public const string LastRobotKey = "LastRobot";
     const string HintText = "Point at a robot and pull the trigger";
     const float MessageSeconds = 4f, RemoveConfirmSeconds = 3f;
     const string AddRobotTitle = "Add robot";
@@ -125,20 +124,19 @@ public class RobotSelectionHud : MonoBehaviour
         Debug.Log($"FPV: intent robot={robot} viewmode={viewMode} capture={capture} record={record} fps={fps} switchat={switchAt}");
 
         // DebugCapture must not linger: set only by this launch, cleared when no extra is present.
-        if (capture == "1") PlayerPrefs.SetInt("DebugCapture", 1);
-        else PlayerPrefs.DeleteKey("DebugCapture");
-        if (string.IsNullOrEmpty(robot)) { PlayerPrefs.Save(); return; }
+        Settings.DebugCapture = capture == "1";
+        if (string.IsNullOrEmpty(robot)) { Settings.Save(); return; }
 
         var profile = _all.Find(r => r.name == robot);
         if (profile == null)
         {
             Debug.LogWarning($"FPV: intent robot '{robot}' not found");
-            PlayerPrefs.Save();
+            Settings.Save();
             return;
         }
         if (viewMode == FirstPersonView.LayoutFirstPerson || viewMode == FirstPersonView.LayoutBlocks || viewMode == "model")
             FirstPersonView.ViewModeOverride = viewMode;   // this robot screen only, not saved
-        PlayerPrefs.Save();
+        Settings.Save();
         if (record > 0)   // session only, never saved
             DemoRecorder.Request = new DemoRecorder.Settings
             {
@@ -156,6 +154,7 @@ public class RobotSelectionHud : MonoBehaviour
         _dots.Clear();
         _all.AddRange(robots);
         _all.AddRange(RobotLibrary.LoadAll());
+        Settings.EnsureMigrated(_all);
 
         float body  = HudUi.BodyFontSize  * HudUi.MmPerMetre;
         float title = HudUi.TitleFontSize * HudUi.MmPerMetre;
@@ -323,7 +322,7 @@ public class RobotSelectionHud : MonoBehaviour
             prt.anchorMin = prt.anchorMax = new Vector2(0.5f, 0.5f);
             prt.sizeDelta = new Vector2(w, h);
         }
-        if (robot.name == PlayerPrefs.GetString(LastRobotKey, ""))
+        if (robot.name == Settings.LastRobot)
         {
             float tagH = body * 1.6f;
             var tag = HudUi.Round(HudUi.Box(frame.transform, "Last used",
@@ -377,7 +376,7 @@ public class RobotSelectionHud : MonoBehaviour
             if (Time.time < armedUntil)
             {
                 RobotLibrary.Delete(robot);
-                if (PlayerPrefs.GetString(LastRobotKey, "") == robot.name) PlayerPrefs.DeleteKey(LastRobotKey);
+                if (Settings.LastRobot == robot.name) Settings.LastRobot = "";
                 Build();
                 return;
             }
@@ -396,8 +395,8 @@ public class RobotSelectionHud : MonoBehaviour
 
     void Select(RobotProfile robot)
     {
-        PlayerPrefs.SetString(LastRobotKey, robot.name);
-        PlayerPrefs.Save();
+        Settings.LastRobot = robot.name;
+        Settings.Save();
         RobotProfile.Selected = robot;
         StartCoroutine(Open(robot));
     }

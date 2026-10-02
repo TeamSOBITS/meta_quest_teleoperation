@@ -9,23 +9,22 @@ using UnityEngine.XR.ARFoundation;
 /// The grid floor is hidden while it is on, since a floor drawn over the real one only gets
 /// in the way.
 ///
-/// The choice is remembered across sessions (PlayerPrefs). Every call is null-guarded and
+/// The choice is remembered across sessions (Settings). Every call is null-guarded and
 /// the AR components are harmless in the Editor, where there is no AR runtime: there it only
 /// changes the camera clear colour and the floor.
 /// </summary>
 public static class PassthroughMode
 {
-    const string PrefKey = "Passthrough";
     // The floor objects ("Grid" in the teleop scene, "Ground" in the robot selection scene) carry this tag.
     public const string FloorTag = "Floor";
 
     public static bool Enabled
     {
-        get => PlayerPrefs.GetInt(PrefKey, 0) == 1;
+        get => Settings.Passthrough;
         set
         {
-            PlayerPrefs.SetInt(PrefKey, value ? 1 : 0);
-            PlayerPrefs.Save();
+            Settings.Passthrough = value;
+            Settings.Save();
         }
     }
 

@@ -98,6 +98,9 @@ public static class ExperimentsVerify4
 
     static RobotSpec Spec => RobotSpec.Current;   // env VERIFY_ROBOT, default SOBIT_HOME
     static string Robot => Spec.Asset;
+    static RobotProfile Prof => AssetDatabase.LoadAssetAtPath<RobotProfile>($"Assets/Robots/{Robot}.asset");
+    static int ModelPref() { var r = Settings.For(Prof); return r.HasModelOn ? (r.ModelOn ? 1 : 0) : -1; }   // -1: nothing saved
+    static string LayoutPref() => Settings.For(Prof).Layout;
     static string LeftSuffix => Spec.Sides[0].cameraSuffix;            // the (only / left) hand camera
     static string RightSuffix => Spec.Sides[Spec.Sides.Length - 1].cameraSuffix;
     static int Cards2 => Spec.Sides.Length;                              // hand cards in first person
@@ -211,7 +214,7 @@ public static class ExperimentsVerify4
             Check(!_hud.ControllerVisualsHidden && Bar.gameObject.activeSelf && !_hud.BarLowered, $"{tag}: controllers visible, bar still shown, not lowered");
             Check(modelToggle.isOn && blocksBtn.interactable && fpBtn.interactable && Selected(blocksBtn) && !Selected(fpBtn),
                   $"{tag}: toggle on, buttons interactable, Blocks selected (a {blocksBtn.image.color.a:F2} / {fpBtn.image.color.a:F2})");
-            Check(PlayerPrefs.GetInt($"RobotModel/{Robot}", -1) == 1, $"{tag}: pref RobotModel/{Robot} = {PlayerPrefs.GetInt($"RobotModel/{Robot}", -1)}");
+            Check(ModelPref() == 1, $"{tag}: pref ModelOn = {ModelPref()}");
             if (cycle == 1)
             {
                 yield return Seconds(1.0);
@@ -232,8 +235,8 @@ public static class ExperimentsVerify4
             Check(_hud.FirstPerson && AllBlocksInactive() && fpv.ImageShown && FindGo("FPV Image") != null && pip != null && pip.CardCount == Cards2,
                   $"{tag}: first person -> blocks hidden, image card {fpv.ImageShown}, hand cards {pip?.CardCount}");
             Check(!Bar.gameObject.activeSelf && _hud.BarLowered && _hud.ControllerVisualsHidden, $"{tag}: bar hidden {!Bar.gameObject.activeSelf} + lowered {_hud.BarLowered}, controllers hidden {_hud.ControllerVisualsHidden}");
-            Check(Selected(fpBtn) && !Selected(blocksBtn) && PlayerPrefs.GetString($"CameraLayout/{Robot}") == "firstperson",
-                  $"{tag}: First person selected, pref CameraLayout = '{PlayerPrefs.GetString($"CameraLayout/{Robot}")}'");
+            Check(Selected(fpBtn) && !Selected(blocksBtn) && LayoutPref() == "firstperson",
+                  $"{tag}: First person selected, pref CameraLayout = '{LayoutPref()}'");
             // back to blocks
             if (ui) blocksBtn.onClick.Invoke(); else _hud.SetCameraLayout("blocks");
             yield return Frames(3);
@@ -241,21 +244,21 @@ public static class ExperimentsVerify4
                   $"{tag}: blocks again -> blocks visible, no image card, no hand cards, model kept");
             Check(Bar.gameObject.activeSelf && !_hud.BarLowered && !_hud.ControllerVisualsHidden && Find<ArmTargets>() != null && Find<BaseVelocity>() != null,
                   $"{tag}: bar shown + at its pose, controllers visible, overlays kept");
-            Check(Selected(blocksBtn) && PlayerPrefs.GetString($"CameraLayout/{Robot}") == "blocks", $"{tag}: Blocks selected, pref '{PlayerPrefs.GetString($"CameraLayout/{Robot}")}'");
+            Check(Selected(blocksBtn) && LayoutPref() == "blocks", $"{tag}: Blocks selected, pref '{LayoutPref()}'");
             // model off
             if (ui) modelToggle.isOn = false; else _hud.SetRobotModel(false);
             yield return Frames(3);
             Check(!_hud.RobotModelOn && Object.FindObjectsByType<RobotModel>(FindObjectsSortMode.None).Length == 0 && Find<FirstPersonView>() == null
                   && Find<ArmTargets>() == null && Find<BaseVelocity>() == null && Find<HandCamPip>() == null && AllBlocksVisible(),
                   $"{tag}: model off -> model + overlays gone, blocks visible");
-            Check(PlayerPrefs.GetInt($"RobotModel/{Robot}", -1) == 0 && !modelToggle.isOn && !blocksBtn.interactable && Selected(blocksBtn),
+            Check(ModelPref() == 0 && !modelToggle.isOn && !blocksBtn.interactable && Selected(blocksBtn),
                   $"{tag}: pref RobotModel = 0, toggle off, buttons greyed with Blocks shown selected");
         }
         Check(ExceptionCount == exc0, $"1: three model/layout cycles without exceptions ({ExceptionCount - exc0})");
         {   // layout chosen while the model is off is remembered and applied when it comes on
             _hud.SetCameraLayout("firstperson");
             yield return Frames(2);
-            Check(!_hud.FirstPerson && AllBlocksVisible() && PlayerPrefs.GetString($"CameraLayout/{Robot}") == "firstperson" && !fpBtn.interactable,
+            Check(!_hud.FirstPerson && AllBlocksVisible() && LayoutPref() == "firstperson" && !fpBtn.interactable,
                   "1: layout set with the model off -> remembered (pref firstperson), nothing changes yet");
             _hud.SetRobotModel(true);
             yield return Frames(3);
@@ -406,15 +409,16 @@ public static class ExperimentsVerify4
         e = EnterTeleop(profile); while (e.MoveNext()) yield return e.Current;
         yield return Frames(3);
         Check(_hud.RobotModelOn && _hud.CameraLayout == "firstperson" && _hud.FirstPerson, $"migration: model {_hud.RobotModelOn}, layout '{_hud.CameraLayout}'");
-        Check(!PlayerPrefs.HasKey($"ViewMode/{Robot}") && PlayerPrefs.GetInt($"RobotModel/{Robot}", -1) == 1 && PlayerPrefs.GetString($"CameraLayout/{Robot}") == "firstperson",
-              $"migration: old key deleted ({!PlayerPrefs.HasKey($"ViewMode/{Robot}")}), RobotModel {PlayerPrefs.GetInt($"RobotModel/{Robot}", -1)}, CameraLayout '{PlayerPrefs.GetString($"CameraLayout/{Robot}")}'");
+        Check(ModelPref() == 1 && LayoutPref() == "firstperson" && PlayerPrefs.HasKey($"ViewMode/{Robot}"),
+              $"migration: new keys ModelOn {ModelPref()}, Layout '{LayoutPref()}', old ViewMode key kept ({PlayerPrefs.HasKey($"ViewMode/{Robot}")})");
         e = ExitPlay(); while (e.MoveNext()) yield return e.Current;
+        PlayerPrefs.DeleteAll();
+        PlayerPrefs.SetString("RosIPAddress", "127.0.0.1");
         PlayerPrefs.SetString($"ViewMode/{Robot}", "blocks");
-        PlayerPrefs.DeleteKey($"RobotModel/{Robot}"); PlayerPrefs.DeleteKey($"CameraLayout/{Robot}");
         PlayerPrefs.Save();
         e = EnterTeleop(profile); while (e.MoveNext()) yield return e.Current;
         yield return Frames(3);
-        Check(!_hud.RobotModelOn && !PlayerPrefs.HasKey($"ViewMode/{Robot}") && !PlayerPrefs.HasKey($"RobotModel/{Robot}"), "migration: old 'blocks' -> model off, key deleted, nothing else written");
+        Check(!_hud.RobotModelOn && ModelPref() == -1, "migration: old 'blocks' -> model off, nothing saved");
         e = ExitPlay(); while (e.MoveNext()) yield return e.Current;
 
         // =============== Session 3: raw images, then the Compressed toggle reopens the robot ===============
@@ -471,7 +475,7 @@ public static class ExperimentsVerify4
             var t = BarToggle("Compressed");
             double t0 = Now;
             t.isOn = true;   // the user's click: saves the pref, AutoOpen, BackToRobotSelection
-            Check(ImageSubscriber.Compressed && PlayerPrefs.GetInt("Images/Compressed", -1) == 1, "5: toggle on -> pref saved = 1");
+            Check(ImageSubscriber.Compressed && Settings.Compressed, "5: toggle on -> pref saved = 1");
             double end = Now + 10; bool sawSelection = false; double selAt = -1;
             while (Now < end)
             {

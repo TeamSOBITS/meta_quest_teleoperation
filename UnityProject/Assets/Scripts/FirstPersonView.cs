@@ -49,12 +49,6 @@ public class FirstPersonView : MonoBehaviour
     public static Transform HeadOverride;
     public static Transform Head => HeadOverride != null ? HeadOverride : Camera.main != null ? Camera.main.transform : null;
 
-    // Per robot: RobotModel/{robot} = 0 | 1 (default 0), CameraLayout/{robot} = blocks | firstperson.
-    public static string ModelKey(RobotProfile r) => $"RobotModel/{r.name}";
-    public static string LayoutKey(RobotProfile r) => $"CameraLayout/{r.name}";
-    // Old single "ViewMode/{robot}" pref (blocks | firstperson); migrated once by TeleopHud.
-    public static string OldViewModeKey(RobotProfile r) => $"ViewMode/{r.name}";
-
     ImageSubscriber _images;
     RobotProfile _profile;
     RobotModel _model;

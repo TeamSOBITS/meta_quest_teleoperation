@@ -599,14 +599,14 @@ MonoBehaviour:
         while (!File.Exists(capturePath) && EditorApplication.timeSinceStartup < capEnd) yield return Seconds(0.5);
         if (Check(File.Exists(capturePath), $"DebugCapture PNG written: {capturePath}"))
             File.Copy(capturePath, Path.Combine(ShotDir, "fpv_capture_editor.png"), true);
-        Check(PlayerPrefs.GetInt("DebugCapture", 0) == 0, "DebugCapture flag cleared after the capture");
+        Check(!Settings.DebugCapture, "DebugCapture flag cleared after the capture");
 
         // Toggle back to blocks and again to first person.
         hud.SetRobotModel(false);
         yield return Frames(3);
         Check(!hud.FirstPerson && images.Panels.All(p => p.Visible), $"blocks reappear ({images.Panels.Count(p => p.Visible)}/{images.Panels.Count})");
         Check(Object.FindObjectsByType<RobotModel>(FindObjectsSortMode.None).Length == 0 && Object.FindFirstObjectByType<FirstPersonView>() == null, "model gone in blocks mode");
-        Check(PlayerPrefs.GetInt($"RobotModel/{Spec.Asset}", -1) == 0 && PlayerPrefs.GetString($"CameraLayout/{Spec.Asset}") == "firstperson", "RobotModel pref = 0, CameraLayout pref kept = firstperson");
+        Check(!Settings.For(AssetDatabase.LoadAssetAtPath<RobotProfile>(Spec.ProfilePath)).ModelOn && Settings.For(AssetDatabase.LoadAssetAtPath<RobotProfile>(Spec.ProfilePath)).Layout == "firstperson", "RobotModel pref = 0, CameraLayout pref kept = firstperson");
         Shot("fpv_blocks_after_toggle", head);
         Exception ex = null;
         try { hud.SetRobotModel(true); } catch (Exception x) { ex = x; }

@@ -26,7 +26,6 @@ public class TeleopHud : MonoBehaviour
     // Panels follow this transform; defaults to the main camera.
     public Transform hudParent;
 
-    const string LazyFollowKey = "LazyFollow";
 
     Transform _bar;
     HeadFollower _follower;
@@ -53,7 +52,6 @@ public class TeleopHud : MonoBehaviour
     ArmTargets _targets;
     BaseVelocity _baseVel;
 
-    const string CaptureKey = "DebugCapture";
     const float CaptureDelaySeconds = 10f;
 
     void Start()
@@ -91,7 +89,7 @@ public class TeleopHud : MonoBehaviour
 
         ControllerHints.Create(hudParent);
 
-        if (PlayerPrefs.GetInt(LazyFollowKey, 0) == 1)
+        if (Settings.LazyFollow)
             SetLazyFollow(true);
 
         var profile = images.Profile;
@@ -100,22 +98,10 @@ public class TeleopHud : MonoBehaviour
         FirstPersonView.ViewModeOverride = null;   // one robot screen only
         if (profile != null && profile.HasModel)
         {
-            bool model = PlayerPrefs.GetInt(FirstPersonView.ModelKey(profile), 0) == 1;
-            string layout = PlayerPrefs.GetString(FirstPersonView.LayoutKey(profile), FirstPersonView.LayoutBlocks);
-            // The old single "ViewMode" pref: first person meant model + first-person layout. Once.
-            string old = FirstPersonView.OldViewModeKey(profile);
-            if (PlayerPrefs.HasKey(old))
-            {
-                if (PlayerPrefs.GetString(old, "") == FirstPersonView.LayoutFirstPerson)
-                {
-                    model = true;
-                    layout = FirstPersonView.LayoutFirstPerson;
-                    PlayerPrefs.SetInt(FirstPersonView.ModelKey(profile), 1);
-                    PlayerPrefs.SetString(FirstPersonView.LayoutKey(profile), layout);
-                }
-                PlayerPrefs.DeleteKey(old);
-                PlayerPrefs.Save();
-            }
+            Settings.EnsureMigrated(profile);
+            var saved = Settings.For(profile);
+            bool model = saved.ModelOn;
+            string layout = saved.Layout;
             bool save = modeOverride == null;
             if (modeOverride == FirstPersonView.LayoutFirstPerson) { model = true; layout = FirstPersonView.LayoutFirstPerson; }
             else if (modeOverride == "model") { model = true; layout = FirstPersonView.LayoutBlocks; }
@@ -126,7 +112,7 @@ public class TeleopHud : MonoBehaviour
 
         UpdateStatusStrip();   // model off (the model path made its own above)
 
-        if (PlayerPrefs.GetInt(CaptureKey, 0) == 1)
+        if (Settings.DebugCapture)
             StartCoroutine(CaptureLater());
 
         if (DemoRecorder.Request != null)
@@ -165,8 +151,8 @@ public class TeleopHud : MonoBehaviour
         RobotModelOn = on;
         if (profile != null && save)
         {
-            PlayerPrefs.SetInt(FirstPersonView.ModelKey(profile), on ? 1 : 0);
-            PlayerPrefs.Save();
+            Settings.For(profile).ModelOn = on;
+            Settings.Save();
         }
         ApplyView();
     }
@@ -181,8 +167,8 @@ public class TeleopHud : MonoBehaviour
         CameraLayout = layout;
         if (profile != null && save && profile.HasModel)
         {
-            PlayerPrefs.SetString(FirstPersonView.LayoutKey(profile), layout);
-            PlayerPrefs.Save();
+            Settings.For(profile).Layout = layout;
+            Settings.Save();
         }
         ApplyView();
     }
@@ -225,14 +211,14 @@ public class TeleopHud : MonoBehaviour
         if (_fpv != null) _fpv.Recenter();
     }
 
-    // Autonomous tests (PlayerPrefs DebugCapture=1, set from an intent extra): once the screen has
+    // Autonomous tests (Settings.DebugCapture, set from an intent extra): once the screen has
     // been up a while, save what the main camera sees as a PNG for `adb pull`, then clear the flag.
     IEnumerator CaptureLater()
     {
         yield return new WaitForSecondsRealtime(CaptureDelaySeconds);
         yield return null;
-        PlayerPrefs.DeleteKey(CaptureKey);
-        PlayerPrefs.Save();
+        Settings.DebugCapture = false;
+        Settings.Save();
 
         var cam = Camera.main;
         if (cam == null) { Debug.LogWarning("FPV: capture failed, no main camera"); yield break; }
@@ -574,8 +560,8 @@ public class TeleopHud : MonoBehaviour
     public void SaveSetup()
     {
         RobotLibrary.Save(images.Profile);
-        PlayerPrefs.SetString(RobotSelectionHud.LastRobotKey, images.Profile.name);
-        PlayerPrefs.Save();
+        Settings.LastRobot = images.Profile.name;
+        Settings.Save();
         RobotProfile.SetupMode = false;
         publisher.BackToRobotSelection();
     }
@@ -583,7 +569,7 @@ public class TeleopHud : MonoBehaviour
     // Setup mode: discard the robot being added.
     public void CancelSetup()
     {
-        ImageSubscriber.ForgetLayout(images.Profile);
+        Settings.For(images.Profile).Forget();
         RobotProfile.SetupMode = false;
         publisher.BackToRobotSelection();
     }
@@ -595,8 +581,8 @@ public class TeleopHud : MonoBehaviour
     {
         if (on == LazyFollow) return;
         LazyFollow = on;
-        PlayerPrefs.SetInt(LazyFollowKey, on ? 1 : 0);
-        PlayerPrefs.Save();
+        Settings.LazyFollow = on;
+        Settings.Save();
 
         if (on)
         {

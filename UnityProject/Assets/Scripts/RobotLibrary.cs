@@ -124,7 +124,7 @@ public static class RobotLibrary
     {
         if (!robot.isCustom) return;
         if (File.Exists(FileFor(robot.name))) File.Delete(FileFor(robot.name));
-        ImageSubscriber.ForgetLayout(robot);
+        Settings.For(robot).Forget();
     }
 
     // Names are compared case-insensitively against every robot shown on the selection screen.
