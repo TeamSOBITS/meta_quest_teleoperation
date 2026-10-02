@@ -37,22 +37,6 @@ public class QuestControllerPublisher : MonoBehaviour
     [UnityEngine.Serialization.FormerlySerializedAs("publishJoy")]
     public bool controlRobot = true;
 
-    // Experiment "deadman" (grip to control): with Control on, TF and Joy are published only while
-    // a grip is held (or, with tracked hands, a pinch). Set by TeleopHud from ExperimentSettings.
-    public bool deadmanEnabled;
-    // Test hook: counts as a held grip (the harness has no real controllers).
-    public bool SimulateDeadman;
-    // Either controller grip past this value counts as held.
-    const float GripHeld = 0.5f;
-    // Thumb tip to index tip (m) that counts as a pinch with tracked hands.
-    const float PinchHeld = 0.03f;
-
-    // A grip (or hand pinch) is held right now. False on any error or missing device.
-    public bool DeadmanHeld { get; private set; }
-    // A message (TF + Joy) was sent this frame.
-    public bool Publishing { get; private set; }
-
-    float _leftGrip, _rightGrip;
     private float _timeElapsed;
     private string _joyTopicName;
     private string _confirmedIp;  // IP that was last explicitly connected to
@@ -134,50 +118,16 @@ public class QuestControllerPublisher : MonoBehaviour
 
         // Stop publishing when disconnected (avoids injecting stale TFs into a freshly-started
         // ROS session) and when robot control is off (layout mode: the robot must not move).
-        Publishing = false;
-        UpdateDeadman();
         if (ros.HasConnectionError || !controlRobot) return;
-        if (deadmanEnabled && !DeadmanHeld) return;   // control on but no grip: nothing is sent
 
         _timeElapsed += Time.deltaTime;
         if (_timeElapsed > publishFrequency)
         {
-            Publishing = PublishTfJoy();
+            PublishTfJoy();
             _timeElapsed = 0;
         }
     }
 
-    // Reads both grips (also used for the Joy axes) and, with tracked hands, the pinches.
-    // Fails closed: any exception or missing device means not held.
-    void UpdateDeadman()
-    {
-        bool held = false;
-        try
-        {
-            _leftGrip = _rightGrip = 0f;
-            var left = InputDevices.GetDeviceAtXRNode(XRNode.LeftHand);
-            var right = InputDevices.GetDeviceAtXRNode(XRNode.RightHand);
-            if (left.isValid) left.TryGetFeatureValue(UnityEngine.XR.CommonUsages.grip, out _leftGrip);
-            if (right.isValid) right.TryGetFeatureValue(UnityEngine.XR.CommonUsages.grip, out _rightGrip);
-            held = _leftGrip > GripHeld || _rightGrip > GripHeld || SimulateDeadman;
-            if (!held && PanelDragger.UsingHands)
-            {
-                float l = PanelDragger.PinchDistance(UnityEngine.XR.Interaction.Toolkit.Interactors.InteractorHandedness.Left);
-                float r = PanelDragger.PinchDistance(UnityEngine.XR.Interaction.Toolkit.Interactors.InteractorHandedness.Right);
-                held = (l >= 0f && l < PinchHeld) || (r >= 0f && r < PinchHeld);
-            }
-        }
-        catch (Exception)
-        {
-            held = false;
-        }
-        if (held != DeadmanHeld)
-        {
-            DeadmanHeld = held;
-            Debug.Log($"[Deadman] {(held ? "held" : "released")}");
-        }
-    }
-    
     private TimeMsg GetRosTime()
     {
         // Always stamp with wall-clock (UTC). sobits_teleop uses a wall-clock TF
@@ -191,7 +141,7 @@ public class QuestControllerPublisher : MonoBehaviour
         };
     }
 
-    private bool PublishTfJoy()
+    private void PublishTfJoy()
     {
     // get head and controller poses
     UnityEngine.XR.InputDevice headDevice = InputDevices.GetDeviceAtXRNode(XRNode.Head);
@@ -294,7 +244,7 @@ public class QuestControllerPublisher : MonoBehaviour
     if (rightTracked) tfList.Add(transformStampedRight);
     if (leftTracked)  tfList.Add(transformStampedLeft);
 
-    if (tfList.Count == 0) return false;
+    if (tfList.Count == 0) return;
 
     ros.Publish(tfTopicName, new TFMessageMsg(tfList.ToArray()));
 
@@ -306,14 +256,14 @@ public class QuestControllerPublisher : MonoBehaviour
     rightDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.primaryButton, out bool rightPrimary);
     rightDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.secondaryButton, out bool rightSecondary);
     rightDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.trigger, out float rightTrigger);
-    float rightGrip = _rightGrip;
+    rightDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.grip, out float rightGrip);
     rightDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.primary2DAxis, out Vector2 rightAxis);
     rightDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.primary2DAxisClick, out bool rightStickClick);
     // Left controller values
     leftDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.primaryButton, out bool leftPrimary);
     leftDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.secondaryButton, out bool leftSecondary);
     leftDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.trigger, out float leftTrigger);
-    float leftGrip = _leftGrip;
+    leftDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.grip, out float leftGrip);
     leftDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.primary2DAxis, out Vector2 leftAxis);
     leftDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.primary2DAxisClick, out bool leftStickClick);
     leftDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.menuButton, out bool leftMenuButton);
@@ -346,6 +296,5 @@ public class QuestControllerPublisher : MonoBehaviour
     };
 
     ros.Publish(_joyTopicName, joyMsg);
-    return true;
     }
 }

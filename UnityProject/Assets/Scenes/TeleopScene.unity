@@ -818,7 +818,7 @@ MonoBehaviour:
   distance: 4.3
   columnGap: 0.15
   rowGap: 0.15
-  minBottom: -1.45
+  minBottom: -1.75
 --- !u!114 &1765857569
 MonoBehaviour:
   m_ObjectHideFlags: 0

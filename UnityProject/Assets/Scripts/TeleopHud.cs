@@ -77,7 +77,6 @@ public class TeleopHud : MonoBehaviour
         _bar = HudBar.Create(hudParent, publisher, images, this).transform;
         ExperimentsPanel.Create(_bar);
         UpdateRoundTrip();
-        SyncDeadman();
         images.CamerasAdded += RebuildBar;
 
         var dragger = gameObject.AddComponent<PanelDragger>();
@@ -225,23 +224,17 @@ public class TeleopHud : MonoBehaviour
         _bar = HudBar.Create(hudParent, publisher, images, this).transform;
         _bar.SetParent(parent, false);
         ExperimentsPanel.Create(_bar);
-        BarCompact = false;   // the new bar is at its normal pose
+        BarLowered = false;   // the new bar is at its normal pose
         PlaceBar();
     }
 
     void OnExperimentChanged(string key, bool on)
     {
         if (this == null) return;
-        if (key == ExperimentSettings.Deadman) SyncDeadman();
-        else if (key == ExperimentSettings.Rtt) UpdateRoundTrip();
+        if (key == ExperimentSettings.Rtt) UpdateRoundTrip();
         else if (key == ExperimentSettings.Status) UpdateStatusStrip();
         else if (key == ExperimentSettings.HandCams || key == ExperimentSettings.Targets
                  || key == ExperimentSettings.BaseVel) UpdateFpvExperiments();
-    }
-
-    void SyncDeadman()
-    {
-        if (publisher != null) publisher.deadmanEnabled = ExperimentSettings.IsOn(ExperimentSettings.Deadman);
     }
 
     // The round-trip probe exists while the "rtt" experiment is on (and setup mode is not).
@@ -321,20 +314,7 @@ public class TeleopHud : MonoBehaviour
         HudUi.Place((RectTransform)cancel.transform, left + 2f * (buttonW + gap), top, buttonW, buttonH);
     }
 
-    bool _menuWasPressed, _menuDeferred, _menuLongDone, _menuSuppressed, _simMenu;
-    // Experiment "menurecenter": hold the menu input this long in first person to Recenter.
-    const float LongPressSeconds = 1.5f;
-
-    // How long the menu input has been held in the current press (0 when not pressed).
-    public float MenuHeldSeconds { get; private set; }
-    // Test hook: once SimulateMenu has been called, the menu input comes only from it.
-    public bool SimulateMenuInput;
-
-    public void SimulateMenu(bool pressed)
-    {
-        SimulateMenuInput = true;
-        _simMenu = pressed;
-    }
+    bool _menuWasPressed;
 
     void Update()
     {
@@ -342,37 +322,10 @@ public class TeleopHud : MonoBehaviour
 
         // Menu shows/hides the HUD bar: the left controller's menu button, or with hand tracking
         // the hand menu gesture (left palm facing you + pinch). Back to robots is on the bar.
-        // In first person with "menurecenter" on, a short press toggles on release and a hold of
-        // LongPressSeconds recenters instead; otherwise the bar toggles on press.
-        bool pressed = SimulateMenuInput ? _simMenu : ControllerMenuPressed() || HandMenuGesture();
-        if (pressed)
-        {
-            if (!_menuWasPressed)
-            {
-                MenuHeldSeconds = 0f;
-                _menuLongDone = _menuSuppressed = false;
-                _menuDeferred = FirstPerson && ExperimentSettings.IsOn(ExperimentSettings.MenuRecenter);
-                if (!_menuDeferred) ToggleBar();
-            }
-            else
-                MenuHeldSeconds += Time.unscaledDeltaTime;
-
-            if (PanelDragger.Dragging) _menuSuppressed = true;
-            if (_menuDeferred && !_menuLongDone && !_menuSuppressed && MenuHeldSeconds >= LongPressSeconds)
-            {
-                _menuLongDone = true;
-                Debug.Log("[TeleopHud] long-press menu -> recenter");
-                Recenter();
-            }
-        }
-        else if (_menuWasPressed)
-        {
-            if (_menuDeferred && !_menuLongDone && !_menuSuppressed && !PanelDragger.Dragging
-                && MenuHeldSeconds < LongPressSeconds)
-                ToggleBar();
-            MenuHeldSeconds = 0f;
-            _menuDeferred = false;
-        }
+        // Not while a block is being dragged (the pinch of the drag would toggle the bar).
+        bool pressed = ControllerMenuPressed() || HandMenuGesture();
+        if (pressed && !_menuWasPressed && _bar != null && !PanelDragger.Dragging)
+            ToggleBar();
         _menuWasPressed = pressed;
     }
 
@@ -384,29 +337,32 @@ public class TeleopHud : MonoBehaviour
         Debug.Log($"[TeleopHud] menu -> bar {(_bar.gameObject.activeSelf ? "shown" : "hidden")}");
     }
 
-    // In first person the bar sits lower and smaller so it never covers the image centre; in
-    // blocks mode it is at its normal pose. Relative to the bar's normal local pose.
-    const float BarCompactScale = 0.7f, BarCompactDrop = 0.35f;
-    Vector3 _barNormalPos, _barNormalScale;
+    // The bar is always compact (HudBar.CompactScale, built that way); in first person it also
+    // sits lower so it never covers the image centre. Relative to the bar's built local pose.
+    // Numbers: head-camera quad at 1.5 m, vfov = 2 atan(240/462) -> 1.45 m tall, bottom edge at
+    // -0.72 m = -25.8 deg. Bar top edge = ImageSubscriber.minBottom - 0.17 = -1.92 m at 4.3 m
+    // (-24.0 deg, inside the image) minus the drop: 0.35 m -> -27.8 deg (2.0 deg below, the bare
+    // minimum, and the quad's camera_info centre shift ate it), 0.50 m -> atan(2.42/4.3) = -29.4 deg
+    // (3.6 deg below, the panel top still touched the image bottom), 0.55 m -> atan(2.47/4.3) = -29.9 deg
+    // (4.1 deg below the image bottom).
+    const float BarLoweredDrop = 0.55f;
+    Vector3 _barNormalPos;
 
-    public bool BarCompact { get; private set; }
+    public bool BarLowered { get; private set; }
 
     void PlaceBar()
     {
         if (_bar == null) return;
-        if (FirstPerson && !BarCompact)
+        if (FirstPerson && !BarLowered)
         {
             _barNormalPos = _bar.localPosition;
-            _barNormalScale = _bar.localScale;
-            _bar.localScale = _barNormalScale * BarCompactScale;
-            _bar.localPosition = _barNormalPos + Vector3.down * BarCompactDrop;
-            BarCompact = true;
+            _bar.localPosition = _barNormalPos + Vector3.down * BarLoweredDrop;
+            BarLowered = true;
         }
-        else if (!FirstPerson && BarCompact)
+        else if (!FirstPerson && BarLowered)
         {
             _bar.localPosition = _barNormalPos;
-            _bar.localScale = _barNormalScale;
-            BarCompact = false;
+            BarLowered = false;
         }
     }
 

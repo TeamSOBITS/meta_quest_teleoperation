@@ -18,8 +18,9 @@ using UnityEngine.XR;
 /// transform whose space is the tracking space, so it moves with the playspace and its floor is
 /// y = 0. On <see cref="Recenter"/> (enable, first TF, tracking origin reset, the Recenter button)
 /// the model is turned about the vertical axis so the camera frame faces where the headset looks,
-/// and moved so the camera frame sits at the headset position. Its pan-axis point (panFrame origin)
-/// is then remembered, and every frame the model is shifted so that point stays where it was:
+/// and moved so the camera frame sits at the headset position. Its pan-axis point (panFrame origin;
+/// for robots without a pan/tilt head, i.e. panFrame empty or absent from the model, the camera frame
+/// itself) is then remembered, and every frame the model is shifted so that point stays where it was:
 /// when the lift or head moves, the model moves under the user instead of the image moving off
 /// the eyes. Rotation is never touched after Recenter, so a turning robot head turns the image.
 /// </summary>
@@ -30,6 +31,10 @@ public class FirstPersonView : MonoBehaviour
     // Distance of the image quad from the camera frame (metres).
     const float QuadDistance = 1.5f;
     const float NearClip = 0.1f;
+    // The camera blocks' card (CameraPanel: padding 40 mm, radius 60 mm, outline margin 30 mm, label gap 0.05 m)
+    // shrinks with the distance ratio quad / block distance.
+    const float CardPaddingMm = 40f, CardRadiusMm = 60f, CardOutlineMm = 30f;
+    const float CardScale = QuadDistance / HudUi.ReferenceDistance;
     const float LogSeconds = 5f;
     static readonly Color WaitingColor = new Color(0.15f, 0.15f, 0.15f, 1f);
 
@@ -56,7 +61,8 @@ public class FirstPersonView : MonoBehaviour
     // Image quad
     RectTransform _canvasRt, _viewRt;
     RawImage _view;
-    TextMeshProUGUI _waiting;
+    TextMeshProUGUI _waiting, _name;
+    RectTransform _cardRt, _outlineRt;
     int _cameraIndex = -1;
     int _frames;
     float _nextLog;
@@ -99,7 +105,12 @@ public class FirstPersonView : MonoBehaviour
         _camFrame = _model.Frame(profile.cameraFrame);
         _panFrame = _model.Frame(profile.panFrame);
         if (_camFrame == null) Debug.LogWarning($"FPV: camera frame '{profile.cameraFrame}' not in the model; the image quad hangs on the model root");
-        if (_panFrame == null) Debug.LogWarning($"FPV: pan frame '{profile.panFrame}' not in the model; no anchor correction");
+        if (_panFrame == null && _camFrame != null)
+        {
+            // Robots without a pan/tilt head: keep the eyes at the camera instead.
+            _panFrame = _camFrame;
+            Debug.Log("FPV: no pan frame, anchoring at the camera frame");
+        }
 
         _model.SetLinksVisible(profile.firstPersonHiddenLinkPrefixes, false);
 
@@ -224,6 +235,14 @@ public class FirstPersonView : MonoBehaviour
         _canvasRt.localPosition = new Vector3(0f, 0f, QuadDistance);
         _canvasRt.localRotation = Quaternion.identity;
 
+        // Same name frame as a camera block (CameraPanel), scaled from the block distance to the
+        // quad's: outline ring and rounded card first so they sit behind the label and the image.
+        var outline = HudUi.Ring(HudUi.Box(go.transform, "Outline", Color.clear), CardOutlineMm * CardScale / HudUi.RingThicknessRatio);
+        _outlineRt = outline.rectTransform;
+        var card = HudUi.Round(HudUi.Box(go.transform, "Card", HudUi.PanelColor), CardRadiusMm * CardScale);
+        _cardRt = card.rectTransform;
+        _name = HudUi.Label(go.transform, "Name", "Head Camera", CameraPanel.NameFontSize * HudUi.MmPerMetre * CardScale);
+
         _view = new GameObject("View", typeof(RectTransform)).AddComponent<RawImage>();
         _view.transform.SetParent(go.transform, false);
         _view.color = WaitingColor;
@@ -281,6 +300,28 @@ public class FirstPersonView : MonoBehaviour
         _viewRt.sizeDelta = new Vector2(widthM, heightM) * HudUi.MmPerMetre;
         _viewRt.anchoredPosition = new Vector2(shiftXM, shiftYM) * HudUi.MmPerMetre;
         _canvasRt.sizeDelta = _viewRt.sizeDelta;
+        ApplyCard();
+    }
+
+    // Card behind the image with the camera name above it (no topic line), around the view rect.
+    void ApplyCard()
+    {
+        if (_cardRt == null || _name == null) return;
+        float pad = CardPaddingMm * CardScale, gap = CameraPanel.LabelGap * HudUi.MmPerMetre * CardScale;
+        Vector2 view = _viewRt.sizeDelta;
+        float nameH = _name.GetPreferredValues(_name.text, view.x, Mathf.Infinity).y;
+        Vector2 centre = _viewRt.anchoredPosition;
+
+        var card = new Vector2(view.x + 2f * pad, pad + nameH + gap + view.y + pad);
+        foreach (var rt in new[] { _cardRt, _outlineRt })
+        {
+            rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.sizeDelta = card + (rt == _outlineRt ? Vector2.one * 2f * CardOutlineMm * CardScale : Vector2.zero);
+            rt.anchoredPosition = centre + new Vector2(0f, (nameH + gap) / 2f);
+        }
+        _name.rectTransform.anchorMin = _name.rectTransform.anchorMax = _name.rectTransform.pivot = new Vector2(0.5f, 0.5f);
+        _name.rectTransform.sizeDelta = new Vector2(view.x, nameH);
+        _name.rectTransform.anchoredPosition = centre + new Vector2(0f, view.y / 2f + gap + nameH / 2f);
     }
 
     void UseTexture()
@@ -293,6 +334,7 @@ public class FirstPersonView : MonoBehaviour
         }
         var config = _images.Panels[_cameraIndex].Config;
         _textureAspect = config.Aspect;
+        _name.text = _images.Panels[_cameraIndex].Label;
         ApplyQuadSize();
         _images.ForceDecode(_cameraIndex, true);
         _images.FrameReady += OnFrame;

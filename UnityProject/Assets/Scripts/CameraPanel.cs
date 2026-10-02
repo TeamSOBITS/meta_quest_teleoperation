@@ -122,12 +122,12 @@ public class CameraPanel : MonoBehaviour
         HudUi.Stretch(_badgeText.rectTransform);
         _badge.gameObject.SetActive(false);
 
-        // Rename: shown in layout mode only, at the card's top-right corner.
+        // Rename: shown in layout mode only, above the card's top-right corner.
         _rename = HudUi.Button(transform, "Rename", TopicFontSize * MmPerMetre, () => RenameRequested?.Invoke(this));
         var rrt = (RectTransform)_rename.transform;
         rrt.anchorMin = rrt.anchorMax = rrt.pivot = new Vector2(1f, 1f);
         rrt.sizeDelta = new Vector2(TopicFontSize * MmPerMetre * 4.6f, TopicFontSize * MmPerMetre * 1.6f);
-        rrt.anchoredPosition = new Vector2(-CardPaddingMm * 0.5f, -CardPaddingMm * 0.5f);
+        rrt.anchoredPosition = new Vector2(0f, rrt.sizeDelta.y + CardPaddingMm * 0.5f);   // above the card's top edge, right-aligned
         _rename.gameObject.SetActive(false);
 
         // Collider over the whole block (canvas units are mm), just behind the canvas so a ray on

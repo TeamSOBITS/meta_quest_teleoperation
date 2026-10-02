@@ -6,7 +6,9 @@ using UnityEngine.UI;
 /// <summary>
 /// Hand cameras in first person: one small card per hand camera of the robot (RawImage on a
 /// rounded PanelColor box, a muted "Left hand" / "Right hand" label). In mode "hands" a card floats
-/// above its gripper (the model's hand_*_end_effector_link) and faces the head; in mode "corners"
+/// outboard of and a little below its gripper (the model's hand_*_end_effector_link), to the side
+/// of the line of sight so it never covers what the head camera shows there, and faces the head;
+/// in mode "corners"
 /// both cards are head-locked at the bottom corners of the view. Created by TeleopHud in first
 /// person while the "handcams" experiment is on, destroyed when either turns off.
 /// The mode is a second pref, "Exp/handcams.mode" (<see cref="Mode"/>).
@@ -16,7 +18,7 @@ public class HandCamPip : MonoBehaviour
     public const string ModeHands = "hands", ModeCorners = "corners";
     const string ModePref = "Exp/handcams.mode";
 
-    const float CardWidthHandsM = 0.22f, CardWidthCornersM = 0.30f, AboveHandM = 0.12f;
+    const float CardWidthHandsM = 0.22f, CardWidthCornersM = 0.30f, OutboardM = 0.28f, BelowHandM = 0.05f, SideDeadZoneM = 0.03f;
     const float CornerDistanceM = 0.9f, CornerXM = 0.52f, CornerYM = -0.35f;   // x: clear of the status strip
     const float PaddingMm = 8f, RadiusMm = 14f, LabelMm = 30f;
     static readonly Color WaitingColor = new Color(0.15f, 0.15f, 0.15f, 1f);
@@ -170,11 +172,29 @@ public class HandCamPip : MonoBehaviour
             }
             else if (c.link != null)
             {
-                c.rt.position = c.link.position + Vector3.up * AboveHandM;
+                c.rt.position = HandsPosition(c, head);
                 // Canvas front faces -Z, so look away from the head.
                 c.rt.rotation = Quaternion.LookRotation(c.rt.position - head.position, Vector3.up);
             }
         }
+    }
+
+    // Outboard and low: `outward` is the horizontal direction perpendicular to the line of sight
+    // (head -> hand); cross(up, forward) points to the viewer's right. The card goes to the side
+    // the hand is on in head space (its own side by default; the hand's real side when it has
+    // crossed over), so the left hand's card ends up on the viewer's left.
+    Vector3 HandsPosition(Card c, Transform head)
+    {
+        Vector3 hand = c.link.position;
+        Vector3 outward = Vector3.Cross(Vector3.up, hand - head.position);
+        outward.y = 0f;
+        if (outward.sqrMagnitude < 1e-6f) outward = Vector3.ProjectOnPlane(head.right, Vector3.up);
+        outward.Normalize();
+        float x = head.InverseTransformPoint(hand).x;   // + = viewer's right
+        float side = Mathf.Abs(x) > SideDeadZoneM ? Mathf.Sign(x) : c.left ? -1f : 1f;
+        Vector3 pos = hand + outward * (side * OutboardM);
+        pos.y = hand.y - BelowHandM;
+        return pos;
     }
 
     void OnDestroy()

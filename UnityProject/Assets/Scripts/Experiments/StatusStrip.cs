@@ -6,7 +6,8 @@ using UnityEngine.UI;
 /// <summary>
 /// Small head-locked status strip at the bottom of the first-person view (the HUD bar is hidden
 /// there). One row: connection, CONTROL ON / LAYOUT, image fps and age, TF rate, round trip,
-/// head pan/tilt gauge and lift height bar. Created by TeleopHud in first person while the "status"
+/// a labelled HEAD box (crosshair, dot at pan x / tilt y, L/R ticks, "pan 29° tilt 17°") and a
+/// labelled LIFT bar with its height ("0.40 m"). Created by TeleopHud in first person while the "status"
 /// experiment is on, destroyed when either turns off.
 ///
 /// Head and lift are read from the model's link local poses, which RobotModel sets straight from
@@ -20,10 +21,10 @@ public class StatusStrip : MonoBehaviour
 {
     // Placement relative to the head (metres) and size (mm, canvas units).
     const float Distance = 1.2f, DropM = -0.45f;
-    const float WidthMm = 900f, HeightMm = 80f, RadiusMm = 18f;
+    const float WidthMm = 1400f, HeightMm = 130f, RadiusMm = 18f;
+    const float Pad = 80f;   // left margin that centres the single row in the wider strip
     const float TextRefreshSeconds = 0.2f;
     const float GaugeRangeRad = 0.785f, LiftRangeM = 0.69f;
-    const string TiltFrame = "head_tilt_link", LiftFrame = "body_lift_link";
 
     QuestControllerPublisher _publisher;
     ImageSubscriber _images;
@@ -37,8 +38,10 @@ public class StatusStrip : MonoBehaviour
 
     Image _dot, _pill;
     TextMeshProUGUI _conn, _pillText, _image, _tf, _rttText;
-    RectTransform _panMarker, _tiltMarker, _liftFill;
-    const float PanHalfMm = 50f, TiltHalfMm = 22f, LiftBarMm = 56f;
+    TextMeshProUGUI _headText, _liftText;
+    RectTransform _headDot, _liftFill;
+    // HEAD box 160 x 100 mm (dot x = pan, y = tilt), LIFT bar 10 x 72 mm.
+    const float HeadBoxW = 160f, HeadBoxH = 100f, LiftBarMm = 72f;
     float _nextText;
 
     public static StatusStrip Create(Transform head, QuestControllerPublisher publisher, ImageSubscriber images,
@@ -63,11 +66,11 @@ public class StatusStrip : MonoBehaviour
     {
         if (_model == null) return;
         _pan = _model.Frame(profile != null ? profile.panFrame : null);
-        _tilt = _model.Frame(TiltFrame);
-        _lift = _model.Frame(LiftFrame);
+        _tilt = _model.Frame(profile != null ? profile.tiltFrame : null);
+        _lift = _model.Frame(profile != null ? profile.liftFrame : null);
         if (_lift != null && profile != null && profile.modelPrefab != null)
             foreach (var link in profile.modelPrefab.GetComponentsInChildren<RobotLink>(true))
-                if (link.frame == LiftFrame) { _liftZero = link.transform.localPosition.y; _liftZeroKnown = true; break; }
+                if (link.frame == profile.liftFrame) { _liftZero = link.transform.localPosition.y; _liftZeroKnown = true; break; }
     }
 
     TextMeshProUGUI Text(RectTransform root, string name, float left, float width, float font, TextAlignmentOptions align = TextAlignmentOptions.Left)
@@ -87,17 +90,17 @@ public class StatusStrip : MonoBehaviour
 
         // Connection: dot + text.
         _dot = HudUi.Round(HudUi.Box(root, "Connection Dot", HudUi.GoodColor), 7f);
-        HudUi.Place(_dot.rectTransform, 14f, (HeightMm - 14f) / 2f, 14f, 14f);
-        _conn = Text(root, "Connection", 34f, 150f, font);
+        HudUi.Place(_dot.rectTransform, 14f + Pad, (HeightMm - 14f) / 2f, 14f, 14f);
+        _conn = Text(root, "Connection", 34f + Pad, 150f, font);
 
         // CONTROL ON pill / LAYOUT.
         float pillH = font * 1.5f;
         _pill = HudUi.Round(HudUi.Box(root, "Control Pill", Color.clear), pillH / 2f);
-        HudUi.Place(_pill.rectTransform, 192f, (HeightMm - pillH) / 2f, 135f, pillH);
+        HudUi.Place(_pill.rectTransform, 192f + Pad, (HeightMm - pillH) / 2f, 135f, pillH);
         _pillText = HudUi.Label(_pill.transform, "Label", "", font);
         _pillText.fontStyle = FontStyles.Bold;
         _pillText.textWrappingMode = TextWrappingModes.NoWrap;
-        // Bold "CONTROL ON" / "HOLD GRIP" is wider than the pill at the strip's font: shrink to fit
+        // Bold "CONTROL ON" is wider than the pill at the strip's font: shrink to fit
         // (it overflowed into the image fps text).
         _pillText.enableAutoSizing = true;
         _pillText.fontSizeMax = font;
@@ -105,26 +108,51 @@ public class StatusStrip : MonoBehaviour
         _pillText.margin = new Vector4(8f, 0f, 8f, 0f);
         HudUi.Stretch(_pillText.rectTransform);
 
-        _image = Text(root, "Image", 337f, 170f, font);
-        _tf = Text(root, "TF", 515f, 95f, font);
-        _rttText = Text(root, "RTT", 618f, 100f, font);
+        _image = Text(root, "Image", 337f + Pad, 170f, font);
+        _tf = Text(root, "TF", 515f + Pad, 95f, font);
+        _rttText = Text(root, "RTT", 618f + Pad, 100f, font);
 
-        // Head pan (horizontal track, 120 deg wide in total) and tilt (vertical track).
-        var panTrack = HudUi.Round(HudUi.Box(root, "Pan Track", HudUi.ControlColor), 3f);
-        HudUi.Place(panTrack.rectTransform, 730f, HeightMm / 2f - 3f, 2f * PanHalfMm, 6f);
-        _panMarker = Marker(panTrack.transform, "Pan Marker", new Vector2(6f, 26f));
-        var centre = HudUi.Box(panTrack.transform, "Pan Centre", new Color(1f, 1f, 1f, 0.35f));
-        centre.rectTransform.anchorMin = centre.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
-        centre.rectTransform.sizeDelta = new Vector2(2f, 14f);
-        centre.rectTransform.SetAsFirstSibling();
+        // HEAD: labelled box with a crosshair; the dot is where the head looks (x = pan, left to the
+        // left; y = tilt, up is up), with tiny L / R ticks and the angles in muted text beside it.
+        float small = font;   // secondary texts: same size as the body font
+        float x = 730f + Pad;
+        var headLabel = Text(root, "Head Label", x, HeadBoxW, small, TextAlignmentOptions.Center);
+        headLabel.text = "HEAD";
+        headLabel.color = HudUi.MutedText;
+        HudUi.Place(headLabel.rectTransform, x, 2f, HeadBoxW, small * 1.2f);
+        var box = HudUi.Round(HudUi.Box(root, "Head Box", HudUi.ControlColor), 8f);
+        float boxTop = HeightMm - HeadBoxH - 4f;
+        HudUi.Place(box.rectTransform, x, boxTop, HeadBoxW, HeadBoxH);
+        foreach (var size in new[] { new Vector2(HeadBoxW - 10f, 2f), new Vector2(2f, HeadBoxH - 10f) })
+        {
+            var cross = HudUi.Box(box.transform, "Crosshair", new Color(1f, 1f, 1f, 0.3f));
+            cross.rectTransform.anchorMin = cross.rectTransform.anchorMax = cross.rectTransform.pivot = new Vector2(0.5f, 0.5f);
+            cross.rectTransform.sizeDelta = size;
+            cross.rectTransform.anchoredPosition = Vector2.zero;
+        }
+        _headDot = Marker(box.transform, "Head Dot", new Vector2(14f, 14f));
+        foreach (bool leftTick in new[] { true, false })
+        {
+            var tick = HudUi.Label(box.transform, leftTick ? "L" : "R", leftTick ? "L" : "R", small, leftTick ? TextAlignmentOptions.Left : TextAlignmentOptions.Right);
+            tick.color = HudUi.MutedText;
+            tick.textWrappingMode = TextWrappingModes.NoWrap;
+            tick.rectTransform.anchorMin = tick.rectTransform.anchorMax = tick.rectTransform.pivot = new Vector2(leftTick ? 0f : 1f, 0.5f);
+            tick.rectTransform.sizeDelta = new Vector2(small * 1.4f, small * 1.4f);
+            tick.rectTransform.anchoredPosition = new Vector2(leftTick ? 4f : -4f, 0f);
+        }
+        _headText = Text(root, "Head Values", x + HeadBoxW + 8f, 115f, small);
+        _headText.color = HudUi.MutedText;
+        _headText.textWrappingMode = TextWrappingModes.Normal;   // "pan 29°" over "tilt 17°"
+        _headText.verticalAlignment = VerticalAlignmentOptions.Middle;
 
-        var tiltTrack = HudUi.Round(HudUi.Box(root, "Tilt Track", HudUi.ControlColor), 3f);
-        HudUi.Place(tiltTrack.rectTransform, 838f, HeightMm / 2f - TiltHalfMm, 6f, 2f * TiltHalfMm);
-        _tiltMarker = Marker(tiltTrack.transform, "Tilt Marker", new Vector2(18f, 6f));
-
-        // Lift: thin vertical bar, fill from the bottom.
+        // LIFT: labelled vertical bar, fill from the bottom, height beside it.
+        float lx = x + HeadBoxW + 8f + 125f;
+        var liftLabel = Text(root, "Lift Label", lx, 60f, small, TextAlignmentOptions.Left);
+        liftLabel.text = "LIFT";
+        liftLabel.color = HudUi.MutedText;
+        HudUi.Place(liftLabel.rectTransform, lx, 2f, 80f, small * 1.2f);
         var liftTrack = HudUi.Round(HudUi.Box(root, "Lift Track", HudUi.ControlColor), 4f);
-        HudUi.Place(liftTrack.rectTransform, 858f, (HeightMm - LiftBarMm) / 2f, 8f, LiftBarMm);
+        HudUi.Place(liftTrack.rectTransform, lx + 4f, HeightMm - LiftBarMm - 4f, 10f, LiftBarMm);
         var fill = HudUi.Round(HudUi.Box(liftTrack.transform, "Lift Fill", HudUi.AccentColor), 4f);
         _liftFill = fill.rectTransform;
         _liftFill.anchorMin = Vector2.zero;
@@ -132,12 +160,16 @@ public class StatusStrip : MonoBehaviour
         _liftFill.pivot = new Vector2(0.5f, 0f);
         _liftFill.offsetMin = _liftFill.offsetMax = Vector2.zero;
         _liftFill.sizeDelta = new Vector2(0f, 0f);
+        _liftText = Text(root, "Lift Value", lx + 22f, 100f, small);
+        _liftText.color = HudUi.MutedText;
 
-        _panMarker.gameObject.SetActive(_pan != null);
-        _tiltMarker.gameObject.SetActive(_tilt != null);
+        bool hasHead = _pan != null || _tilt != null;
+        headLabel.gameObject.SetActive(hasHead);
+        box.gameObject.SetActive(hasHead);
+        _headText.gameObject.SetActive(hasHead);
+        liftLabel.gameObject.SetActive(_lift != null);
         liftTrack.gameObject.SetActive(_lift != null);
-        tiltTrack.gameObject.SetActive(_tilt != null);
-        panTrack.gameObject.SetActive(_pan != null);
+        _liftText.gameObject.SetActive(_lift != null);
 
         UpdateTexts();
     }
@@ -174,9 +206,10 @@ public class StatusStrip : MonoBehaviour
             _liftZero = _lift.localPosition.y;
             _liftZeroKnown = true;
         }
-        // Pan left -> marker left (x = -pan), tilt up -> marker up (y = +tilt).
-        if (_pan != null) _panMarker.anchoredPosition = new Vector2(Mathf.Clamp(-PanRad / GaugeRangeRad, -1f, 1f) * PanHalfMm, 0f);
-        if (_tilt != null) _tiltMarker.anchoredPosition = new Vector2(0f, Mathf.Clamp(TiltRad / GaugeRangeRad, -1f, 1f) * TiltHalfMm);
+        // Pan left -> dot left (x = -pan), tilt up -> dot up (y = +tilt).
+        _headDot.anchoredPosition = new Vector2(
+            _pan != null ? Mathf.Clamp(-PanRad / GaugeRangeRad, -1f, 1f) * (HeadBoxW / 2f - 12f) : 0f,
+            _tilt != null ? Mathf.Clamp(TiltRad / GaugeRangeRad, -1f, 1f) * (HeadBoxH / 2f - 12f) : 0f);
         if (_lift != null) _liftFill.sizeDelta = new Vector2(0f, Mathf.Clamp01(LiftM / LiftRangeM) * LiftBarMm);
 
         if (Time.unscaledTime < _nextText) return;
@@ -194,11 +227,10 @@ public class StatusStrip : MonoBehaviour
         _conn.text = connected ? "connected" : "not connected";
 
         bool control = _publisher.controlRobot;
-        bool hold = control && _publisher.deadmanEnabled && !_publisher.DeadmanHeld;
-        var pc = hold ? HudUi.WarnColor : control ? HudUi.BadColor : HudUi.MutedText;
+        var pc = control ? HudUi.BadColor : HudUi.MutedText;
         _pill.color = control ? new Color(pc.r, pc.g, pc.b, 0.25f) : Color.clear;
         _pillText.color = pc;
-        _pillText.text = hold ? "HOLD GRIP" : control ? "CONTROL ON" : "LAYOUT";
+        _pillText.text = control ? "CONTROL ON" : "LAYOUT";
 
         double last = _images != null ? _images.LastFrameTime(_cameraIndex) : -1.0;
         if (last < 0.0)
@@ -213,6 +245,8 @@ public class StatusStrip : MonoBehaviour
             _image.color = age > 1f ? HudUi.WarnColor : Color.white;
         }
 
+        _headText.text = $"pan {PanRad * Mathf.Rad2Deg:F0}\u00B0\ntilt {TiltRad * Mathf.Rad2Deg:F0}\u00B0";
+        _liftText.text = $"{LiftM:F2} m";
         _tf.text = _model != null ? $"TF {_model.TfHz:F0} Hz" : "TF —";
 
         var rtt = _rtt != null ? _rtt() : null;

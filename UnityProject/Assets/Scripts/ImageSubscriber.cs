@@ -27,10 +27,10 @@ public class ImageSubscriber : MonoBehaviour
     public float distance = 4.3f;
     public float columnGap = 0.15f;
     public float rowGap = 0.15f;
-    // Area the auto layout may use. minBottom keeps blocks above the HUD bar.
+    // Area the auto layout may use. minBottom keeps blocks above the HUD bar (compact: 0.7x, 0.3 m lower than at full size).
     public float maxWidth = 6.0f;
     public float maxTop = 2.0f;
-    public float minBottom = -1.45f;
+    public float minBottom = -1.75f;
     // Upper limit for how much views grow when cameras are hidden (1 = default size).
     public float maxGrow = 1.6f;
 
@@ -138,6 +138,7 @@ public class ImageSubscriber : MonoBehaviour
         if (label.Length > 0) panel.SetLabel(label);
         panel.RenameRequested += BeginRename;
         _panels.Add(panel);
+        if (_blocksHidden) { _hiddenByMode.Add(panel); panel.Visible = false; }   // new camera found during first person
         _textures.Add(new Texture2D(cam.resolution.x, cam.resolution.y, TextureFormat.RGB24, false));
         _rawBuffers.Add(null);
         _lastRenderTime.Add(0.0);
@@ -304,7 +305,7 @@ public class ImageSubscriber : MonoBehaviour
     // re-arranging blocks the user placed by hand.
     void PlaceNewPanel(CameraPanel p)
     {
-        float top = _panels.Where(o => o != p && o.Visible).Select(o => o.transform.localPosition.y + o.Height / 2f)
+        float top = _panels.Where(o => o != p && IsOn(o)).Select(o => o.transform.localPosition.y + o.Height / 2f)
                            .DefaultIfEmpty(0f).Max();
         var pos = new Vector3(0f, top + rowGap + p.Height / 2f, distance);
         p.transform.localPosition = pos;
@@ -334,7 +335,7 @@ public class ImageSubscriber : MonoBehaviour
     // and grow into the freed space; a custom (dragged) layout is kept as it is.
     public void SetCameraVisible(CameraPanel panel, bool visible)
     {
-        panel.Visible = visible;
+        SetOn(panel, visible);
         PlayerPrefs.SetInt(VisibleKey(panel), visible ? 1 : 0);
         PlayerPrefs.Save();
         if (!HasCustomLayout) Layout();
@@ -347,15 +348,10 @@ public class ImageSubscriber : MonoBehaviour
         {
             PlayerPrefs.DeleteKey(PositionKey(p));
             PlayerPrefs.DeleteKey(VisibleKey(p));
-            p.Visible = true;
+            SetOn(p, true);
         }
         PlayerPrefs.Save();
         Layout();
-        if (_blocksHidden)   // first person: the reset applies once the blocks are back
-        {
-            _hiddenByMode.Clear();
-            SetBlocksShownInternal(false);
-        }
         VisibilityReset?.Invoke();
     }
 
@@ -419,7 +415,7 @@ public class ImageSubscriber : MonoBehaviour
     void ApplySavedVisibility()
     {
         foreach (var p in _panels)
-            if (PlayerPrefs.GetInt(VisibleKey(p), 1) == 0) p.Visible = false;
+            if (PlayerPrefs.GetInt(VisibleKey(p), 1) == 0) SetOn(p, false);
     }
 
     // Remember where the user dragged or resized a block, per robot and camera. Saved as
@@ -465,7 +461,7 @@ public class ImageSubscriber : MonoBehaviour
     // never overlap; views in a row share a horizontal centre line.
     void Layout()
     {
-        var visible = _panels.FindAll(p => p.Visible);
+        var visible = _panels.FindAll(IsOn);
         if (visible.Count == 0) return;
 
         float fit = BestFit(visible, out int cols);
@@ -566,6 +562,17 @@ public class ImageSubscriber : MonoBehaviour
     readonly List<CameraPanel> _hiddenByMode = new List<CameraPanel>();
 
     bool _blocksHidden;
+    public bool BlocksShown => !_blocksHidden;
+
+    // Wanted visibility; while blocks are hidden (first person) it only lives in _hiddenByMode and every panel GameObject stays inactive.
+    public bool IsOn(CameraPanel p) => _blocksHidden ? _hiddenByMode.Contains(p) : p.Visible;
+
+    void SetOn(CameraPanel p, bool on)
+    {
+        if (!_blocksHidden) { p.Visible = on; return; }
+        if (on) { if (!_hiddenByMode.Contains(p)) _hiddenByMode.Add(p); }
+        else _hiddenByMode.Remove(p);
+    }
 
     public void SetBlocksShown(bool shown)
     {

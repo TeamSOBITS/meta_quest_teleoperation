@@ -11,8 +11,7 @@ using UnityEngine;
 public static class ExperimentSettings
 {
     public const string Rtt = "rtt", Status = "status", HandCams = "handcams", Targets = "targets",
-                        BaseVel = "basevel", Deadman = "deadman", HeadLock = "headlock",
-                        MenuRecenter = "menurecenter";
+                        BaseVel = "basevel", HeadLock = "headlock";
 
     class Entry { public string key, label; public bool defaultOn; }
 
@@ -36,9 +35,7 @@ public static class ExperimentSettings
         Register(HandCams, "Hand cams in first person", true);
         Register(Targets, "Arm target markers", true);
         Register(BaseVel, "Base velocity arrow", true);
-        Register(Deadman, "Grip to control", false);
         Register(HeadLock, "Image follows my head", false);
-        Register(MenuRecenter, "Long-press menu = Recenter", true);
     }
 
     public static bool IsOn(string key)

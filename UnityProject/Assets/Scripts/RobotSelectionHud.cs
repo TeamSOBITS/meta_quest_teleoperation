@@ -96,7 +96,7 @@ public class RobotSelectionHud : MonoBehaviour
                     robot = intent.Call<string>("getStringExtra", "robot");
                     viewMode = intent.Call<string>("getStringExtra", "viewmode");
                     capture = intent.Call<string>("getStringExtra", "capture");
-                    exp = intent.Call<string>("getStringExtra", "exp");              // --es exp "deadman=1,headlock=0"
+                    exp = intent.Call<string>("getStringExtra", "exp");              // --es exp "headlock=1,status=0"
                     record = intent.Call<int>("getIntExtra", "record", 0);          // --ei record 60
                     fps = intent.Call<int>("getIntExtra", "fps", 15);
                     switchAt = intent.Call<int>("getIntExtra", "switchat", -1);

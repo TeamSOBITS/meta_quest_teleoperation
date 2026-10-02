@@ -32,6 +32,23 @@ public static class ExperimentMaterials
         return m;
     }
 
+    // Makes a copy produced by Tinted alpha-blended (URP Lit / Simple Lit: _Surface 1, alpha blend,
+    // no depth write, transparent queue). A material without those properties stays opaque.
+    public static Material Transparent(Material m)
+    {
+        if (m == null || !m.HasProperty("_Surface")) return m;
+        m.SetFloat("_Surface", 1f);
+        if (m.HasProperty("_Blend")) m.SetFloat("_Blend", 0f);
+        if (m.HasProperty("_SrcBlend")) m.SetFloat("_SrcBlend", (float)UnityEngine.Rendering.BlendMode.SrcAlpha);
+        if (m.HasProperty("_DstBlend")) m.SetFloat("_DstBlend", (float)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+        if (m.HasProperty("_ZWrite")) m.SetFloat("_ZWrite", 0f);
+        m.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+        m.DisableKeyword("_ALPHATEST_ON");
+        m.SetOverrideTag("RenderType", "Transparent");
+        m.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+        return m;
+    }
+
     // Name of the model's root link (the TF parent frame of the arm targets), or null.
     public static string RootFrame(RobotModel model)
     {

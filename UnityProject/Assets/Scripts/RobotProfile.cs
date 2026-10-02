@@ -72,6 +72,9 @@ public class RobotProfile : ScriptableObject
     // Frame of the head camera (the image quad hangs on it) and of the pan axis (stays fixed).
     public string cameraFrame = "head_camera_color_frame";
     public string panFrame = "head_pan_link";
+    // Head tilt and body lift frames (StatusStrip gauges; hidden when absent from the model).
+    public string tiltFrame = "head_tilt_link";
+    public string liftFrame = "body_lift_link";
     // Camera topics relative to the robot namespace (see FullTopic).
     public string firstPersonCameraTopicSuffix = "head_camera/color/image_raw/compressed";
     public string cameraInfoSuffix = "head_camera/camera_info";

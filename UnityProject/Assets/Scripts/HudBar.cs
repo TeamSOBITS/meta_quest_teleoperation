@@ -30,8 +30,12 @@ public class HudBar : MonoBehaviour
     // Space between the lowest camera block and the bar (metres). Blocks are turned to face
     // the eye, which brings their lower outer corners slightly down in view; this gap absorbs it.
     const float GapBelowCamerasM = 0.17f;
+    // The bar is always built at this scale (2.94 m wide instead of 4.2 m); it hangs from the
+    // same top edge, so the space below the camera blocks that it frees is given to them
+    // (ImageSubscriber.minBottom is lowered by the same amount).
+    public const float CompactScale = 0.7f;
 
-    const string JoyOnText = "CONTROL ON", JoyHoldText = "HOLD GRIP", JoyOffText = "LAYOUT MODE";
+    const string JoyOnText = "CONTROL ON", JoyOffText = "LAYOUT MODE";
 
     ImageSubscriber _images;
     readonly System.Collections.Generic.List<(CameraPanel panel, Toggle toggle)> _cameraToggles = new();
@@ -44,7 +48,6 @@ public class HudBar : MonoBehaviour
     TextMeshProUGUI _ip, _pillText, _joyText;
     Image _pill, _joyChip, _outline;
     bool? _shownConnected, _shownJoy;
-    bool _shownHold;
 
     public static HudBar Create(Transform parent, QuestControllerPublisher publisher, ImageSubscriber images, TeleopHud hud)
     {
@@ -65,9 +68,10 @@ public class HudBar : MonoBehaviour
 
         // Top edge just below the lowest point the camera blocks may reach.
         float topY = images.minBottom - GapBelowCamerasM;
-        var position = new Vector3(0f, topY - heightMm / HudUi.MmPerMetre / 2f, HudUi.ReferenceDistance);
+        var position = new Vector3(0f, topY - heightMm * CompactScale / HudUi.MmPerMetre / 2f, HudUi.ReferenceDistance);
 
         var root = HudUi.CreateCanvas("HUD Bar", parent, position, new Vector2(WidthMm, heightMm), interactive: true);
+        root.localScale *= CompactScale;
         var bar = root.gameObject.AddComponent<HudBar>();
         bar._publisher = publisher;
         bar._images = images;
@@ -168,7 +172,7 @@ public class HudBar : MonoBehaviour
         for (int i = 0; i < images.Panels.Count; i++)
         {
             var cam = images.Panels[i];
-            var t = HudUi.Toggle(root, cam.Label, body, cam.Visible, on => images.SetCameraVisible(cam, on));
+            var t = HudUi.Toggle(root, cam.Label, body, images.IsOn(cam), on => images.SetCameraVisible(cam, on));
             _cameraToggles.Add((cam, t));
             HudUi.Place((RectTransform)t.transform,
                 camLeft + (i % CameraColumns) * (colW + GapMm),
@@ -290,7 +294,7 @@ public class HudBar : MonoBehaviour
     {
         foreach (var (panel, toggle) in _cameraToggles)
         {
-            toggle.SetIsOnWithoutNotify(panel.Visible);
+            toggle.SetIsOnWithoutNotify(_images.IsOn(panel));
             var label = toggle.GetComponentInChildren<TextMeshProUGUI>();
             if (label != null) label.text = panel.Label;
         }
@@ -331,7 +335,6 @@ public class HudBar : MonoBehaviour
         }
 
         bool joy = _publisher.controlRobot;
-        bool hold = joy && _publisher.deadmanEnabled && !_publisher.DeadmanHeld;
         if (_images.InSetup)
         {
             if (_shownJoy == null)
@@ -343,14 +346,13 @@ public class HudBar : MonoBehaviour
                 _joyText.text = SetupChipText(_images);
             }
         }
-        else if (_shownJoy != joy || _shownHold != hold)
+        else if (_shownJoy != joy)
         {
             _shownJoy = joy;
-            _shownHold = hold;
             var c = joy ? HudUi.WarnColor : HudUi.AccentColor;
             _joyChip.color = new Color(c.r, c.g, c.b, 0.18f);
             _joyText.color = c;
-            _joyText.text = joy ? (hold ? JoyHoldText : JoyOnText) : JoyOffText;
+            _joyText.text = joy ? JoyOnText : JoyOffText;
             _outline.color = joy ? new Color(c.r, c.g, c.b, 0.6f) : Color.clear;
         }
     }
