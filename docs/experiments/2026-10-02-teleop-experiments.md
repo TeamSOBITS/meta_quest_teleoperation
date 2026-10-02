@@ -136,3 +136,63 @@ The hidden controllers can't be shown in the Editor (no tracked controllers), so
 Pictures: `15_fp_badges.png` (first person, badges on the head card's top right and on both hand cards),
 `16_strip_blocks_mode.png` (blocks mode, bar hidden, strip under the blocks), `17_blocks_no_topic.png`
 (blocks without topic lines, layout mode with Rename shown).
+
+## Outcome (2026-10-02)
+
+After the headset feedback the experiments were graduated and the **Experiments panel and its registry are gone**
+(`ExperimentSettings.cs`, `ExperimentsPanel.cs`, the `Exp/*` prefs and the `--es exp` intent extra). The feature
+code moved from `Assets/Scripts/Experiments/` to `Assets/Scripts/Overlays/` (`ExperimentMaterials` is now
+`OverlayMaterials`).
+
+**Permanent (no switch):**
+- Round-trip latency probe (`RoundTrip`), created with the HUD.
+- Status strip (`StatusStrip`) in both camera layouts, shown only while the bar is hidden.
+- Key light on the model (when the robot has a model).
+- Arm target markers and base velocity arrow, whenever the robot model is on.
+- Hand camera cards (`HandCamPip`), only in the first-person camera layout, always at the hands.
+
+**Dropped:** the deadman (hold-to-move), the long-press, "headlock" (image follows my head; `FirstPersonView.HeadLocked`
+and its re-parenting) and the hand cards' "corners" placement (and `HandCamPip.Mode`).
+
+**New controls on the HUD bar** (replace the "First person" toggle):
+- **Robot model** (toggle, per robot, pref `RobotModel/{robot}`, default off; greyed "(no model)" for robots without
+  one). On: the life-size model around the user (eyes at the camera frame, head and mic links hidden) plus the arm
+  targets and the base velocity arrow. Recenter is visible while the model is on.
+- **Camera layout** (segmented Blocks | First person, per robot, pref `CameraLayout/{robot}`, default `blocks`;
+  only usable while the model is on, shown as Blocks and greyed otherwise). *Blocks*: the camera blocks stay as
+  arranged, no image card, no hand cards, controllers stay visible. *First person*: blocks hidden, head camera card
+  at its true field of view, hand cards, bar lowered, controllers hidden while the bar is hidden.
+- The old `ViewMode/{robot}` pref is migrated once: `firstperson` becomes model on + first-person layout, then the
+  key is deleted. Intent extra `viewmode`: `firstperson` (model + first person), `model` (model + blocks), `blocks`
+  (no model); session only, never saved.
+- **Rename in the first-person layout**: the head card and each hand card get the same "Rename" button as a camera
+  block, above the card's top-right corner, shown only in layout mode (controls off). It opens the same rename flow
+  (`ImageSubscriber.BeginRename`); the new name shows on the card and in the bar's toggles.
+
+**Compressed images** (toggle, left column, global pref `Images/Compressed`, default on). Off: every camera whose
+topic ends in `/compressed` is subscribed without that suffix as raw `sensor_msgs/Image`; raw cameras stay raw. The
+panel's topic (setup-mode line) is the effective one. ROS subscriptions cannot be dropped (the endpoint has no
+`remove_subscriber`), so changing the toggle saves the pref and reopens the robot screen through the selection
+screen (`RobotSelectionHud.AutoOpen`): the presence connection is closed and waits its 1 s handoff before the scene
+loads, so there is still one `ROSConnection`. The toggle is disabled while a robot is being set up.
+
+**Tested (harness) + built (2026-10-02).** Headless Play-mode harnesses against the live sim, in the verification
+copy: the new `ExperimentsVerify4` (103/103: model / layout controls through the API and the bar's own toggle and
+buttons, three cycles; prefs and the one-time `ViewMode` migration; Rename on the head card and both hand cards in
+layout mode; hand card sides by camera identity, also with the left arm raised; badge sizes 100 mm head card,
+10.7 mm hand cards, 84 mm for a size-1 block; raw images at 15 fps on all three cameras and the first-person card;
+the Compressed toggle reopening the robot in 1.5 s with one `ROSConnection` and compressed topics again; status
+strip and RTT without a registry), plus the earlier suites updated to the new API (Experiments panel, headlock,
+hand-cam corners and the status/handcams switches dropped from them). One fix came out of it:
+`FirstPersonView.OnCameraInfo` threw a NullReferenceException in its log line when camera_info arrived in the
+blocks layout (no image card). Known cosmetic point: in the 5000 mm bar "Compressed images" (and "Robot model
+(no model)" on robots without a model) wraps to two lines in its half column; camera labels fit on one line.
+APK built (IL2CPP) and installed on the Quest 3S, starts on the selection screen without exceptions.
+
+Pictures: `shots/19_bar_v3.png` (blocks mode: the bar with Robot model, the Camera layout buttons and Compressed
+images, no Experiments panel), `shots/20_model_blocks_layout.png` (model on, blocks layout, looking down 30°: blocks
+above, robot arm and gripper below), `shots/21_fp_rename.png` (first-person layout, control off: Rename above the
+head card's top-right corner and above the right hand card; the hand card's badge is small, the head card's large;
+the left hand card is out of frame below-left), `shots/22_raw_images.png` (blocks mode with `Images/Compressed` = 0:
+all three cameras live from the raw `image_raw` topics; the topic line is only shown in setup mode, so the picture
+looks like the compressed one).
