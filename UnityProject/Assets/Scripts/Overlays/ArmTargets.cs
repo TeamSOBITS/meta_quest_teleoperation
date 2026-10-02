@@ -6,8 +6,7 @@ using UnityEngine;
 
 /// <summary>
 /// Arm target markers: sobits_teleop broadcasts each arm's hand target on /tf as base frame ->
-/// the profile's arm target frame (SOBIT HOME: left_target_link / right_target_link, SOBIT LIGHT:
-/// arm_target_link). A small sphere is drawn at each target (in the model's
+/// the profile's arm target frame (<c>arms[].targetFrame</c>). A small sphere is drawn at each target (in the model's
 /// root frame) with a line to the model's end effector, so the distance is where the arm still has
 /// to go. A marker is hidden when its transform was not seen for 1 s. Created by TeleopHud
 /// while the robot model is on, destroyed when it is turned off.
@@ -15,7 +14,6 @@ using UnityEngine;
 [DefaultExecutionOrder(250)]
 public class ArmTargets : MonoBehaviour
 {
-    const string TfTopic = "/tf";
     const float SeenSeconds = 1f, LogSeconds = 5f, MarkerM = 0.03f, LineWidthM = 0.004f;
 
     class Side
@@ -64,7 +62,10 @@ public class ArmTargets : MonoBehaviour
         {
             var arm = profile.arms[i];
             string label = string.IsNullOrEmpty(arm.name) ? (i + 1).ToString() : arm.name.Substring(0, 1).ToUpperInvariant();
-            t.AddSide(source, arm.targetFrame, arm.effectorFrame, label, colours[i % colours.Length]);
+            // Left arm: accent, right arm: warn; an arm without a side takes the next colour in turn.
+            var colour = arm.side == RobotProfile.Side.Left ? colours[0]
+                       : arm.side == RobotProfile.Side.Right ? colours[1] : colours[i % colours.Length];
+            t.AddSide(source, arm.targetFrame, arm.effectorFrame, label, colour);
         }
         t._nextLog = Time.unscaledTime + LogSeconds;
         Current = t;
@@ -72,7 +73,7 @@ public class ArmTargets : MonoBehaviour
         if (_subscribedOn != ros)
         {
             _subscribedOn = ros;   // subscribe once per connection; toggling must not add callbacks
-            ros.Subscribe<TFMessageMsg>(TfTopic, msg => { if (Current != null) Current.OnTf(msg); });
+            ros.Subscribe<TFMessageMsg>(RosNames.Tf, msg => { if (Current != null) Current.OnTf(msg); });
         }
         return t;
     }

@@ -184,6 +184,7 @@ public static class UrdfModelBuilder
         var bb = ub ?? new Bounds();
         string posSummary = gos.ContainsKey("head_camera_color_frame") ? " head_camera_color_frame=" + Pos("head_camera_color_frame") : "";
 
+        var linkNames = new HashSet<string>(gos.Keys);
         var prefab = PrefabUtility.SaveAsPrefabAsset(root, PrefabPath);
         UnityEngine.Object.DestroyImmediate(root);
         if (prefab == null) { Debug.LogError("FPV build: SaveAsPrefabAsset failed"); return false; }
@@ -194,7 +195,40 @@ public static class UrdfModelBuilder
                   " boundsSize=" + bb.size.ToString("F3") + " minY=" + bb.min.y.ToString("F3") + " maxY=" + bb.max.y.ToString("F3") +
                   " boundsX=[" + bb.min.x.ToString("F3") + "," + bb.max.x.ToString("F3") + "] boundsZ=[" + bb.min.z.ToString("F3") + "," + bb.max.z.ToString("F3") + "]" +
                   posSummary + " prefab=" + PrefabPath);
+        FillProfile(robot, linkNames);
         return true;
+    }
+
+    // Writes the head / lift limits of the URDF into the robot's profile asset (the joint whose child link is the configured
+    // frame) and reports frames the profile names that the model does not have.
+    static void FillProfile(XmlElement urdf, HashSet<string> linkNames)
+    {
+        string path = "Assets/Robots/" + RootName + ".asset";
+        var profile = AssetDatabase.LoadAssetAtPath<RobotProfile>(path);
+        if (profile == null) { Debug.Log("[Profile] " + RootName + ": no profile asset at " + path + ", limits not filled"); return; }
+
+        XmlNode LimitOf(string frame)
+        {
+            if (string.IsNullOrEmpty(frame)) return null;
+            foreach (XmlNode j in urdf.SelectNodes("joint"))
+                if (j.SelectSingleNode("child")?.Attributes["link"]?.Value == frame) return j.SelectSingleNode("limit");
+            return null;
+        }
+        float Lim(XmlNode l, string attr, float def) => l?.Attributes[attr] != null ? F(l.Attributes[attr].Value) : def;
+
+        var pan = LimitOf(profile.head.panFrame);
+        if (pan != null) profile.head.panLimitRad = Mathf.Max(Mathf.Abs(Lim(pan, "lower", 0f)), Mathf.Abs(Lim(pan, "upper", 0f)));
+        var tilt = LimitOf(profile.head.tiltFrame);
+        if (tilt != null) { profile.head.tiltMinRad = Lim(tilt, "lower", 0f); profile.head.tiltMaxRad = Lim(tilt, "upper", 0f); }
+        var lift = LimitOf(profile.lift.frame);
+        if (lift != null) profile.lift.rangeM = Lim(lift, "upper", 0f);
+        EditorUtility.SetDirty(profile);
+        AssetDatabase.SaveAssets();
+
+        var missing = ProfileValidator.MissingFrames(profile, linkNames);
+        Debug.Log("[Profile] " + RootName + ": " + (missing.Count == 0 ? "ok" : "frames missing from the model: " + string.Join(", ", missing)) +
+                  " head pan +-" + profile.head.panLimitRad.ToString("F3") + " tilt " + profile.head.tiltMinRad.ToString("F3") + ".." + profile.head.tiltMaxRad.ToString("F3") +
+                  " lift " + profile.lift.rangeM.ToString("F3"));
     }
 
     /// <summary>Warns when one link's own visuals span more than MaxLinkExtent metres (mm/m unit mix-ups).</summary>

@@ -136,9 +136,95 @@ public static class FirstPersonVerify
 
     // ---------------- Static ----------------
 
+    // A SOBIT_HOME.asset as saved before the v2 schema: only the old flat fields (no head / lift / roles / sides).
+    const string OldHomeYaml = @"%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: @GUID@, type: 3}
+  m_Name: __ProfileMigrationTemp
+  m_EditorClassIdentifier: 
+  displayName: SOBIT HOME
+  robotNamespace: sobit_home
+  sceneName: TeleopScene
+  cameras:
+  - displayName: Left Hand Camera
+    topicSuffix: hand_left_camera/color/image_raw/compressed
+    resolution: {x: 640, y: 480}
+    maxFps: 15
+    scale: 1
+  - displayName: Head Camera
+    topicSuffix: head_camera/color/image_raw/compressed
+    resolution: {x: 640, y: 480}
+    maxFps: 15
+    scale: 1.5
+  - displayName: Right Hand Camera
+    topicSuffix: hand_right_camera/color/image_raw/compressed
+    resolution: {x: 640, y: 480}
+    maxFps: 15
+    scale: 1
+  arms:
+  - name: left
+    targetFrame: left_target_link
+    effectorFrame: hand_left_end_effector_link
+  - name: right
+    targetFrame: right_target_link
+    effectorFrame: hand_right_end_effector_link
+  cameraFrame: head_camera_color_frame
+  panFrame: head_pan_link
+  tiltFrame: head_tilt_link
+  liftFrame: body_lift_link
+  firstPersonCameraTopicSuffix: head_camera/color/image_raw/compressed
+  cameraInfoSuffix: head_camera/camera_info
+  firstPersonHiddenLinkPrefixes:
+  - head_
+  - mic_
+  defaultHfov: 1.2113
+";
+
+    // The profile asset's v2 fields, and the one-release migration of an old-format asset.
+    static void ProfileChecks()
+    {
+        Log("===== profile checks");
+        var profile = AssetDatabase.LoadAssetAtPath<RobotProfile>(Spec.ProfilePath);
+        if (!Check(profile != null, "profile asset " + Spec.ProfilePath)) return;
+        var fp = profile.FirstPersonCamera;
+        Check(profile.cameras.Count(c => c.firstPerson) == 1 && fp != null && fp.role == RobotProfile.CameraRole.Head
+              && !string.IsNullOrEmpty(fp.mountFrame) && !string.IsNullOrEmpty(fp.cameraInfoSuffix), $"{Spec.Asset}: exactly one first-person head camera with mountFrame '{fp?.mountFrame}' and cameraInfoSuffix '{fp?.cameraInfoSuffix}'");
+        Check(profile.cameras.Count(c => c.role == RobotProfile.CameraRole.Hand) == Spec.Sides.Length, $"{Spec.Asset}: one Hand camera per arm ({Spec.Sides.Length})");
+        Check(!string.IsNullOrEmpty(profile.baseFrame) && !string.IsNullOrEmpty(profile.controllerFrames.hmd) && !string.IsNullOrEmpty(profile.controllerFrames.left) && !string.IsNullOrEmpty(profile.controllerFrames.right),
+              $"{Spec.Asset}: baseFrame '{profile.baseFrame}', controllerFrames {profile.controllerFrames.hmd} / {profile.controllerFrames.left} / {profile.controllerFrames.right}");
+
+        const string temp = "Assets/__ProfileMigrationTemp.asset";
+        try
+        {
+            string guid = AssetDatabase.AssetPathToGUID(AssetDatabase.GetAssetPath(MonoScript.FromScriptableObject(profile)));
+            File.WriteAllText(temp, OldHomeYaml.Replace("@GUID@", guid));
+            AssetDatabase.ImportAsset(temp, ImportAssetOptions.ForceUpdate);
+            var old = AssetDatabase.LoadAssetAtPath<RobotProfile>(temp);
+            if (!Check(old != null, "migration: old-format asset loads")) return;
+            var oldFp = old.FirstPersonCamera;
+            Check(old.head.panFrame == "head_pan_link" && old.head.tiltFrame == "head_tilt_link" && old.lift.frame == "body_lift_link",
+                  $"migration: head '{old.head.panFrame}' / '{old.head.tiltFrame}', lift '{old.lift.frame}' filled from the old fields");
+            Check(oldFp != null && oldFp.firstPerson && oldFp.role == RobotProfile.CameraRole.Head && oldFp.mountFrame == "head_camera_color_frame" && oldFp.cameraInfoSuffix == "head_camera/camera_info",
+                  $"migration: first-person camera '{oldFp?.displayName}' mount '{oldFp?.mountFrame}' info '{oldFp?.cameraInfoSuffix}'");
+            Check(old.cameras.Count(c => c.role == RobotProfile.CameraRole.Hand) == 2 && old.cameras[0].side == RobotProfile.Side.Left && old.cameras[2].side == RobotProfile.Side.Right
+                  && old.arms[0].side == RobotProfile.Side.Left && old.arms[1].side == RobotProfile.Side.Right, "migration: hand cameras and arms get roles and sides");
+        }
+        finally { AssetDatabase.DeleteAsset(temp); }
+    }
+
     static void StaticChecks()
     {
         Log("===== static prefab checks");
+        ProfileChecks();
         LoadUrdf();
         EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
         var prefab = AssetDatabase.LoadAssetAtPath<GameObject>(PrefabPath);
@@ -363,11 +449,17 @@ public static class FirstPersonVerify
         yield return Seconds(2.0);
         var head = Camera.main.transform;
         var root = model.Root;
-        var camFrame = model.Frame(profile.cameraFrame);
+        var camFrame = model.Frame(profile.FirstPersonCamera.mountFrame);
         var pan = model.Frame(Spec.PanLink);
         var tilt = model.Frame(Spec.TiltLink);
         var lift = Spec.HasLift ? model.Frame(Spec.LiftLink) : null;
-        Check(Spec.HasLift == !string.IsNullOrEmpty(profile.liftFrame), $"profile liftFrame '{profile.liftFrame}' matches the robot (lift: {Spec.HasLift})");
+        Check(Spec.HasLift == !string.IsNullOrEmpty(profile.lift.frame), $"profile lift.frame '{profile.lift.frame}' matches the robot (lift: {Spec.HasLift})");
+        {
+            var strip = hud.Strip;
+            Check(strip != null && Mathf.Approximately(strip.PanRangeRad, profile.head.panLimitRad) && Mathf.Approximately(strip.TiltUpRad, profile.head.tiltMaxRad)
+                  && Mathf.Approximately(strip.TiltDownRad, -profile.head.tiltMinRad) && (!Spec.HasLift || Mathf.Approximately(strip.LiftRangeM, profile.lift.rangeM)),
+                  $"StatusStrip ranges equal the profile's: pan +-{strip?.PanRangeRad:F3} (profile {profile.head.panLimitRad:F3}), tilt -{strip?.TiltDownRad:F3}..{strip?.TiltUpRad:F3} (profile {profile.head.tiltMinRad:F3}..{profile.head.tiltMaxRad:F3}), lift {strip?.LiftRangeM:F2} (profile {profile.lift.rangeM:F2})");
+        }
 
         // First-TF recenter: the camera frame sits at the head and looks where the head looks.
         {
@@ -541,7 +633,7 @@ public static class FirstPersonVerify
         var c = new Vector3[4]; Field<RectTransform>(fpv, "_viewRt").GetWorldCorners(c);
         Log($"    diag: quad corners {string.Join(" ", c.Select(v => v.ToString("F2")))}");
         foreach (var t in Object.FindObjectsByType<Transform>(FindObjectsSortMode.None))
-            if (t.name == "Grid" || t.name == "Ground")
+            if (t.CompareTag(PassthroughMode.FloorTag))
             {
                 var r = t.GetComponent<Renderer>();
                 Log($"    diag: floor {t.name} pos {t.position:F3} scale {t.lossyScale:F2} active {t.gameObject.activeInHierarchy} shader {r?.sharedMaterial?.shader?.name} queue {r?.sharedMaterial?.renderQueue}");

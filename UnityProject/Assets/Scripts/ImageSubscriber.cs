@@ -137,16 +137,15 @@ public class ImageSubscriber : MonoBehaviour
     // screen (subscriptions cannot be dropped, see HudBar).
     public const string CompressedKey = "Images/Compressed";
     public static bool Compressed => PlayerPrefs.GetInt(CompressedKey, 1) == 1;
-    const string CompressedSuffix = "/compressed";
 
     // Topic that is subscribed for `cam`, and whether it carries raw images.
     string EffectiveTopic(RobotProfile.CameraConfig cam, out bool raw)
     {
         string topic = _profile.FullTopic(cam);
         raw = cam.raw;
-        if (!Compressed && topic.EndsWith(CompressedSuffix))
+        if (!Compressed && topic.EndsWith(RosNames.CompressedSuffix))
         {
-            topic = topic.Substring(0, topic.Length - CompressedSuffix.Length);
+            topic = topic.Substring(0, topic.Length - RosNames.CompressedSuffix.Length);
             raw = true;
         }
         return topic;
@@ -296,7 +295,7 @@ public class ImageSubscriber : MonoBehaviour
         foreach (var t in _profile.cameras.Select(c => _profile.FullTopic(c)))
         {
             known.Add(t);
-            known.Add(t.EndsWith("/compressed") ? t.Substring(0, t.Length - "/compressed".Length) : t + "/compressed");
+            known.Add(t.EndsWith(RosNames.CompressedSuffix) ? t.Substring(0, t.Length - RosNames.CompressedSuffix.Length) : t + RosNames.CompressedSuffix);
         }
         var live = new List<(string, string)>();
         yield return LiveTopics(TopicList(), known, live);
@@ -566,7 +565,7 @@ public class ImageSubscriber : MonoBehaviour
     {
         if (_profile == null || string.IsNullOrEmpty(topicSuffixOrFullTopic)) return -1;
         string wanted = _profile.FullTopic(topicSuffixOrFullTopic);
-        string raw = wanted.EndsWith(CompressedSuffix) ? wanted.Substring(0, wanted.Length - CompressedSuffix.Length) : wanted;
+        string raw = wanted.EndsWith(RosNames.CompressedSuffix) ? wanted.Substring(0, wanted.Length - RosNames.CompressedSuffix.Length) : wanted;
         for (int i = 0; i < _panels.Count; i++)
             if (_panels[i].Topic == wanted || _panels[i].Topic == raw) return i;
         return -1;

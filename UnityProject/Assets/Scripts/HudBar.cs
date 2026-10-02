@@ -317,7 +317,7 @@ public class HudBar : MonoBehaviour
     TextMeshProUGUI _namespaceLabel;
 
     static string NamespaceButtonText(RobotProfile robot)
-        => string.IsNullOrEmpty(robot.robotNamespace) ? "Joy: /joy" : $"Joy: /{robot.robotNamespace}/joy";
+        => string.IsNullOrEmpty(robot.robotNamespace) ? $"Joy: /{RosNames.Joy}" : $"Joy: /{robot.robotNamespace}/{RosNames.Joy}";
 
     System.Collections.IEnumerator ResetLabelLater(TextMeshProUGUI label)
     {
@@ -371,7 +371,7 @@ public class HudBar : MonoBehaviour
         if (_namespaceLabel != null)
         {
             if (_namespaceKeyboard.IsOpen)
-                _namespaceLabel.text = "Joy: /" + QuestControllerPublisher.TypingDisplay(_namespaceKeyboard.Text, "") + "/joy";
+                _namespaceLabel.text = "Joy: /" + QuestControllerPublisher.TypingDisplay(_namespaceKeyboard.Text, "") + "/" + RosNames.Joy;
             string ns = _namespaceKeyboard.Poll();
             if (ns != null) SetNamespace(ns);
             else if (!_namespaceKeyboard.IsOpen && _namespaceLabel.text.Contains("|"))

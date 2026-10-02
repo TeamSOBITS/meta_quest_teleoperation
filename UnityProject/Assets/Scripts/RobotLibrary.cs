@@ -28,6 +28,11 @@ public static class RobotLibrary
         public float maxFps = 15f;
         public float scale = 1f;
         public bool flipVertical, flipHorizontal;
+        // v2 (absent in older files: empty / 0 = Other / None).
+        public RobotProfile.CameraRole role;
+        public RobotProfile.Side side;
+        public bool firstPerson;
+        public string cameraInfoSuffix, mountFrame;
     }
 
     [Serializable]
@@ -36,6 +41,14 @@ public static class RobotLibrary
         public string displayName;
         public string robotNamespace;
         public List<CameraData> cameras = new List<CameraData>();
+        // v2 schema (absent in older files: empty values).
+        public string baseFrame, odomSuffix;
+        public RobotProfile.ControllerFrames controllerFrames = new RobotProfile.ControllerFrames();
+        public RobotProfile.HeadConfig head = new RobotProfile.HeadConfig();
+        public RobotProfile.LiftConfig lift = new RobotProfile.LiftConfig();
+        public RobotProfile.ArmConfig[] arms = new RobotProfile.ArmConfig[0];
+        public string[] firstPersonHiddenLinkPrefixes = new string[0];
+        public float defaultHfov;
     }
 
     public static List<RobotProfile> LoadAll()
@@ -57,9 +70,20 @@ public static class RobotLibrary
         return robots;
     }
 
-    // A new, not yet saved robot with no cameras; setup mode discovers them.
+    // A new, not yet saved robot with no cameras; setup mode discovers them. The headset's TF frames get
+    // the sobits_teleop names (TeleopConventions); everything else about the robot stays empty.
     public static RobotProfile CreateNew(string displayName)
-        => ToProfile(IdFor(displayName), new RobotData { displayName = displayName.Trim() });
+        => ToProfile(IdFor(displayName), new RobotData
+        {
+            displayName = displayName.Trim(),
+            baseFrame = TeleopConventions.BaseFrame,
+            controllerFrames = new RobotProfile.ControllerFrames
+            {
+                hmd = TeleopConventions.Hmd,
+                left = TeleopConventions.LeftController,
+                right = TeleopConventions.RightController,
+            },
+        });
 
     public static void Save(RobotProfile robot)
     {
@@ -77,7 +101,20 @@ public static class RobotLibrary
                 scale = c.scale,
                 flipVertical = c.flipVertical,
                 flipHorizontal = c.flipHorizontal,
+                role = c.role,
+                side = c.side,
+                firstPerson = c.firstPerson,
+                cameraInfoSuffix = c.cameraInfoSuffix,
+                mountFrame = c.mountFrame,
             }).ToList(),
+            baseFrame = robot.baseFrame,
+            odomSuffix = robot.odomSuffix,
+            controllerFrames = robot.controllerFrames,
+            head = robot.head,
+            lift = robot.lift,
+            arms = robot.arms,
+            firstPersonHiddenLinkPrefixes = robot.firstPersonHiddenLinkPrefixes,
+            defaultHfov = robot.defaultHfov,
         };
         Directory.CreateDirectory(Folder);
         File.WriteAllText(FileFor(robot.name), JsonUtility.ToJson(data, true));
@@ -119,7 +156,20 @@ public static class RobotLibrary
             scale = c.scale <= 0f ? 1f : c.scale,
             flipVertical = c.flipVertical,
             flipHorizontal = c.flipHorizontal,
+            role = c.role,
+            side = c.side,
+            firstPerson = c.firstPerson,
+            cameraInfoSuffix = c.cameraInfoSuffix ?? "",
+            mountFrame = c.mountFrame ?? "",
         }).ToArray();
+        robot.baseFrame = data.baseFrame ?? "";
+        robot.odomSuffix = data.odomSuffix ?? "";
+        robot.controllerFrames = data.controllerFrames ?? new RobotProfile.ControllerFrames();
+        robot.head = data.head ?? new RobotProfile.HeadConfig();
+        robot.lift = data.lift ?? new RobotProfile.LiftConfig();
+        robot.arms = data.arms ?? new RobotProfile.ArmConfig[0];
+        robot.firstPersonHiddenLinkPrefixes = data.firstPersonHiddenLinkPrefixes ?? new string[0];
+        robot.defaultHfov = data.defaultHfov;
         return robot;
     }
 }

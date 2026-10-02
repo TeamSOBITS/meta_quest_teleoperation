@@ -120,6 +120,19 @@ public static class AddRobotTest
         var file = Path.Combine(Application.persistentDataPath, "robots", "custom_robot_3.json");
         Check(File.Exists(file), "Save robot writes robots/custom_robot_3.json");
         Debug.Log("[Verify]     saved: " + (File.Exists(file) ? File.ReadAllText(file).Replace("\n", " ") : "-"));
+        {   // v2 schema: the new robot carries the sobits_teleop frame names; an old file without them loads with empty values.
+            var saved = RobotLibrary.LoadAll().FirstOrDefault(r => r.name == "custom_robot_3");
+            Check(saved != null && saved.baseFrame == TeleopConventions.BaseFrame && saved.controllerFrames.hmd == TeleopConventions.Hmd
+                  && saved.controllerFrames.left == TeleopConventions.LeftController && saved.controllerFrames.right == TeleopConventions.RightController,
+                  $"saved JSON carries baseFrame '{saved?.baseFrame}' and controllerFrames '{saved?.controllerFrames.hmd}'");
+            string oldFile = Path.Combine(Application.persistentDataPath, "robots", "custom_old_json.json");
+            File.WriteAllText(oldFile, "{\"displayName\":\"Old\",\"robotNamespace\":\"old\",\"cameras\":[{\"displayName\":\"Cam\",\"topic\":\"/old/cam/image_raw\",\"raw\":true,\"resolution\":{\"x\":320,\"y\":240},\"maxFps\":10,\"scale\":1}]}");
+            var old = RobotLibrary.LoadAll().FirstOrDefault(r => r.name == "custom_old_json");
+            File.Delete(oldFile);
+            Check(old != null && old.cameras.Length == 1 && string.IsNullOrEmpty(old.baseFrame) && string.IsNullOrEmpty(old.controllerFrames.hmd) && string.IsNullOrEmpty(old.head.panFrame)
+                  && string.IsNullOrEmpty(old.lift.frame) && old.arms.Length == 0 && old.cameras[0].role == RobotProfile.CameraRole.Other && !old.cameras[0].firstPerson,
+                  "old JSON (no v2 keys) loads with empty model fields");
+        }
         screen = GameObject.Find("Robot Selection Screen");
         var card = screen.GetComponentsInChildren<UnityEngine.UI.Button>().FirstOrDefault(b => b.name == "Card Robot 3");
         Check(card != null, "selection shows the new robot's card");

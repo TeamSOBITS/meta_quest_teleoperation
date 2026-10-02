@@ -214,7 +214,7 @@ public static class LayoutVerifier
             Check(pt != null, $"{robot}: bar has a Passthrough toggle");
             if (pt != null)
             {
-                var floor = Resources.FindObjectsOfTypeAll<Transform>().FirstOrDefault(t => !(t is RectTransform) && t.gameObject.scene.IsValid() && (t.name == "Grid" || t.name == "Ground"));
+                var floor = Resources.FindObjectsOfTypeAll<Transform>().FirstOrDefault(t => !(t is RectTransform) && t.gameObject.scene.IsValid() && t.CompareTag(PassthroughMode.FloorTag));
                 Check(floor != null && floor.gameObject.activeSelf, $"{robot}: floor visible before passthrough");
                 Check(Camera.main.backgroundColor.a > 0.99f, $"{robot}: camera background opaque before passthrough");
                 pt.isOn = true;

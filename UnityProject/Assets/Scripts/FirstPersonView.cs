@@ -21,8 +21,8 @@ using UnityEngine.XR.Interaction.Toolkit.UI;
 /// transform whose space is the tracking space, so it moves with the playspace and its floor is
 /// y = 0. On <see cref="Recenter"/> (enable, first TF, tracking origin reset, the Recenter button)
 /// the model is turned about the vertical axis so the camera frame faces where the headset looks,
-/// and moved so the camera frame sits at the headset position. Its pan-axis point (panFrame origin;
-/// for robots without a pan/tilt head, i.e. panFrame empty or absent from the model, the camera frame
+/// and moved so the camera frame sits at the headset position. Its pan-axis point (head.panFrame origin;
+/// for robots without a pan/tilt head, i.e. head.panFrame empty or absent from the model, the camera frame
 /// itself) is then remembered, and every frame the model is shifted so that point stays where it was:
 /// when the lift or head moves, the model moves under the user instead of the image moving off
 /// the eyes. Rotation is never touched after Recenter, so a turning robot head turns the image.
@@ -115,9 +115,10 @@ public class FirstPersonView : MonoBehaviour
             Debug.LogWarning("FPV: no model, first-person view is empty");
             return;
         }
-        _camFrame = _model.Frame(profile.cameraFrame);
-        _panFrame = _model.Frame(profile.panFrame);
-        if (_camFrame == null) Debug.LogWarning($"FPV: camera frame '{profile.cameraFrame}' not in the model; the image quad hangs on the model root");
+        var fpCamera = profile.FirstPersonCamera;
+        _camFrame = _model.Frame(fpCamera?.mountFrame);
+        _panFrame = _model.Frame(profile.head.panFrame);
+        if (_camFrame == null) Debug.LogWarning($"FPV: camera frame '{fpCamera?.mountFrame}' not in the model; the image quad hangs on the model root");
         if (_panFrame == null && _camFrame != null)
         {
             // Robots without a pan/tilt head: keep the eyes at the camera instead.
@@ -134,7 +135,7 @@ public class FirstPersonView : MonoBehaviour
             cam.nearClipPlane = NearClip;
         }
 
-        _cameraIndex = _images.IndexOf(_profile.firstPersonCameraTopicSuffix);
+        _cameraIndex = fpCamera != null ? _images.IndexOf(fpCamera.topicSuffix) : -1;
         SubscribeCameraInfo();
 
         SubsystemManager.GetSubsystems(_inputs);
@@ -331,7 +332,7 @@ public class FirstPersonView : MonoBehaviour
         }
         else
         {
-            widthM = 2f * QuadDistance * Mathf.Tan(_profile.defaultHfov / 2f);
+            widthM = 2f * QuadDistance * Mathf.Tan((_profile.defaultHfov > 0f ? _profile.defaultHfov : RobotProfile.FallbackHfov) / 2f);
             heightM = widthM / _textureAspect;
         }
         _viewRt.sizeDelta = new Vector2(widthM, heightM) * HudUi.MmPerMetre;
@@ -374,7 +375,7 @@ public class FirstPersonView : MonoBehaviour
     {
         if (_cameraIndex < 0)
         {
-            Debug.LogWarning($"FPV: robot has no camera on '{_profile.firstPersonCameraTopicSuffix}'; no image");
+            Debug.LogWarning($"FPV: robot has no first-person camera in the profile (or not shown); no image");
             return;
         }
         var config = _images.Panels[_cameraIndex].Config;
@@ -441,8 +442,9 @@ public class FirstPersonView : MonoBehaviour
 
     void SubscribeCameraInfo()
     {
-        if (string.IsNullOrEmpty(_profile.cameraInfoSuffix)) return;
-        string topic = _profile.FullTopic(_profile.cameraInfoSuffix);
+        string info = _profile.FirstPersonCamera?.cameraInfoSuffix;
+        if (string.IsNullOrEmpty(info)) return;
+        string topic = _profile.FullTopic(info);
         ROSConnection.GetOrCreateInstance().Subscribe<CameraInfoMsg>(topic, OnCameraInfo);
     }
 

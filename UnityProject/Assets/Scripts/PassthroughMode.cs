@@ -16,8 +16,8 @@ using UnityEngine.XR.ARFoundation;
 public static class PassthroughMode
 {
     const string PrefKey = "Passthrough";
-    // The floor is called "Grid" in the teleop scene and "Ground" in the robot selection scene.
-    static readonly string[] FloorNames = { "Grid", "Ground" };
+    // The floor objects ("Grid" in the teleop scene, "Ground" in the robot selection scene) carry this tag.
+    public const string FloorTag = "Floor";
 
     public static bool Enabled
     {
@@ -97,7 +97,7 @@ public static class PassthroughMode
         foreach (var t in Resources.FindObjectsOfTypeAll<Transform>())
         {
             if (t is RectTransform || !t.gameObject.scene.IsValid() || t.hideFlags != HideFlags.None) continue;
-            if (System.Array.IndexOf(FloorNames, t.name) >= 0)
+            if (t.CompareTag(FloorTag))
                 t.gameObject.SetActive(visible);
         }
     }

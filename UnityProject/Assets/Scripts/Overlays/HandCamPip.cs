@@ -5,10 +5,10 @@ using UnityEngine.UI;
 using UnityEngine.XR.Interaction.Toolkit.UI;
 
 /// <summary>
-/// Hand cameras in first person: one small card per hand camera of the robot (a camera whose topic
-/// suffix contains "hand"; RawImage on a rounded PanelColor box, a muted label with the camera's name).
-/// A card floats outboard of and a little below its gripper (the end effector link of the profile's
-/// arm: the one named "left" / "right" in the camera's topic, else the only arm), to the side of the line of sight
+/// Hand cameras in first person: one small card per hand camera of the robot (role Hand in the profile;
+/// RawImage on a rounded PanelColor box, a muted label with the camera's name).
+/// A card floats outboard of and a little below its mount frame (the camera's mountFrame, else the end effector
+/// of the arm on the camera's side, else the only arm's), to the camera's side of the line of sight
 /// so it never covers what the head camera shows there, and faces the head. Created by TeleopHud in
 /// the first-person camera layout, destroyed when the layout or the robot model is switched off.
 /// In layout mode (<see cref="SetEditable"/>) each card has a Rename button above its top-right corner.
@@ -50,7 +50,7 @@ public class HandCamPip : MonoBehaviour
         var pip = go.AddComponent<HandCamPip>();
         pip._images = images;
         foreach (var panel in images.Panels)
-            if (IsHandCamera(panel.Config)) pip.Add(model, profile, panel.Config);
+            if (panel.Config != null && panel.Config.role == RobotProfile.CameraRole.Hand) pip.Add(model, profile, panel.Config);
         if (pip._cards.Count == 0)
         {
             Debug.LogWarning("HandCams: robot has no hand camera; nothing to show");
@@ -63,30 +63,29 @@ public class HandCamPip : MonoBehaviour
         return pip;
     }
 
-    static bool IsHandCamera(RobotProfile.CameraConfig config)
-        => config != null && config.topicSuffix != null && config.topicSuffix.ToLowerInvariant().Contains("hand");
-
-    // The arm a hand camera belongs to: named like the camera ("left" / "right"), else the only arm.
-    static RobotProfile.ArmConfig ArmOf(RobotProfile profile, RobotProfile.CameraConfig config)
+    // Frame a hand camera's card is placed at: its mountFrame, else the end effector of the arm on its side
+    // (or the only arm); null when the profile names none.
+    static string MountFrameOf(RobotProfile profile, RobotProfile.CameraConfig config)
     {
-        string suffix = config.topicSuffix.ToLowerInvariant();
-        foreach (var arm in profile.arms)
-            if (!string.IsNullOrEmpty(arm.name) && suffix.Contains(arm.name.ToLowerInvariant())) return arm;
-        return profile.arms.Length == 1 ? profile.arms[0] : null;
+        if (!string.IsNullOrEmpty(config.mountFrame)) return config.mountFrame;
+        if (config.side != RobotProfile.Side.None)
+            foreach (var arm in profile.arms)
+                if (arm.side == config.side) return arm.effectorFrame;
+        return profile.arms.Length == 1 ? profile.arms[0].effectorFrame : null;
     }
 
-    // The card's side comes from the camera's name; a hand camera without "left" / "right" goes to the viewer's right.
+    // The card's side comes from the camera's side in the profile; a hand camera without one goes to the viewer's right.
     void Add(RobotModel model, RobotProfile profile, RobotProfile.CameraConfig config)
     {
         int index = _images.IndexOf(config.topicSuffix);
         if (index < 0) return;
-        var arm = ArmOf(profile, config);
+        string mount = MountFrameOf(profile, config);
         string label = config.displayName;
-        if (arm == null) { Debug.LogWarning($"HandCams: no arm for the {label} camera, skipping it"); return; }
-        var link = model.Frame(arm.effectorFrame);
-        if (link == null) { Debug.LogWarning($"HandCams: frame '{arm.effectorFrame}' not in the model, skipping the {label} camera"); return; }
+        if (string.IsNullOrEmpty(mount)) { Debug.LogWarning($"HandCams: no mount frame for the {label} camera, skipping it"); return; }
+        var link = model.Frame(mount);
+        if (link == null) { Debug.LogWarning($"HandCams: frame '{mount}' not in the model, skipping the {label} camera"); return; }
 
-        var card = new Card { index = index, left = SideOf(config.topicSuffix, config, false), link = link, config = config, aspect = config.Aspect };
+        var card = new Card { index = index, left = config.side == RobotProfile.Side.Left, link = link, config = config, aspect = config.Aspect };
         var go = new GameObject("Hand Cam " + label, typeof(RectTransform));
         card.go = go;
         go.transform.SetParent(transform, false);
@@ -132,14 +131,6 @@ public class HandCamPip : MonoBehaviour
         _cards.Add(card);
         ApplySize(card);
         SetCardOn(card, _images.IsOn(_images.Panels[index]));
-    }
-
-    // Card side from the camera's identity: "left" in the topic -> true, "right" -> false, else `fallback`.
-    public static bool SideOf(string topic, RobotProfile.CameraConfig config, bool fallback)
-    {
-        string t = ((topic ?? "") + " " + (config?.topicSuffix ?? "")).ToLowerInvariant();
-        bool l = t.Contains("left"), r = t.Contains("right");
-        return l != r ? l : fallback;
     }
 
     // Layout mode: the cards' Rename buttons are available.

@@ -66,6 +66,7 @@ public class BaseVelocity : MonoBehaviour
         v.BuildMeshes(source);
         v.BuildChip();
         Current = v;
+        if (string.IsNullOrEmpty(profile.odomSuffix)) return v;   // no odometry configured: the arrow stays at rest
         string topic = profile.FullTopic(profile.odomSuffix);
         var ros = ROSConnection.GetOrCreateInstance();
         if (_subscribedOn != ros || _subscribedTopic != topic)

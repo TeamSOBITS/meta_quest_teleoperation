@@ -104,11 +104,11 @@ public static class ExperimentsVerify2
         long ns = (DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).Ticks * 100;
         var t = new TransformStampedMsg
         {
-            header = new HeaderMsg { frame_id = "base_footprint", stamp = new TimeMsg { sec = (int)(ns / 1_000_000_000), nanosec = (uint)(ns % 1_000_000_000) } },
-            child_frame_id = "hmd_odom",
+            header = new HeaderMsg { frame_id = RobotProfile.Selected?.baseFrame, stamp = new TimeMsg { sec = (int)(ns / 1_000_000_000), nanosec = (uint)(ns % 1_000_000_000) } },
+            child_frame_id = RobotProfile.Selected?.controllerFrames.hmd,
             transform = new TransformMsg { translation = new Vector3Msg(0, 0, 1.2), rotation = new QuaternionMsg(0, 0, 0, 1) }
         };
-        ROSConnection.GetOrCreateInstance().Publish("/tf", new TFMessageMsg(new[] { t }));
+        ROSConnection.GetOrCreateInstance().Publish(RosNames.Tf, new TFMessageMsg(new[] { t }));
         _injected++;
     }
 

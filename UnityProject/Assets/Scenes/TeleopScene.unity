@@ -526,12 +526,6 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: 
   ros: {fileID: 1765857562}
-  robotNamespace: sobit_home
-  parent_frame_id: base_footprint
-  headChildFrame: hmd_odom
-  rightChildFrame: right_controller_odom
-  leftChildFrame: left_controller_odom
-  tfTopicName: /tf
   useSimTime: 0
   publishFrequency: 0.016666668
   controlRobot: 1
@@ -718,7 +712,7 @@ GameObject:
   - component: {fileID: 2102629070}
   m_Layer: 0
   m_Name: Grid
-  m_TagString: Untagged
+  m_TagString: Floor
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0

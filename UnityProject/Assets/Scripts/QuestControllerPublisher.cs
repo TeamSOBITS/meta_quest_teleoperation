@@ -15,17 +15,18 @@ public class QuestControllerPublisher : MonoBehaviour
 {
     public ROSConnection ros;
 
-    // Robot namespace (e.g. "sobit_home", "sobit_pro").
-    // Controls the joy topic: /<robotNamespace>/joy
-    public string robotNamespace = "sobit_home";
+    // Robot namespace; controls the joy topic: /<robotNamespace>/joy.
+    // All of these come from the selected robot's profile at Awake (see ApplyProfile); the values
+    // here only matter when no profile is selected and none is set on the scene's ImageSubscriber.
+    public string robotNamespace = "";
 
-    // TF parent frame — publish directly under base_footprint so the Quest frames
+    // TF parent frame — publish directly under the robot's base frame so the Quest frames
     // are always expressed relative to the robot, even after the robot drives.
-    public string parent_frame_id = "base_footprint";
-    public string headChildFrame = "hmd_odom";
-    public string rightChildFrame = "right_controller_odom";
-    public string leftChildFrame = "left_controller_odom";
-    public string tfTopicName = "/tf";
+    public string parent_frame_id = "";
+    public string headChildFrame = "";
+    public string rightChildFrame = "";
+    public string leftChildFrame = "";
+    public string tfTopicName = RosNames.Tf;
 
     // TFs are always stamped with wall-clock (UTC) time.
     // sobits_teleop uses a wall-clock TF buffer so sim/real time mixing is not an issue.
@@ -51,11 +52,26 @@ public class QuestControllerPublisher : MonoBehaviour
     // connection already goes to the saved IP, with no Disconnect/Connect cycle.
     public void Awake()
     {
-        if (RobotProfile.Selected != null)
-            robotNamespace = RobotProfile.Selected.robotNamespace;
+        var images = FindFirstObjectByType<ImageSubscriber>();
+        ApplyProfile(RobotProfile.Selected != null ? RobotProfile.Selected : images != null ? images.defaultProfile : null);
 
         ros.RosIPAddress = RosIpSettings.Load(ros.RosIPAddress);
     }
+
+    // Namespace and TF frame names from the robot's profile. A profile that leaves a frame empty (a robot
+    // added on the headset before the v2 schema) gets the sobits_teleop names (TeleopConventions).
+    void ApplyProfile(RobotProfile profile)
+    {
+        if (profile != null) robotNamespace = profile.robotNamespace;
+        var f = profile != null ? profile.controllerFrames : null;
+        parent_frame_id = Pick(profile != null ? profile.baseFrame : null, parent_frame_id, TeleopConventions.BaseFrame);
+        headChildFrame = Pick(f?.hmd, headChildFrame, TeleopConventions.Hmd);
+        leftChildFrame = Pick(f?.left, leftChildFrame, TeleopConventions.LeftController);
+        rightChildFrame = Pick(f?.right, rightChildFrame, TeleopConventions.RightController);
+    }
+
+    static string Pick(string fromProfile, string current, string fallback)
+        => !string.IsNullOrEmpty(fromProfile) ? fromProfile : !string.IsNullOrEmpty(current) ? current : fallback;
 
     public void Start()
     {
@@ -83,7 +99,7 @@ public class QuestControllerPublisher : MonoBehaviour
     public void SetNamespace(string ns)
     {
         robotNamespace = (ns ?? "").Trim().Trim('/');
-        _joyTopicName = string.IsNullOrEmpty(robotNamespace) ? "/joy" : "/" + robotNamespace + "/joy";
+        _joyTopicName = string.IsNullOrEmpty(robotNamespace) ? "/" + RosNames.Joy : "/" + robotNamespace + "/" + RosNames.Joy;
         ros.RegisterPublisher<JoyMsg>(_joyTopicName);
     }
 

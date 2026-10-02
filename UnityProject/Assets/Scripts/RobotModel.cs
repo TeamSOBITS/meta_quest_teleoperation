@@ -25,7 +25,6 @@ using UnityEngine;
 [DefaultExecutionOrder(150)]
 public class RobotModel : MonoBehaviour
 {
-    const string TfTopic = "/tf";
     const float HzWindowSeconds = 1f;
 
     class Link
@@ -84,7 +83,7 @@ public class RobotModel : MonoBehaviour
 
         _windowStart = Time.unscaledTime;
         var ros = ROSConnection.GetOrCreateInstance();
-        ros.Subscribe<TFMessageMsg>(TfTopic, OnTf);
+        ros.Subscribe<TFMessageMsg>(RosNames.Tf, OnTf);
     }
 
     void OnTf(TFMessageMsg msg)

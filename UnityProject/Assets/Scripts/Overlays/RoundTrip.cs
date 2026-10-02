@@ -6,14 +6,13 @@ using UnityEngine;
 
 /// <summary>
 /// Round-trip latency. While control is on, <see cref="QuestControllerPublisher"/> publishes the
-/// headset's own TF (child frame <c>headChildFrame</c>, e.g. hmd_odom) stamped with the wall-clock
+/// headset's own TF (child frame <c>headChildFrame</c>: the profile's controllerFrames.hmd) stamped with the wall-clock
 /// UTC time; the endpoint echoes it back on /tf. RTT = now (UTC) - stamp, measured when the echo
 /// arrives. Only meaningful while the publisher is actually publishing (control on, connected).
 /// Created by TeleopHud with the HUD.
 /// </summary>
 public class RoundTrip : MonoBehaviour
 {
-    const string TfTopic = "/tf";
     const float RecentSeconds = 2f, MaxWindowSeconds = 1f, LogSeconds = 5f;
     const float EmaAlpha = 2f / (10f + 1f);   // about the last 10 samples
     const double MaxPlausibleMs = 10000.0;
@@ -53,7 +52,7 @@ public class RoundTrip : MonoBehaviour
         if (_subscribedOn != ros)
         {
             _subscribedOn = ros;   // subscribe once per connection; a new instance must not add callbacks
-            ros.Subscribe<TFMessageMsg>(TfTopic, msg => { if (Current != null) Current.OnTf(msg); });
+            ros.Subscribe<TFMessageMsg>(RosNames.Tf, msg => { if (Current != null) Current.OnTf(msg); });
         }
         return rtt;
     }

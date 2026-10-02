@@ -336,8 +336,8 @@ public static class ExperimentsVerify4
             var lc = cards.First(c => c.index == li); var rc = cards.First(c => c.index == ri);
             if (Spec.DualArm) Check(lc.left && !rc.left, $"3: Card.left true for the left camera ({lc.left}), false for the right ({rc.left})");
             else Check(!lc.left, $"3: the single hand camera's card goes to the viewer's right (Card.left {lc.left})");
-            Check(HandCamPip.SideOf("/x/hand_left_camera/c", null, false) && !HandCamPip.SideOf("/x/hand_right_camera/c", null, true) && HandCamPip.SideOf("/x/cam", null, true) && !HandCamPip.SideOf("/x/hand_camera/c", null, false),
-                  "3: SideOf: left topic -> true, right -> false, neither -> fallback");
+            Check(profile.cameras.Where(c => c.role == RobotProfile.CameraRole.Hand).All(c => cards.First(k => k.index == _images.IndexOf(c.topicSuffix)).left == (c.side == RobotProfile.Side.Left)),
+                  "3: every hand card's side is its camera's profile side (Left -> viewer's left, else right)");
             void Sides(string when)
             {
                 float xl = head.InverseTransformPoint(lc.rt.position).x, xr = head.InverseTransformPoint(rc.rt.position).x;
@@ -430,8 +430,8 @@ public static class ExperimentsVerify4
         Check(_images.Panels.All(p => p.Topic.EndsWith("image_raw") && !p.Topic.EndsWith("/compressed")),
               "5: every block subscribed to the raw twin: " + string.Join(", ", _images.Panels.Select(p => p.Topic)));
         Check(_images.Panels.All(p => ros.HasSubscriber(p.Topic) && !ros.HasSubscriber(p.Topic + "/compressed")), "5: ROSConnection has the raw subscriptions, none on '/compressed'");
-        Check(_images.IndexOf(LeftSuffix) >= 0 && _images.IndexOf(LeftSuffix.Replace("/compressed", "")) == _images.IndexOf(LeftSuffix) && _images.IndexOf(profile.firstPersonCameraTopicSuffix) >= 0,
-              $"5: IndexOf matches either twin (left {_images.IndexOf(LeftSuffix)}, head {_images.IndexOf(profile.firstPersonCameraTopicSuffix)})");
+        Check(_images.IndexOf(LeftSuffix) >= 0 && _images.IndexOf(LeftSuffix.Replace("/compressed", "")) == _images.IndexOf(LeftSuffix) && _images.IndexOf(profile.FirstPersonCamera.topicSuffix) >= 0,
+              $"5: IndexOf matches either twin (left {_images.IndexOf(LeftSuffix)}, head {_images.IndexOf(profile.FirstPersonCamera.topicSuffix)})");
         {
             var counts = new int[_images.Panels.Count];
             Action<int, Texture2D> count = (i, _) => { if (i < counts.Length) counts[i]++; };

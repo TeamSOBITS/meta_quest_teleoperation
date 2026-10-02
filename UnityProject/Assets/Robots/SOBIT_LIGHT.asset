@@ -16,49 +16,88 @@ MonoBehaviour:
   picture: {fileID: 2800000, guid: e49c5f941da79c0e69312547d0dfced3, type: 3}
   robotNamespace: sobit_light
   sceneName: TeleopScene
+  baseFrame: base_footprint
+  odomSuffix: wheel_controller/odom
+  controllerFrames:
+    hmd: hmd_odom
+    left: left_controller_odom
+    right: right_controller_odom
   cameras:
   - displayName: Head Camera
     topicSuffix: head_camera/color/image_raw/compressed
+    raw: 0
     resolution: {x: 1280, y: 720}
     maxFps: 15
+    scale: 1
     flipVertical: 0
     flipHorizontal: 0
-    scale: 1
+    role: 1
+    side: 0
+    firstPerson: 1
+    cameraInfoSuffix: head_camera/color/camera_info
+    mountFrame: head_camera_color_frame
   - displayName: Hand Camera
     topicSuffix: hand_camera/color/image_raw/compressed
+    raw: 0
     resolution: {x: 848, y: 480}
     maxFps: 15
+    scale: 1
     flipVertical: 0
     flipHorizontal: 0
-    scale: 1
+    role: 2
+    side: 2
+    firstPerson: 0
+    cameraInfoSuffix: 
+    mountFrame: hand_end_effector_link
   - displayName: Base Front Camera
     topicSuffix: front_camera/image_raw/compressed
+    raw: 0
     resolution: {x: 640, y: 480}
     maxFps: 15
+    scale: 1
     flipVertical: 0
     flipHorizontal: 0
-    scale: 1
+    role: 0
+    side: 0
+    firstPerson: 0
+    cameraInfoSuffix: 
+    mountFrame: 
   - displayName: Base Back Camera
     topicSuffix: back_camera/image_raw/compressed
+    raw: 0
     resolution: {x: 640, y: 480}
     maxFps: 15
+    scale: 1
     flipVertical: 0
     flipHorizontal: 0
-    scale: 1
+    role: 0
+    side: 0
+    firstPerson: 0
+    cameraInfoSuffix: 
+    mountFrame: 
+  modelPrefab: {fileID: 5176407514087210005, guid: a6cddea57bf7245489cbb06a0e495731, type: 3}
+  head:
+    panFrame: head_yaw_link
+    tiltFrame: head_pitch_link
+    panLimitRad: 3.1415927
+    tiltMinRad: -1.3008157
+    tiltMaxRad: 1.6904469
+  lift:
+    frame: 
+    rangeM: 0
   arms:
   - name: arm
     targetFrame: arm_target_link
     effectorFrame: hand_end_effector_link
-  modelPrefab: {fileID: 5176407514087210005, guid: a6cddea57bf7245489cbb06a0e495731, type: 3}
-  cameraFrame: head_camera_color_frame
-  panFrame: head_yaw_link
-  tiltFrame: head_pitch_link
-  liftFrame: ''
-  firstPersonCameraTopicSuffix: head_camera/color/image_raw/compressed
-  cameraInfoSuffix: head_camera/color/camera_info
+    side: 2
   firstPersonHiddenLinkPrefixes:
   - head_
   - mic_
   - speaker_
   defaultHfov: 1.21126
-  odomSuffix: wheel_controller/odom
+  panFrame: 
+  tiltFrame: 
+  liftFrame: 
+  cameraFrame: 
+  firstPersonCameraTopicSuffix: 
+  cameraInfoSuffix: 

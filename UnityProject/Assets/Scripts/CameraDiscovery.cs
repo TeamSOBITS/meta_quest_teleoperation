@@ -18,7 +18,7 @@ public static class CameraDiscovery
     // Segments that describe the image stream rather than the camera.
     static readonly HashSet<string> StreamWords = new HashSet<string>
     {
-        "compressed", "image", "image_raw", "image_rect", "image_rect_raw", "image_rect_color",
+        "compressed", "image", RosNames.ImageRaw, "image_rect", "image_rect_raw", "image_rect_color",
         "image_color", "color", "rgb", "raw",
     };
 
@@ -36,7 +36,7 @@ public static class CameraDiscovery
                              .Select(t => t.topic).ToList();
         var compressedSet = new HashSet<string>(compressed);
         var raw = list.Where(t => t.type == RawType && !IsDepth(t.topic)
-                                  && !compressedSet.Contains(t.topic.TrimEnd('/') + "/compressed"))
+                                  && !compressedSet.Contains(t.topic.TrimEnd('/') + RosNames.CompressedSuffix))
                       .Select(t => t.topic).ToList();
 
         var found = compressed.Select(t => new Found { topic = t, raw = false })
@@ -72,7 +72,7 @@ public static class CameraDiscovery
     // ROS infrastructure topics that say nothing about which robot this is.
     static readonly HashSet<string> SystemTopics = new HashSet<string>
     {
-        "/tf", "/tf_static", "/rosout", "/parameter_events", "/clock", "/joy",
+        RosNames.Tf, "/tf_static", "/rosout", "/parameter_events", "/clock", "/" + RosNames.Joy,
     };
 
     // Namespace for a robot without cameras: the first segment shared by all its namespaced

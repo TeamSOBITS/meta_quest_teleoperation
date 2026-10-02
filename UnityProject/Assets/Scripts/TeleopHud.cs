@@ -314,7 +314,8 @@ public class TeleopHud : MonoBehaviour
     int BlocksStripCamera()
     {
         var profile = images.Profile;
-        int index = profile != null ? images.IndexOf(profile.firstPersonCameraTopicSuffix) : -1;
+        var fpCamera = profile != null ? profile.FirstPersonCamera : null;
+        int index = fpCamera != null ? images.IndexOf(fpCamera.topicSuffix) : -1;
         for (int i = 0; index < 0 && i < images.Panels.Count; i++)
             if (images.IsOn(images.Panels[i])) index = i;
         return index;

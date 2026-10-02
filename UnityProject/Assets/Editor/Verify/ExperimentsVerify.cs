@@ -91,7 +91,7 @@ public static class ExperimentsVerify
     static void OnTf(TFMessageMsg m)
     {
         if (m?.transforms == null) return;
-        foreach (var t in m.transforms) if (t != null && t.child_frame_id == "hmd_odom") _hmdEchoes++;
+        foreach (var t in m.transforms) if (t != null && t.child_frame_id == RobotProfile.Selected?.controllerFrames.hmd) _hmdEchoes++;
     }
 
     // Latest head-camera message seen by the harness (same callback order as ImageSubscriber, which subscribed first).
@@ -110,11 +110,11 @@ public static class ExperimentsVerify
         long ns = (DateTime.UtcNow - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).Ticks * 100;
         var t = new TransformStampedMsg
         {
-            header = new HeaderMsg { frame_id = "base_footprint", stamp = new TimeMsg { sec = (int)(ns / 1_000_000_000), nanosec = (uint)(ns % 1_000_000_000) } },
-            child_frame_id = "hmd_odom",
+            header = new HeaderMsg { frame_id = RobotProfile.Selected?.baseFrame, stamp = new TimeMsg { sec = (int)(ns / 1_000_000_000), nanosec = (uint)(ns % 1_000_000_000) } },
+            child_frame_id = RobotProfile.Selected?.controllerFrames.hmd,
             transform = new TransformMsg { translation = new Vector3Msg(0, 0, 1.2), rotation = new QuaternionMsg(0, 0, 0, 1) }
         };
-        ROSConnection.GetOrCreateInstance().Publish("/tf", new TFMessageMsg(new[] { t }));
+        ROSConnection.GetOrCreateInstance().Publish(RosNames.Tf, new TFMessageMsg(new[] { t }));
         _injected++;
     }
 
@@ -164,7 +164,7 @@ public static class ExperimentsVerify
         var ros = ROSConnection.GetOrCreateInstance();
         Check(Object.FindObjectsByType<ROSConnection>(FindObjectsSortMode.None).Length == 1, "exactly one ROSConnection");
         ros.Subscribe<JointStateMsg>("/sobit_home/joint_states", OnJointStates);
-        ros.Subscribe<TFMessageMsg>("/tf", OnTf);
+        ros.Subscribe<TFMessageMsg>(RosNames.Tf, OnTf);
         var hud = Object.FindFirstObjectByType<TeleopHud>();
         var images = Object.FindFirstObjectByType<ImageSubscriber>();
 

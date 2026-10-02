@@ -16,7 +16,7 @@ using UnityEngine.UI;
 /// rotation of t about y (pitch, positive = nose down) as +t about Unity's right axis, so
 /// pan (left positive) = -twist about up, tilt = -twist about right (the head_tilt joint value, up positive for SOBIT HOME, axis 0 -1 0). This matches
 /// the FPV log's head_pan_local_yaw (Unity yaw, i.e. -pan). Lift = link local y minus its zero
-/// (the model prefab's local y), shown against the joint range 0..0.69 m.
+/// (the model prefab's local y), shown against the profile's lift range (lift.rangeM). The head gauge ranges are the profile's head limits.
 /// </summary>
 public class StatusStrip : MonoBehaviour
 {
@@ -29,7 +29,7 @@ public class StatusStrip : MonoBehaviour
     public const float BlocksScale = HudBar.CompactScale * HudUi.ReferenceDistance / (Distance * 0.88f);
     const float Pad = 80f;   // left margin that centres the single row in the wider strip
     const float TextRefreshSeconds = 0.2f;
-    const float GaugeRangeRad = 0.785f, LiftRangeM = 0.69f;
+    const float UnknownRange = 1f;   // gauge range (rad or m) when the profile gives no limit (an asset not yet filled by UrdfModelBuilder)
 
     QuestControllerPublisher _publisher;
     ImageSubscriber _images;
@@ -38,6 +38,7 @@ public class StatusStrip : MonoBehaviour
     int _cameraIndex;
 
     Transform _pan, _tilt, _lift;
+    float _panRange, _tiltMin, _tiltMax, _liftRange;   // from the profile
     float _liftZero;
     bool _liftZeroKnown;
 
@@ -79,12 +80,17 @@ public class StatusStrip : MonoBehaviour
     void FindFrames(RobotProfile profile)
     {
         if (_model == null) return;
-        _pan = _model.Frame(profile != null ? profile.panFrame : null);
-        _tilt = _model.Frame(profile != null ? profile.tiltFrame : null);
-        _lift = _model.Frame(profile != null ? profile.liftFrame : null);
-        if (_lift != null && profile != null && profile.modelPrefab != null)
+        if (profile == null) return;
+        _pan = _model.Frame(profile.head.panFrame);
+        _tilt = _model.Frame(profile.head.tiltFrame);
+        _lift = _model.Frame(profile.lift.frame);
+        _panRange = profile.head.panLimitRad > 0f ? profile.head.panLimitRad : UnknownRange;
+        _tiltMax = profile.head.tiltMaxRad > 0f ? profile.head.tiltMaxRad : UnknownRange;
+        _tiltMin = profile.head.tiltMinRad < 0f ? -profile.head.tiltMinRad : UnknownRange;   // magnitude of the down limit
+        _liftRange = profile.lift.rangeM > 0f ? profile.lift.rangeM : UnknownRange;
+        if (_lift != null && profile.modelPrefab != null)
             foreach (var link in profile.modelPrefab.GetComponentsInChildren<RobotLink>(true))
-                if (link.frame == profile.liftFrame) { _liftZero = link.transform.localPosition.y; _liftZeroKnown = true; break; }
+                if (link.frame == profile.lift.frame) { _liftZero = link.transform.localPosition.y; _liftZeroKnown = true; break; }
     }
 
     TextMeshProUGUI Text(RectTransform root, string name, float left, float width, float font, TextAlignmentOptions align = TextAlignmentOptions.Left)
@@ -209,6 +215,11 @@ public class StatusStrip : MonoBehaviour
     // Head pan (rad, left positive, as in ROS) and tilt (rad = head_tilt joint value, up positive).
     public float PanRad => _pan != null ? -Twist(_pan.localRotation, 1) : 0f;
     public float TiltRad => _tilt != null ? -Twist(_tilt.localRotation, 0) : 0f;
+    // Gauge ranges in use: pan +- PanRangeRad, tilt -TiltDownRad..TiltUpRad (rad), lift 0..LiftRangeM (m).
+    public float PanRangeRad => _panRange;
+    public float TiltUpRad => _tiltMax;
+    public float TiltDownRad => _tiltMin;
+    public float LiftRangeM => _liftRange;
     // Lift height above its zero (m).
     public float LiftM => _lift != null && _liftZeroKnown ? _lift.localPosition.y - _liftZero : 0f;
 
@@ -222,9 +233,9 @@ public class StatusStrip : MonoBehaviour
         }
         // Pan left -> dot left (x = -pan), tilt up -> dot up (y = +tilt).
         _headDot.anchoredPosition = new Vector2(
-            _pan != null ? Mathf.Clamp(-PanRad / GaugeRangeRad, -1f, 1f) * (HeadBoxW / 2f - 12f) : 0f,
-            _tilt != null ? Mathf.Clamp(TiltRad / GaugeRangeRad, -1f, 1f) * (HeadBoxH / 2f - 12f) : 0f);
-        if (_lift != null) _liftFill.sizeDelta = new Vector2(0f, Mathf.Clamp01(LiftM / LiftRangeM) * LiftBarMm);
+            _pan != null ? Mathf.Clamp(-PanRad / _panRange, -1f, 1f) * (HeadBoxW / 2f - 12f) : 0f,
+            _tilt != null ? Mathf.Clamp(TiltRad / (TiltRad >= 0f ? _tiltMax : _tiltMin), -1f, 1f) * (HeadBoxH / 2f - 12f) : 0f);
+        if (_lift != null) _liftFill.sizeDelta = new Vector2(0f, Mathf.Clamp01(LiftM / _liftRange) * LiftBarMm);
 
         if (Time.unscaledTime < _nextText) return;
         _nextText = Time.unscaledTime + TextRefreshSeconds;
