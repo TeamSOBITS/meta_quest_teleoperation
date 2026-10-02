@@ -62,6 +62,7 @@ public class FirstPersonView : MonoBehaviour
     RectTransform _canvasRt, _viewRt;
     RawImage _view;
     TextMeshProUGUI _waiting, _name;
+    CameraBadge _badge;
     RectTransform _cardRt, _outlineRt;
     int _cameraIndex = -1;
     int _frames;
@@ -78,6 +79,10 @@ public class FirstPersonView : MonoBehaviour
     public int FramesReceived => _frames;
     // Index of the head camera in ImageSubscriber (-1 if the robot has none).
     public int CameraIndex => _cameraIndex;
+    // The bar's head-camera toggle: the card (image, name, "Waiting" label, fps badge) shows only while it is on.
+    public bool CameraOn { get; private set; } = true;
+    public bool CardVisible => _canvasRt != null && _canvasRt.gameObject.activeSelf;
+    public CameraBadge Badge => _badge;
 
     public static FirstPersonView Create(ImageSubscriber images, RobotProfile profile)
     {
@@ -144,8 +149,10 @@ public class FirstPersonView : MonoBehaviour
         if (_images != null)
         {
             _images.FrameReady -= OnFrame;
+            _images.CameraVisibilityChanged -= OnCameraVisibility;
             if (_cameraIndex >= 0) _images.ForceDecode(_cameraIndex, false);
         }
+        if (_canvasRt != null) Destroy(_canvasRt.gameObject);   // hangs under the head while "headlock" is on
         if (_prevNearClip > 0f && Camera.main != null) Camera.main.nearClipPlane = _prevNearClip;
     }
 
@@ -255,6 +262,9 @@ public class FirstPersonView : MonoBehaviour
         _waiting.color = HudUi.MutedText;
         HudUi.Stretch(_waiting.rectTransform);
 
+        // Same fps / stale badge as a camera block, at the card's scale.
+        _badge = CameraBadge.Create(_view.transform, CameraPanel.TopicFontSize * HudUi.MmPerMetre * CardScale);
+
         ApplyQuadSize();
     }
 
@@ -336,8 +346,29 @@ public class FirstPersonView : MonoBehaviour
         _textureAspect = config.Aspect;
         _name.text = _images.Panels[_cameraIndex].Label;
         ApplyQuadSize();
-        _images.ForceDecode(_cameraIndex, true);
         _images.FrameReady += OnFrame;
+        _images.CameraVisibilityChanged += OnCameraVisibility;
+        SetCameraOn(_images.IsOn(_images.Panels[_cameraIndex]));
+    }
+
+    void OnCameraVisibility(int index, bool on)
+    {
+        if (this == null || index != _cameraIndex) return;
+        SetCameraOn(on);
+    }
+
+    // Camera toggled in the bar: show / hide the card and stop / resume decoding its frames.
+    void SetCameraOn(bool on)
+    {
+        CameraOn = on;
+        if (_canvasRt != null) _canvasRt.gameObject.SetActive(on);
+        _images.ForceDecode(_cameraIndex, on);
+        Debug.Log($"FPV: head camera {(on ? "on" : "off")}");
+    }
+
+    void Update()
+    {
+        if (_badge != null && CameraOn && _cameraIndex >= 0) _badge.Tick(_images, _cameraIndex);
     }
 
     void OnFrame(int index, Texture2D tex)

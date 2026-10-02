@@ -34,6 +34,10 @@ public class HudBar : MonoBehaviour
     // same top edge, so the space below the camera blocks that it frees is given to them
     // (ImageSubscriber.minBottom is lowered by the same amount).
     public const float CompactScale = 0.7f;
+    // Width of the built bar and the centre of its bottom control row above its bottom edge (metres,
+    // after CompactScale): the status strip takes this spot while the bar is hidden in blocks mode.
+    public const float CompactWidthMm = WidthMm * CompactScale;
+    public const float BottomRowCentreM = (PaddingMm + RowHeightMm / 2f) * CompactScale / HudUi.MmPerMetre;
 
     const string JoyOnText = "CONTROL ON", JoyOffText = "LAYOUT MODE";
 

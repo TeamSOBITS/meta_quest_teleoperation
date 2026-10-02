@@ -1,9 +1,12 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.IO;
 using TMPro;
 using UnityEngine;
 using UnityEngine.XR.Hands;
+using UnityEngine.XR.Interaction.Toolkit.Inputs;
+using UnityEngine.XR.Interaction.Toolkit.Interactors.Visuals;
 
 /// <summary>
 /// Sets up the robot screen around the camera blocks: studio surroundings, the HUD bar
@@ -99,6 +102,8 @@ public class TeleopHud : MonoBehaviour
                 SetFirstPerson(true, save: modeOverride == null);
         }
 
+        UpdateStatusStrip();   // blocks mode (first person made its own above)
+
         if (PlayerPrefs.GetInt(CaptureKey, 0) == 1)
             StartCoroutine(CaptureLater());
 
@@ -116,6 +121,7 @@ public class TeleopHud : MonoBehaviour
         foreach (var panel in images.Panels)
             panel.transform.SetParent(parent, false);
         _bar.SetParent(parent, false);
+        if (_strip != null && !FirstPerson) _strip.transform.SetParent(parent, false);
         images.panelParent = parent;
         hudParent = parent;
     }
@@ -142,10 +148,10 @@ public class TeleopHud : MonoBehaviour
             PlayerPrefs.Save();
         }
 
+        DestroyStrip();   // the other mode's strip: placement and model differ
         if (on)
         {
             _fpv = FirstPersonView.Create(images, profile);
-            UpdateStatusStrip();
             UpdateFpvExperiments();
             images.SetBlocksShown(false);
             if (_bar != null) _bar.gameObject.SetActive(false);   // menu / hand gesture brings it back
@@ -153,8 +159,6 @@ public class TeleopHud : MonoBehaviour
         }
         else
         {
-            if (_strip != null) Destroy(_strip.gameObject);
-            _strip = null;
             UpdateFpvExperiments();   // destroys them
             if (_fpv != null) Destroy(_fpv.gameObject);
             _fpv = null;
@@ -162,6 +166,8 @@ public class TeleopHud : MonoBehaviour
             PlaceBar();
             if (_bar != null) _bar.gameObject.SetActive(true);
         }
+        UpdateStatusStrip();
+        UpdateControllerVisuals();
         Debug.Log($"FPV: view mode -> {(on ? "firstperson" : "blocks")}");
         ViewModeChanged?.Invoke();
     }
@@ -226,6 +232,9 @@ public class TeleopHud : MonoBehaviour
         ExperimentsPanel.Create(_bar);
         BarLowered = false;   // the new bar is at its normal pose
         PlaceBar();
+        DestroyStrip();   // blocks mode: it sits where the (possibly taller) bar's bottom row is
+        UpdateStatusStrip();
+        UpdateControllerVisuals();
     }
 
     void OnExperimentChanged(string key, bool on)
@@ -245,14 +254,122 @@ public class TeleopHud : MonoBehaviour
         else if (!want && _roundTrip != null) { Destroy(_roundTrip.gameObject); _roundTrip = null; }
     }
 
-    // The status strip exists in first person while the "status" experiment is on.
+    // The status strip exists in both modes while the "status" experiment is on, and is active only
+    // while the bar (menu) is hidden: it takes the bar's place. In first person it hangs under the
+    // head with the model's head / lift readings; in blocks mode (no model) at the bar's bottom row.
+    public StatusStrip Strip => _strip;
+
     void UpdateStatusStrip()
     {
-        bool want = FirstPerson && _fpv != null && _fpv.Model != null && ExperimentSettings.IsOn(ExperimentSettings.Status);
+        bool want = _bar != null && ExperimentSettings.IsOn(ExperimentSettings.Status) && (!FirstPerson || (_fpv != null && _fpv.Model != null));
         if (want && _strip == null)
-            _strip = StatusStrip.Create(FirstPersonView.Head, publisher, images, _fpv.Model, images.Profile,
-                                        _fpv.CameraIndex, () => _roundTrip);
-        else if (!want && _strip != null) { Destroy(_strip.gameObject); _strip = null; }
+        {
+            var profile = images.Profile;
+            Func<RoundTrip> rtt = () => _roundTrip;
+            if (FirstPerson)
+                _strip = StatusStrip.CreateInFirstPerson(FirstPersonView.Head, publisher, images, _fpv.Model, profile, _fpv.CameraIndex, rtt);
+            else
+            {
+                // Where the bar sits: same parent, distance and height as its bottom row.
+                var pos = new Vector3(0f, _bar.localPosition.y - BarHeightM() / 2f + HudBar.BottomRowCentreM, _bar.localPosition.z);
+                _strip = StatusStrip.Create(_bar.parent, pos, StatusStrip.BlocksScale, publisher, images, null, profile, BlocksStripCamera(), rtt);
+            }
+        }
+        else if (!want) DestroyStrip();
+        SyncStripActive();
+    }
+
+    float BarHeightM() => ((RectTransform)_bar).sizeDelta.y * _bar.localScale.y;
+
+    // Blocks mode: the head camera's rate if the robot has one, else the first camera that is shown.
+    int BlocksStripCamera()
+    {
+        var profile = images.Profile;
+        int index = profile != null ? images.IndexOf(profile.firstPersonCameraTopicSuffix) : -1;
+        for (int i = 0; index < 0 && i < images.Panels.Count; i++)
+            if (images.IsOn(images.Panels[i])) index = i;
+        return index;
+    }
+
+    void DestroyStrip()
+    {
+        if (_strip != null) Destroy(_strip.gameObject);
+        _strip = null;
+    }
+
+    // Active exactly while the bar is hidden.
+    void SyncStripActive()
+    {
+        if (_strip != null && _bar != null) _strip.gameObject.SetActive(!_bar.gameObject.activeSelf);
+    }
+
+    // --- First person: controller and hand visuals are hidden while the bar is hidden. ---
+    // Only what is drawn is switched off: renderers (controller models, hand mesh, line, reticle,
+    // pinch / poke visuals), the ray's XRInteractorLineVisual (it re-enables its LineRenderer every
+    // frame) and the XRHandMeshController (it re-enables the hand mesh on tracking changes). The
+    // GameObjects and interactors stay active, so input, the menu button and the hand gesture work.
+    class Hidden { public Renderer renderer; public Behaviour behaviour; public bool restore; }
+
+    readonly List<Hidden> _hidden = new List<Hidden>();
+    readonly HashSet<UnityEngine.Object> _hiddenKnown = new HashSet<UnityEngine.Object>();
+    bool _visualsDirty;
+
+    public bool ControllerVisualsHidden { get; private set; }
+    // Renderers (and visual behaviours) currently switched off by this.
+    public int HiddenVisualCount => _hidden.Count;
+
+    void UpdateControllerVisuals()
+        => SetControllerVisualsHidden(FirstPerson && _bar != null && !_bar.gameObject.activeSelf);
+
+    void SetControllerVisualsHidden(bool hide)
+    {
+        if (hide == ControllerVisualsHidden) return;
+        ControllerVisualsHidden = hide;
+        if (hide)
+        {
+            XRInputModalityManager.currentInputMode.Subscribe(OnInputModeChanged);
+            ScanVisuals();
+        }
+        else
+        {
+            XRInputModalityManager.currentInputMode.Unsubscribe(OnInputModeChanged);
+            // Renderers first: the hand mesh controller then re-applies the tracking state.
+            foreach (var h in _hidden)
+                if (h.renderer != null && h.restore) h.renderer.enabled = true;
+            foreach (var h in _hidden)
+                if (h.behaviour != null && h.restore) h.behaviour.enabled = true;
+            _hidden.Clear();
+            _hiddenKnown.Clear();
+        }
+        Debug.Log($"[TeleopHud] controller visuals {(hide ? "hidden" : "shown")}" + (hide ? $" ({_hidden.Count} objects)" : ""));
+    }
+
+    // The modality switched between controllers and hands: other objects are active now; look again.
+    void OnInputModeChanged(XRInputModalityManager.InputMode _) => _visualsDirty = true;
+
+    void ScanVisuals()
+    {
+        var modality = FindFirstObjectByType<XRInputModalityManager>();
+        if (modality == null) return;
+        foreach (var root in new[] { modality.leftController, modality.rightController, modality.leftHand, modality.rightHand })
+        {
+            if (root == null) continue;
+            foreach (var r in root.GetComponentsInChildren<Renderer>(true))
+                if (_hiddenKnown.Add(r)) { _hidden.Add(new Hidden { renderer = r, restore = r.enabled }); r.enabled = false; }
+            foreach (var l in root.GetComponentsInChildren<XRInteractorLineVisual>(true))
+                if (_hiddenKnown.Add(l)) { _hidden.Add(new Hidden { behaviour = l, restore = l.enabled }); l.enabled = false; }
+            foreach (var m in root.GetComponentsInChildren<XRHandMeshController>(true))
+                if (_hiddenKnown.Add(m)) { _hidden.Add(new Hidden { behaviour = m, restore = m.enabled }); m.enabled = false; }
+        }
+    }
+
+    void LateUpdate()
+    {
+        if (!ControllerVisualsHidden) return;
+        if (_visualsDirty) { _visualsDirty = false; ScanVisuals(); }
+        // Something drew again (e.g. a controller model switched on): keep it off, and remember to restore it.
+        foreach (var h in _hidden)
+            if (h.renderer != null && h.renderer.enabled) { h.renderer.enabled = false; h.restore = true; }
     }
 
     // Hand cams, arm targets and base velocity exist in first person while their experiment is on.
@@ -277,6 +394,7 @@ public class TeleopHud : MonoBehaviour
     void OnDestroy()
     {
         ExperimentSettings.Changed -= OnExperimentChanged;
+        SetControllerVisualsHidden(false);
         if (images != null)
         {
             images.CamerasAdded -= RebuildBar;
@@ -334,6 +452,8 @@ public class TeleopHud : MonoBehaviour
         if (_bar == null) return;
         _bar.gameObject.SetActive(!_bar.gameObject.activeSelf);
         PlaceBar();
+        SyncStripActive();
+        UpdateControllerVisuals();
         Debug.Log($"[TeleopHud] menu -> bar {(_bar.gameObject.activeSelf ? "shown" : "hidden")}");
     }
 
@@ -449,6 +569,7 @@ public class TeleopHud : MonoBehaviour
         foreach (var panel in images.Panels)
             panel.transform.SetParent(parent, false);
         _bar.SetParent(parent, false);
+        if (_strip != null && !FirstPerson) _strip.transform.SetParent(parent, false);
         images.panelParent = parent;
     }
 }

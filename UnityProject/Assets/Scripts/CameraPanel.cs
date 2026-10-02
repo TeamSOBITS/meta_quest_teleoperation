@@ -18,6 +18,7 @@ using UnityEngine.XR.Interaction.Toolkit.UI;
 ///   +--------------+
 ///      [gap]
 ///   /ns/topic/name      topic label, smaller fixed font, wraps within the view width
+///                       (setup mode only, where the names are auto-generated; see ImageSubscriber.InSetup)
 /// </summary>
 public class CameraPanel : MonoBehaviour
 {
@@ -38,7 +39,7 @@ public class CameraPanel : MonoBehaviour
     // Camera state shown on the view: "Waiting for ..." before the first frame, then the
     // displayed frame rate, or "stale" (and a dimmed image) when frames stop arriving.
     public const float StaleAfterSeconds = 1.0f;
-    const float FpsWindowSeconds = 0.5f, BadgeRefreshSeconds = 0.2f;
+    const float FpsWindowSeconds = 0.5f;
     static readonly Color StaleTint = new Color(0.45f, 0.45f, 0.45f, 1f);
 
     public RobotProfile.CameraConfig Config { get; private set; }
@@ -54,8 +55,8 @@ public class CameraPanel : MonoBehaviour
 
     RawImage _view;
     Image _outline, _card;
-    TextMeshProUGUI _name, _topic, _waiting, _badgeText;
-    Image _badge;
+    TextMeshProUGUI _name, _topic, _waiting;
+    CameraBadge _badge;
     float _lastFrameTime = -1f, _windowStart, _fps, _nextBadgeRefresh;
     int _framesInWindow;
 
@@ -70,16 +71,17 @@ public class CameraPanel : MonoBehaviour
     // Ray target for dragging; enabled only while dragging is allowed (see PanelDragger).
     public XRSimpleInteractable Interactable { get; private set; }
 
-    public static CameraPanel Create(Transform parent, RobotProfile.CameraConfig config, string topic)
+    // showTopic: the topic line below the view (setup mode only).
+    public static CameraPanel Create(Transform parent, RobotProfile.CameraConfig config, string topic, bool showTopic = false)
     {
         var go = new GameObject("CameraPanel " + config.displayName, typeof(RectTransform));
         go.transform.SetParent(parent, false);
         var panel = go.AddComponent<CameraPanel>();
-        panel.Build(config, topic);
+        panel.Build(config, topic, showTopic);
         return panel;
     }
 
-    void Build(RobotProfile.CameraConfig config, string topic)
+    void Build(RobotProfile.CameraConfig config, string topic, bool showTopic)
     {
         Config = config;
         Topic  = topic;
@@ -100,7 +102,7 @@ public class CameraPanel : MonoBehaviour
         // Labels: same width as the view; text wraps instead of widening the block.
         // Topics have no spaces, so allow line breaks after each '/'.
         _name  = CreateLabel("Name",  config.displayName,          NameFontSize);
-        _topic = CreateLabel("Topic", topic.Replace("/", "/\u200B"), TopicFontSize);
+        if (showTopic) _topic = CreateLabel("Topic", topic.Replace("/", "/\u200B"), TopicFontSize);
 
         _view = new GameObject("View", typeof(RectTransform)).AddComponent<RawImage>();
         _view.transform.SetParent(transform, false);
@@ -113,14 +115,7 @@ public class CameraPanel : MonoBehaviour
         _waiting.color = HudUi.MutedText;
         HudUi.Stretch(_waiting.rectTransform, body);
 
-        _badge = HudUi.Round(HudUi.Box(_view.transform, "Badge", new Color(0f, 0f, 0f, 0.55f)), body);
-        var brt = _badge.rectTransform;
-        brt.anchorMin = brt.anchorMax = brt.pivot = new Vector2(1f, 1f);
-        brt.anchoredPosition = new Vector2(-0.5f * body, -0.5f * body);
-        _badgeText = HudUi.Label(_badge.transform, "Label", "", body * 0.85f);
-        _badgeText.textWrappingMode = TextWrappingModes.NoWrap;
-        HudUi.Stretch(_badgeText.rectTransform);
-        _badge.gameObject.SetActive(false);
+        _badge = CameraBadge.Create(_view.transform, body);
 
         // Rename: shown in layout mode only, above the card's top-right corner.
         _rename = HudUi.Button(transform, "Rename", TopicFontSize * MmPerMetre, () => RenameRequested?.Invoke(this));
@@ -151,7 +146,7 @@ public class CameraPanel : MonoBehaviour
         {
             Width = (viewW + 2f * pad) / MmPerMetre,
             AboveViewCentre = (pad + nameH + gap + viewH / 2f) / MmPerMetre,
-            BelowViewCentre = (viewH / 2f + gap + topicH + pad) / MmPerMetre,
+            BelowViewCentre = (viewH / 2f + (_topic != null ? gap + topicH : 0f) + pad) / MmPerMetre,
         };
     }
 
@@ -161,7 +156,7 @@ public class CameraPanel : MonoBehaviour
         Size = size;
         Sizes(size, out float viewW, out float viewH, out float nameH, out float topicH);
         float gap = LabelGap * MmPerMetre, pad = CardPaddingMm;
-        float totalH = pad + nameH + gap + viewH + gap + topicH + pad;
+        float totalH = pad + nameH + gap + viewH + (_topic != null ? gap + topicH : 0f) + pad;
         float totalW = viewW + 2f * pad;
         ((RectTransform)transform).sizeDelta = new Vector2(totalW, totalH);
 
@@ -171,7 +166,7 @@ public class CameraPanel : MonoBehaviour
         top -= nameH + gap;
         Place(_view.rectTransform, top, viewH, viewW);
         top -= viewH + gap;
-        Place(_topic.rectTransform, top, topicH, viewW);
+        if (_topic != null) Place(_topic.rectTransform, top, topicH, viewW);
 
         _collider.size = new Vector3(totalW, totalH, 2f);
 
@@ -188,7 +183,7 @@ public class CameraPanel : MonoBehaviour
         viewH = ViewHeight * Config.scale * size * MmPerMetre;
         viewW = viewH * Config.Aspect;
         nameH  = _name.GetPreferredValues(_name.text, viewW, Mathf.Infinity).y;
-        topicH = _topic.GetPreferredValues(_topic.text, viewW, Mathf.Infinity).y;
+        topicH = _topic != null ? _topic.GetPreferredValues(_topic.text, viewW, Mathf.Infinity).y : 0f;
     }
 
     // Topic without its namespace (absolute topics of added robots start with /<ns>/).
@@ -248,7 +243,7 @@ public class CameraPanel : MonoBehaviour
         if (_lastFrameTime < 0f)
         {
             _waiting.gameObject.SetActive(false);
-            _badge.gameObject.SetActive(true);
+            _badge.Show(true);
             _windowStart = now;
         }
         _lastFrameTime = now;
@@ -273,29 +268,20 @@ public class CameraPanel : MonoBehaviour
             _windowStart = now;
         }
         if (now < _nextBadgeRefresh) return;
-        _nextBadgeRefresh = now + BadgeRefreshSeconds;
+        _nextBadgeRefresh = now + CameraBadge.RefreshSeconds;
 
         float age = now - _lastFrameTime;
         if (age > StaleAfterSeconds)
         {
             State = FeedState.Stale;
             _view.color = StaleTint;
-            SetBadge($"stale {age:F1} s", HudUi.WarnColor);
+            _badge.Set($"stale {age:F1} s", HudUi.WarnColor);
         }
         else
         {
             State = FeedState.Live;
-            SetBadge($"{Mathf.RoundToInt(_fps)} fps", HudUi.GoodColor);
+            _badge.Set($"{Mathf.RoundToInt(_fps)} fps", HudUi.GoodColor);
         }
-    }
-
-    void SetBadge(string text, Color color)
-    {
-        if (_badgeText.text == text) return;
-        _badgeText.text = text;
-        _badgeText.color = color;
-        var size = _badgeText.GetPreferredValues(text);
-        _badge.rectTransform.sizeDelta = new Vector2(size.x + _badgeText.fontSize, size.y * 1.15f);
     }
 }
 
@@ -307,4 +293,68 @@ public class CameraPanel : MonoBehaviour
 public class HoverOnlyInteractable : XRSimpleInteractable
 {
     public override bool IsSelectableBy(UnityEngine.XR.Interaction.Toolkit.Interactors.IXRSelectInteractor interactor) => false;
+}
+
+/// <summary>
+/// The small "15 fps" / "stale 1.2 s" badge in the top-right corner of a camera view: shared by the
+/// camera blocks (CameraPanel, which measures the rate itself) and the first-person views
+/// (FirstPersonView head card, HandCamPip cards), which feed it from ImageSubscriber via
+/// <see cref="Tick"/>. `fontMm` is the body font size in canvas units of the card it sits on.
+/// </summary>
+public class CameraBadge
+{
+    public const float RefreshSeconds = 0.2f;   // ~5 Hz
+
+    readonly Image _bg;
+    readonly TextMeshProUGUI _text;
+    float _next;
+    bool _stale;
+
+    public GameObject gameObject => _bg.gameObject;
+    public string Text => _text.text;
+    public bool Visible => _bg.gameObject.activeSelf;
+    public bool Stale => _stale;
+
+    CameraBadge(Image bg, TextMeshProUGUI text) { _bg = bg; _text = text; }
+
+    // Hidden until the first frame (Show / Tick turn it on).
+    public static CameraBadge Create(Transform view, float fontMm)
+    {
+        var bg = HudUi.Round(HudUi.Box(view, "Badge", new Color(0f, 0f, 0f, 0.55f)), fontMm);
+        var rt = bg.rectTransform;
+        rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(1f, 1f);
+        rt.anchoredPosition = new Vector2(-0.5f * fontMm, -0.5f * fontMm);
+        var text = HudUi.Label(bg.transform, "Label", "", fontMm * 0.85f);
+        text.textWrappingMode = TextWrappingModes.NoWrap;
+        HudUi.Stretch(text.rectTransform);
+        bg.gameObject.SetActive(false);
+        return new CameraBadge(bg, text);
+    }
+
+    public void Show(bool on) => _bg.gameObject.SetActive(on);
+
+    public void Set(string text, Color color)
+    {
+        if (_text.text == text) return;
+        _text.text = text;
+        _text.color = color;
+        var size = _text.GetPreferredValues(text);
+        _bg.rectTransform.sizeDelta = new Vector2(size.x + _text.fontSize, size.y * 1.15f);
+    }
+
+    // Poll ImageSubscriber's rate and last-frame time (about 5 Hz). No frame yet: hidden.
+    // Returns true while the feed is stale.
+    public bool Tick(ImageSubscriber images, int index)
+    {
+        if (images == null || Time.unscaledTime < _next) return _stale;
+        _next = Time.unscaledTime + RefreshSeconds;
+        double last = images.LastFrameTime(index);
+        if (last < 0.0) { Show(false); return _stale = false; }
+        Show(true);
+        float age = (float)(Time.unscaledTime - last);
+        _stale = age > CameraPanel.StaleAfterSeconds;
+        if (_stale) Set($"stale {age:F1} s", HudUi.WarnColor);
+        else Set($"{Mathf.RoundToInt(images.Fps(index))} fps", HudUi.GoodColor);
+        return _stale;
+    }
 }

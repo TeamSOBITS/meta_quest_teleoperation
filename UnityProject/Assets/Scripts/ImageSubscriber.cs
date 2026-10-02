@@ -83,6 +83,9 @@ public class ImageSubscriber : MonoBehaviour
     public event Action VisibilityReset;
     // Raised when "Find cameras" added camera blocks.
     public event Action CamerasAdded;
+    // Raised when a camera is shown or hidden (bar toggle, Reset layout, saved state); (index, on).
+    // First person follows it: the head-camera card and the hand cards show or hide with their camera.
+    public event Action<int, bool> CameraVisibilityChanged;
     // Raised when a camera was renamed.
     public event Action LabelsChanged;
     // Raised when discovery decides the robot's namespace (the Joy topic follows it).
@@ -133,7 +136,7 @@ public class ImageSubscriber : MonoBehaviour
     {
         string topic = _profile.FullTopic(cam);
         int index = _panels.Count;
-        var panel = CameraPanel.Create(panelParent, cam, topic);
+        var panel = CameraPanel.Create(panelParent, cam, topic, InSetup);   // topic line: setup mode only
         string label = PlayerPrefs.GetString(LabelKey(_profile, cam), "");
         if (label.Length > 0) panel.SetLabel(label);
         panel.RenameRequested += BeginRename;
@@ -569,9 +572,11 @@ public class ImageSubscriber : MonoBehaviour
 
     void SetOn(CameraPanel p, bool on)
     {
-        if (!_blocksHidden) { p.Visible = on; return; }
-        if (on) { if (!_hiddenByMode.Contains(p)) _hiddenByMode.Add(p); }
+        bool was = IsOn(p);
+        if (!_blocksHidden) p.Visible = on;
+        else if (on) { if (!_hiddenByMode.Contains(p)) _hiddenByMode.Add(p); }
         else _hiddenByMode.Remove(p);
+        if (was != on) CameraVisibilityChanged?.Invoke(_panels.IndexOf(p), on);
     }
 
     public void SetBlocksShown(bool shown)

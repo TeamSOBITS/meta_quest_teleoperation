@@ -26,7 +26,9 @@ public class HandCamPip : MonoBehaviour
     class Card
     {
         public int index;
-        public bool left;
+        public bool left, on = true;
+        public GameObject go;
+        public CameraBadge badge;
         public Transform link;
         public RectTransform rt;
         public RawImage view;
@@ -54,6 +56,8 @@ public class HandCamPip : MonoBehaviour
     }
 
     public int CardCount => _cards.Count;
+    // Cards whose camera is on in the bar (the others are hidden and not decoded).
+    public int ActiveCardCount { get { int n = 0; foreach (var c in _cards) if (c.go.activeSelf) n++; return n; } }
 
     public static HandCamPip Create(ImageSubscriber images, RobotModel model, RobotProfile profile)
     {
@@ -70,6 +74,7 @@ public class HandCamPip : MonoBehaviour
             return null;
         }
         images.FrameReady += pip.OnFrame;
+        images.CameraVisibilityChanged += pip.OnCameraVisibility;
         return pip;
     }
 
@@ -83,6 +88,7 @@ public class HandCamPip : MonoBehaviour
         var config = _images.Panels[index].Config;
         var card = new Card { index = index, left = left, link = link, config = config, aspect = config.Aspect };
         var go = new GameObject("Hand Cam " + label, typeof(RectTransform));
+        card.go = go;
         go.transform.SetParent(transform, false);
         var canvas = go.AddComponent<Canvas>();
         canvas.renderMode = RenderMode.WorldSpace;
@@ -100,6 +106,7 @@ public class HandCamPip : MonoBehaviour
         card.waiting = HudUi.Label(card.view.transform, "Waiting", "Waiting", LabelMm * 0.8f);
         card.waiting.color = HudUi.MutedText;
         HudUi.Stretch(card.waiting.rectTransform);
+        card.badge = CameraBadge.Create(card.view.transform, LabelMm);
         var name = HudUi.Label(card.rt, "Name", label, LabelMm);
         name.color = HudUi.MutedText;
         name.textWrappingMode = TextWrappingModes.NoWrap;
@@ -110,9 +117,24 @@ public class HandCamPip : MonoBehaviour
         name.rectTransform.anchoredPosition = new Vector2(0f, -PaddingMm * 0.5f);
         name.rectTransform.sizeDelta = new Vector2(0f, LabelMm * 1.2f);
 
-        _images.ForceDecode(index, true);
         _cards.Add(card);
         ApplyMode(card);
+        SetCardOn(card, _images.IsOn(_images.Panels[index]));
+    }
+
+    void OnCameraVisibility(int index, bool on)
+    {
+        if (this == null) return;
+        foreach (var c in _cards)
+            if (c.index == index) SetCardOn(c, on);
+    }
+
+    // Camera toggled in the bar: show / hide this card and stop / resume decoding its frames.
+    void SetCardOn(Card c, bool on)
+    {
+        c.on = on;
+        c.go.SetActive(on);
+        _images.ForceDecode(c.index, on);
     }
 
     // (Re)size the card for the current mode and parent it (hands: free, corners: under the head).
@@ -157,12 +179,19 @@ public class HandCamPip : MonoBehaviour
         }
     }
 
+    void Update()
+    {
+        foreach (var c in _cards)
+            if (c.on) c.badge.Tick(_images, c.index);
+    }
+
     void LateUpdate()
     {
         var head = FirstPersonView.Head;
         string mode = Mode;
         foreach (var c in _cards)
         {
+            if (!c.on) continue;
             if (c.builtMode != mode) ApplyMode(c);
             if (head == null) continue;
             if (mode == ModeCorners)
@@ -201,6 +230,7 @@ public class HandCamPip : MonoBehaviour
     {
         if (_images == null) return;
         _images.FrameReady -= OnFrame;
+        _images.CameraVisibilityChanged -= OnCameraVisibility;
         foreach (var c in _cards)
         {
             _images.ForceDecode(c.index, false);   // the head camera's stays

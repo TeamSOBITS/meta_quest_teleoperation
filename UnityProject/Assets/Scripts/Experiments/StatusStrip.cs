@@ -4,11 +4,12 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// Small head-locked status strip at the bottom of the first-person view (the HUD bar is hidden
-/// there). One row: connection, CONTROL ON / LAYOUT, image fps and age, TF rate, round trip,
+/// Small head-locked status strip shown while the HUD bar (menu) is hidden, in both view modes:
+/// at the bottom of the first-person view, or in blocks mode where the bar normally sits. One row: connection, CONTROL ON / LAYOUT, image fps and age, TF rate, round trip,
 /// a labelled HEAD box (crosshair, dot at pan x / tilt y, L/R ticks, "pan 29° tilt 17°") and a
-/// labelled LIFT bar with its height ("0.40 m"). Created by TeleopHud in first person while the "status"
-/// experiment is on, destroyed when either turns off.
+/// labelled LIFT bar with its height ("0.40 m"). Created by TeleopHud in either mode while the "status"
+/// experiment is on (active only while the bar is hidden), destroyed when it turns off. Blocks mode has
+/// no robot model: there HEAD, LIFT and the TF rate are left out ("TF —") and the strip is narrower.
 ///
 /// Head and lift are read from the model's link local poses, which RobotModel sets straight from
 /// /tf (FLU -> Unity). A ROS rotation of t about z shows up as -t about Unity's up axis, and a
@@ -22,6 +23,10 @@ public class StatusStrip : MonoBehaviour
     // Placement relative to the head (metres) and size (mm, canvas units).
     const float Distance = 1.2f, DropM = -0.45f;
     const float WidthMm = 1400f, HeightMm = 130f, RadiusMm = 18f;
+    const float NoModelWidthMm = 900f;   // without HEAD and LIFT
+    // Blocks mode: the strip hangs where the bar sits (4.3 m), scaled so its text is as large as the
+    // bar's body text (the font is sized for Distance and 0.88 x the body size).
+    public const float BlocksScale = HudBar.CompactScale * HudUi.ReferenceDistance / (Distance * 0.88f);
     const float Pad = 80f;   // left margin that centres the single row in the wider strip
     const float TextRefreshSeconds = 0.2f;
     const float GaugeRangeRad = 0.785f, LiftRangeM = 0.69f;
@@ -44,12 +49,19 @@ public class StatusStrip : MonoBehaviour
     const float HeadBoxW = 160f, HeadBoxH = 100f, LiftBarMm = 72f;
     float _nextText;
 
-    public static StatusStrip Create(Transform head, QuestControllerPublisher publisher, ImageSubscriber images,
-                                     RobotModel model, RobotProfile profile, int cameraIndex, Func<RoundTrip> rtt)
+    // First person: under the head at the status distance and drop (model != null).
+    public static StatusStrip CreateInFirstPerson(Transform head, QuestControllerPublisher publisher, ImageSubscriber images,
+                                                  RobotModel model, RobotProfile profile, int cameraIndex, Func<RoundTrip> rtt)
+        => Create(head, new Vector3(0f, DropM, Distance), 1f, publisher, images, model, profile, cameraIndex, rtt);
+
+    // `model` may be null (blocks mode): no HEAD / LIFT, "TF —". `scale` multiplies the canvas size.
+    public static StatusStrip Create(Transform parent, Vector3 localPosition, float scale, QuestControllerPublisher publisher,
+                                     ImageSubscriber images, RobotModel model, RobotProfile profile, int cameraIndex, Func<RoundTrip> rtt)
     {
-        if (head == null) return null;
-        var root = HudUi.CreateCanvas("Status Strip", head, new Vector3(0f, DropM, Distance),
-                                      new Vector2(WidthMm, HeightMm), interactive: false);
+        if (parent == null) return null;
+        var root = HudUi.CreateCanvas("Status Strip", parent, localPosition,
+                                      new Vector2(model != null ? WidthMm : NoModelWidthMm, HeightMm), interactive: false);
+        root.localScale *= scale;
         root.GetComponent<Canvas>().sortingOrder = HudUi.CanvasSortingOrder + 1;
         var strip = root.gameObject.AddComponent<StatusStrip>();
         strip._publisher = publisher;
@@ -61,6 +73,8 @@ public class StatusStrip : MonoBehaviour
         strip.Build(root);
         return strip;
     }
+
+    public bool HasModel => _model != null;
 
     void FindFrames(RobotProfile profile)
     {
@@ -233,7 +247,8 @@ public class StatusStrip : MonoBehaviour
         _pillText.text = control ? "CONTROL ON" : "LAYOUT";
 
         double last = _images != null ? _images.LastFrameTime(_cameraIndex) : -1.0;
-        if (last < 0.0)
+        if (_cameraIndex < 0) _image.text = "";
+        else if (last < 0.0)
         {
             _image.text = "no image";
             _image.color = HudUi.WarnColor;
