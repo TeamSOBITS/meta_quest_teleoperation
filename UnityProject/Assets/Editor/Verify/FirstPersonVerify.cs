@@ -24,8 +24,8 @@ using Object = UnityEngine.Object;
 public static class FirstPersonVerify
 {
     const string PrefabPath = "Assets/Robots/Models/SOBIT_HOME.prefab";
-    const string UrdfPath = "Assets/Robots/Models/sobit_home/sobit_home.urdf";
-    const string LodDir = "Assets/Robots/Models/sobit_home/meshes_lod";
+    static string UrdfPath => VerifyPaths.ModelInput("sobit_home", "sobit_home.urdf");
+    static string LodDir => VerifyPaths.ModelInput("sobit_home", "meshes_lod");
 
     static IEnumerator _run;
     static int _failures, _passes;

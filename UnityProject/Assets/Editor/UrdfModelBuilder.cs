@@ -20,8 +20,10 @@ using UnityEngine.Rendering;
 public static class UrdfModelBuilder
 {
     const string ModelDir = "Assets/Robots/Models/sobit_home";
-    const string UrdfPath = ModelDir + "/sobit_home.urdf";
-    const string LodDir = ModelDir + "/meshes_lod";
+    // Builder inputs live outside Assets: <repo>/tools/models/sobit_home/{sobit_home.urdf, meshes_lod/ (STL + colors.json)}.
+    static string InputDir => Path.GetFullPath(Path.Combine(Application.dataPath, "../../tools/models/sobit_home"));
+    static string UrdfPath => Path.Combine(InputDir, "sobit_home.urdf");
+    static string LodDir => Path.Combine(InputDir, "meshes_lod");
     const string GenDir = ModelDir + "/generated";
     const string PrefabPath = "Assets/Robots/Models/SOBIT_HOME.prefab";
     const string RootName = "SOBIT_HOME";

@@ -6,11 +6,11 @@ Setup (host python is externally managed, use a venv):
 Run:
     /tmp/venv/bin/python tools/decimate_meshes.py
 
-Inputs : tools/sobit_home_meshes_src/meshes/**  (copy of sobit_home_description/meshes, referenced files only)
-         tools/sobit_home_meshes_src/ext/<pkg>/<file>  (package:// meshes of other packages, optional; e.g.
+Inputs : tools/models/sobit_home/src/meshes/**  (copy of sobit_home_description/meshes, referenced files only)
+         tools/models/sobit_home/src/ext/<pkg>/<file>  (package:// meshes of other packages, optional; e.g.
          docker cp <container>:/home/<user>/colcon_ws/src/realsense_ros/realsense2_description/meshes/d415.stl
-         tools/sobit_home_meshes_src/ext/realsense2_description/  -- 21 MB, not kept in git)
-Outputs: UnityProject/Assets/Robots/Models/sobit_home/meshes_lod/<rel path>[.<material>].stl and colors.json
+         tools/models/sobit_home/src/ext/realsense2_description/  -- 21 MB, not kept in git)
+Outputs: tools/models/sobit_home/meshes_lod/<rel path>[.<material>].stl and colors.json
 Units/axes are those of the source (ROS axes; STL in the units stored, DAE converted to metres through
 <unit meter> and node transforms). The Unity builder applies the URDF <scale> and the ROS->Unity axis change.
 """
@@ -21,11 +21,11 @@ import trimesh
 import fast_simplification
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SRC = os.path.join(ROOT, "tools", "sobit_home_meshes_src")
-MODEL = os.path.join(ROOT, "UnityProject", "Assets", "Robots", "Models", "sobit_home")
+MODEL = os.path.join(ROOT, "tools", "models", "sobit_home")
+SRC = os.path.join(MODEL, "src")
 URDF = os.path.join(MODEL, "sobit_home.urdf")
 OUT = os.path.join(MODEL, "meshes_lod")
-BUDGET = json.load(open(os.path.join(ROOT, "tools", "mesh_budget.json")))
+BUDGET = json.load(open(os.path.join(MODEL, "budget.json")))
 
 
 def src_path(rel):

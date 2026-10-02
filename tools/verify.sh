@@ -1,7 +1,7 @@
 #!/bin/bash
 # verify.sh [--sync] [--suite NAME ...] [--all] [--build] [--shots]
 #   Runs the Editor verification harnesses (UnityProject/Assets/Editor/Verify) headlessly on a scratch COPY of the project.
-#   --sync        rsync UnityProject/ -> $VERIFY_DIR (excludes Library Temp Logs Builds UserSettings obj .utmp *.csproj *.slnx)
+#   --sync        rsync UnityProject/ -> $VERIFY_DIR and tools/models (minus src/) -> <copy-parent>/tools/models (excludes Library Temp Logs Builds UserSettings obj .utmp *.csproj *.slnx)
 #   --suite NAME  run one suite (repeatable); --all = the default list:
 #                 LayoutVerifier AddRobotTest SelectionShot FirstPersonVerify ExperimentsVerify ExperimentsVerify2 ExperimentsVerify3 ExperimentsVerify4
 #   --build       BuildApk.Build on the copy (-nographics -buildTarget Android); APK copied to UnityProject/Builds/
@@ -39,6 +39,9 @@ if [ $sync = 1 ]; then
     --exclude=/Library --exclude=/Temp --exclude=/Logs --exclude=/Builds --exclude=/UserSettings --exclude=/obj --exclude=.utmp \
     --exclude='*.csproj' --exclude='*.slnx' --exclude='*_BurstDebugInformation_DoNotShip' --exclude='*.apk' --exclude='mono_crash*' \
     "$R/UnityProject/" "$VERIFY_DIR/" || exit 1
+fi
+if [ $sync = 1 ]; then  # the Editor builder/harnesses read <repo>/tools/models relative to the project (../../tools/models)
+  mkdir -p "$PARENT/tools"; rsync -a --delete --exclude=/*/src "$R/tools/models/" "$PARENT/tools/models/" || exit 1
 fi
 [ -d "$VERIFY_DIR" ] || { echo "no project at $VERIFY_DIR (use --sync)" >&2; exit 1; }
 # The copy keeps its own product name: it isolates the Editor PlayerPrefs from the real app's.
