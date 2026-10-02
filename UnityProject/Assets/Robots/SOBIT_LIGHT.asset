@@ -45,3 +45,20 @@ MonoBehaviour:
     flipVertical: 0
     flipHorizontal: 0
     scale: 1
+  arms:
+  - name: arm
+    targetFrame: arm_target_link
+    effectorFrame: hand_end_effector_link
+  modelPrefab: {fileID: 5176407514087210005, guid: a6cddea57bf7245489cbb06a0e495731, type: 3}
+  cameraFrame: head_camera_color_frame
+  panFrame: head_yaw_link
+  tiltFrame: head_pitch_link
+  liftFrame: ''
+  firstPersonCameraTopicSuffix: head_camera/color/image_raw/compressed
+  cameraInfoSuffix: head_camera/color/camera_info
+  firstPersonHiddenLinkPrefixes:
+  - head_
+  - mic_
+  - speaker_
+  defaultHfov: 1.21126
+  odomSuffix: wheel_controller/odom

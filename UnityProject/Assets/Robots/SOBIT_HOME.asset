@@ -38,6 +38,13 @@ MonoBehaviour:
     flipVertical: 0
     flipHorizontal: 0
     scale: 1
+  arms:
+  - name: left
+    targetFrame: left_target_link
+    effectorFrame: hand_left_end_effector_link
+  - name: right
+    targetFrame: right_target_link
+    effectorFrame: hand_right_end_effector_link
   modelPrefab: {fileID: 1720537149869814926, guid: a6ec5edc0925c44dd94d09dbf52bd149, type: 3}
   cameraFrame: head_camera_color_frame
   panFrame: head_pan_link

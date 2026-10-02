@@ -96,8 +96,11 @@ public static class ExperimentsVerify4
         while (!p.HasExited && Now < end) yield return Seconds(0.1);
     }
 
-    const string Robot = "SOBIT_HOME";
-    const string LeftSuffix = "hand_left_camera/color/image_raw/compressed", RightSuffix = "hand_right_camera/color/image_raw/compressed";
+    static RobotSpec Spec => RobotSpec.Current;   // env VERIFY_ROBOT, default SOBIT_HOME
+    static string Robot => Spec.Asset;
+    static string LeftSuffix => Spec.Sides[0].cameraSuffix;            // the (only / left) hand camera
+    static string RightSuffix => Spec.Sides[Spec.Sides.Length - 1].cameraSuffix;
+    static int Cards2 => Spec.Sides.Length;                              // hand cards in first person
 
     static TeleopHud _hud; static ImageSubscriber _images; static QuestControllerPublisher _publisher;
     static Transform Bar => _hud != null ? Field<Transform>(_hud, "_bar") : null;
@@ -226,7 +229,7 @@ public static class ExperimentsVerify4
             if (ui) fpBtn.onClick.Invoke(); else _hud.SetCameraLayout("firstperson");
             yield return Frames(3);
             var pip = Find<HandCamPip>();
-            Check(_hud.FirstPerson && AllBlocksInactive() && fpv.ImageShown && FindGo("FPV Image") != null && pip != null && pip.CardCount == 2,
+            Check(_hud.FirstPerson && AllBlocksInactive() && fpv.ImageShown && FindGo("FPV Image") != null && pip != null && pip.CardCount == Cards2,
                   $"{tag}: first person -> blocks hidden, image card {fpv.ImageShown}, hand cards {pip?.CardCount}");
             Check(!Bar.gameObject.activeSelf && _hud.BarLowered && _hud.ControllerVisualsHidden, $"{tag}: bar hidden {!Bar.gameObject.activeSelf} + lowered {_hud.BarLowered}, controllers hidden {_hud.ControllerVisualsHidden}");
             Check(Selected(fpBtn) && !Selected(blocksBtn) && PlayerPrefs.GetString($"CameraLayout/{Robot}") == "firstperson",
@@ -280,7 +283,7 @@ public static class ExperimentsVerify4
             var headRename = Field<Button>(fpv1, "_rename");
             var cards = Cards(pip1);
             Check(headRename != null && headRename.name == "Button Rename" && headRename.gameObject.activeInHierarchy, $"2: control off -> head card 'Button Rename' active ({headRename?.gameObject.activeInHierarchy})");
-            Check(cards.Count == 2 && cards.All(c => c.rename.name == "Button Rename" && c.rename.gameObject.activeInHierarchy), $"2: both hand cards' 'Button Rename' active ({cards.Count(c => c.rename.gameObject.activeInHierarchy)}/{cards.Count})");
+            Check(cards.Count == Cards2 && cards.All(c => c.rename.name == "Button Rename" && c.rename.gameObject.activeInHierarchy), $"2: both hand cards' 'Button Rename' active ({cards.Count(c => c.rename.gameObject.activeInHierarchy)}/{cards.Count})");
             {   // Rename above the head card's top edge, right-aligned
                 var cardRt = Field<RectTransform>(fpv1, "_cardRt"); var rrt = (RectTransform)headRename.transform;
                 var canvas = Field<RectTransform>(fpv1, "_canvasRt");
@@ -309,7 +312,7 @@ public static class ExperimentsVerify4
             yield return Frames(3);
             Check(LogCount("[Rename] open: Front Eye") == open0 + 1 && headName.text == original && headPanel.Label == original,
                   $"2: head card Rename -> BeginRename on '{headPanel.Config.displayName}' (log), keyboard fallback -> label '{headName.text}' == '{original}'");
-            var lc = cards.First(c => c.left);
+            var lc = cards[0];
             var lp = _images.Panels[lc.index];
             _images.RenameCamera(lp, "L Cam");
             yield return Frames(2);
@@ -331,21 +334,24 @@ public static class ExperimentsVerify4
             int li = _images.IndexOf(LeftSuffix), ri = _images.IndexOf(RightSuffix);
             var cards = Cards(pip1);
             var lc = cards.First(c => c.index == li); var rc = cards.First(c => c.index == ri);
-            Check(lc.left && !rc.left, $"3: Card.left true for the left camera ({lc.left}), false for the right ({rc.left})");
-            Check(HandCamPip.SideOf("/sobit_home/" + LeftSuffix, null, false) && !HandCamPip.SideOf("/sobit_home/" + RightSuffix, null, true) && HandCamPip.SideOf("/x/cam", null, true),
+            if (Spec.DualArm) Check(lc.left && !rc.left, $"3: Card.left true for the left camera ({lc.left}), false for the right ({rc.left})");
+            else Check(!lc.left, $"3: the single hand camera's card goes to the viewer's right (Card.left {lc.left})");
+            Check(HandCamPip.SideOf("/x/hand_left_camera/c", null, false) && !HandCamPip.SideOf("/x/hand_right_camera/c", null, true) && HandCamPip.SideOf("/x/cam", null, true) && !HandCamPip.SideOf("/x/hand_camera/c", null, false),
                   "3: SideOf: left topic -> true, right -> false, neither -> fallback");
             void Sides(string when)
             {
                 float xl = head.InverseTransformPoint(lc.rt.position).x, xr = head.InverseTransformPoint(rc.rt.position).x;
                 var model = Find<FirstPersonView>().Model;
-                float hl = head.InverseTransformPoint(model.Frame("hand_left_end_effector_link").position).x, hr = head.InverseTransformPoint(model.Frame("hand_right_end_effector_link").position).x;
+                float hl = head.InverseTransformPoint(model.Frame(profile.arms[0].effectorFrame).position).x;
+                if (!Spec.DualArm) { Check(xl > hl, $"3 [{when}]: head-space x: the hand card {xl:F3} right of the hand {hl:F3}"); return; }
+                float hr = head.InverseTransformPoint(model.Frame(profile.arms[1].effectorFrame).position).x;
                 Check(xl < xr, $"3 [{when}]: head-space x left card {xl:F3} < right card {xr:F3} (hands L {hl:F3} R {hr:F3})");
             }
             Sides("arms home");
-            var p = Sh("pub.sh", "armleft"); var w = WaitExit(p); while (w.MoveNext()) yield return w.Current;
+            var p = Sh("pub.sh", "arm"); var w = WaitExit(p); while (w.MoveNext()) yield return w.Current;
             yield return Seconds(3.0);
-            Sides("armleft");
-            Shot("21_fp_armleft", head.position, Down(head, 28f), 95f);
+            Sides("arm");
+            Shot("21_fp_arm", head.position, Down(head, 28f), 95f);
             p = Sh("pub.sh", "armhome"); w = WaitExit(p); while (w.MoveNext()) yield return w.Current;
             yield return Seconds(3.0);
             Sides("arms home again");
@@ -424,7 +430,7 @@ public static class ExperimentsVerify4
         Check(_images.Panels.All(p => p.Topic.EndsWith("image_raw") && !p.Topic.EndsWith("/compressed")),
               "5: every block subscribed to the raw twin: " + string.Join(", ", _images.Panels.Select(p => p.Topic)));
         Check(_images.Panels.All(p => ros.HasSubscriber(p.Topic) && !ros.HasSubscriber(p.Topic + "/compressed")), "5: ROSConnection has the raw subscriptions, none on '/compressed'");
-        Check(_images.IndexOf(LeftSuffix) >= 0 && _images.IndexOf("hand_left_camera/color/image_raw") == _images.IndexOf(LeftSuffix) && _images.IndexOf(profile.firstPersonCameraTopicSuffix) >= 0,
+        Check(_images.IndexOf(LeftSuffix) >= 0 && _images.IndexOf(LeftSuffix.Replace("/compressed", "")) == _images.IndexOf(LeftSuffix) && _images.IndexOf(profile.firstPersonCameraTopicSuffix) >= 0,
               $"5: IndexOf matches either twin (left {_images.IndexOf(LeftSuffix)}, head {_images.IndexOf(profile.firstPersonCameraTopicSuffix)})");
         {
             var counts = new int[_images.Panels.Count];
@@ -453,7 +459,7 @@ public static class ExperimentsVerify4
             var cards = Cards(pip);
             Check(fpv.ImageShown && fpv.FramesReceived > f0 + 10 && fpv.CameraIndex >= 0 && _images.Panels[fpv.CameraIndex].Topic.EndsWith("image_raw"),
                   $"5: raw: FP head card frames {f0} -> {fpv.FramesReceived} in 3 s on '{(fpv.CameraIndex >= 0 ? _images.Panels[fpv.CameraIndex].Topic : "-")}'");
-            Check(cards.Count == 2 && cards.All(c => c.view.texture != null), $"5: raw: both hand cards show a texture ({cards.Count(c => c.view.texture != null)}/{cards.Count})");
+            Check(cards.Count == Cards2 && cards.All(c => c.view.texture != null), $"5: raw: all hand cards show a texture ({cards.Count(c => c.view.texture != null)}/{cards.Count})");
             Shot("22_raw_fp", head.position, Down(head, 22f), 100f);
             _hud.SetCameraLayout("blocks");
             _hud.SetRobotModel(false);

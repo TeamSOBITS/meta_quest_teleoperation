@@ -750,17 +750,22 @@ public class ImageSubscriber : MonoBehaviour
         var tex = _textures[index];
         var cam = panel.Config;
 
-        // Added robots learn each camera's real size from its first frame.
-        if (_profile.isCustom && (cam.resolution.x != tex.width || cam.resolution.y != tex.height))
+        // The view takes each camera's real frame size from its first frame (sim and real cameras can
+        // differ from the configured resolution). Added robots keep it in their config and save it;
+        // built-in robots only adjust the live aspect.
+        bool learned = _profile.isCustom && (cam.resolution.x != tex.width || cam.resolution.y != tex.height);
+        bool live = !_profile.isCustom && Mathf.Abs(panel.Aspect - (float)tex.width / tex.height) > 1e-3f;
+        if (learned || live)
         {
-            cam.resolution = new Vector2Int(tex.width, tex.height);
+            if (learned) cam.resolution = new Vector2Int(tex.width, tex.height);
+            else panel.SetLiveAspect((float)tex.width / tex.height);
             panel.SetSize(panel.Size);
             if (!HasCustomLayout)
             {
                 _defaultFit = BestFit(_panels, out _);
                 Layout();
             }
-            if (!InSetup) RobotLibrary.Save(_profile);
+            if (learned && !InSetup) RobotLibrary.Save(_profile);
         }
         panel.SetTexture(tex);
         _lastFrameTime[index] = Time.unscaledTime;

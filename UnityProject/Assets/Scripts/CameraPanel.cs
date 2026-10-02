@@ -43,6 +43,11 @@ public class CameraPanel : MonoBehaviour
     static readonly Color StaleTint = new Color(0.45f, 0.45f, 0.45f, 1f);
 
     public RobotProfile.CameraConfig Config { get; private set; }
+    // Width / height of the view: the real frame size once a frame arrived (built-in robots do not
+    // persist it), else the configured resolution.
+    public float Aspect => _liveAspect > 0f ? _liveAspect : Config.Aspect;
+    float _liveAspect;
+    public void SetLiveAspect(float aspect) { _liveAspect = aspect; }
     public string Topic { get; private set; }
 
     // Total block size in metres for the current Size.
@@ -182,7 +187,7 @@ public class CameraPanel : MonoBehaviour
     void Sizes(float size, out float viewW, out float viewH, out float nameH, out float topicH)
     {
         viewH = ViewHeight * Config.scale * size * MmPerMetre;
-        viewW = viewH * Config.Aspect;
+        viewW = viewH * Aspect;
         nameH  = _name.GetPreferredValues(_name.text, viewW, Mathf.Infinity).y;
         topicH = _topic != null ? _topic.GetPreferredValues(_topic.text, viewW, Mathf.Infinity).y : 0f;
     }

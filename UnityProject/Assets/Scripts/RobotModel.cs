@@ -12,7 +12,8 @@ using UnityEngine;
 ///
 /// Moving joints arrive on /tf (robot_state_publisher publishes every non-fixed joint in each
 /// message). A transform is only used when its parent and child frames are exactly the link's
-/// URDF parent and name; this drops odom -> base_footprint, the headset's and controllers' own
+/// URDF parent and name (an optional "<robotNamespace>/" prefix on the frame ids is ignored, as a
+/// robot launched with enable_tf_prefix:=true publishes); this drops odom -> base_footprint, the headset's and controllers' own
 /// frames echoed back by the endpoint, and other robots' frames. The latest pose per link is
 /// applied in LateUpdate (the pose is the full parent -> child transform, so it replaces the
 /// link's local pose). /tf_static is not used: it is latched, and the endpoint's subscriber may
@@ -36,6 +37,7 @@ public class RobotModel : MonoBehaviour
         public Quaternion rotation;
     }
 
+    string _namespace;
     readonly Dictionary<string, Link> _links = new Dictionary<string, Link>();
     int _messagesInWindow;
     bool _firstAccepted;
@@ -65,6 +67,7 @@ public class RobotModel : MonoBehaviour
         var go = Instantiate(profile.modelPrefab, parent, false);
         go.name = profile.modelPrefab.name;
         var model = go.AddComponent<RobotModel>();
+        model._namespace = profile.robotNamespace;
         model.Init();
         return model;
     }
@@ -93,8 +96,8 @@ public class RobotModel : MonoBehaviour
         foreach (var t in msg.transforms)
         {
             if (t == null || t.child_frame_id == null || t.header == null || t.transform == null) continue;
-            if (!_links.TryGetValue(t.child_frame_id, out var link)) continue;
-            if (link.info.isRoot || t.header.frame_id != link.info.parentFrame) continue;
+            if (!_links.TryGetValue(StripNamespace(t.child_frame_id, _namespace), out var link)) continue;
+            if (link.info.isRoot || StripNamespace(t.header.frame_id, _namespace) != link.info.parentFrame) continue;
 
             link.position = t.transform.translation.From<FLU>();
             link.rotation = t.transform.rotation.From<FLU>();
@@ -128,6 +131,13 @@ public class RobotModel : MonoBehaviour
             _messagesInWindow = 0;
             _windowStart = now;
         }
+    }
+
+    // "<ns>/base_footprint" -> "base_footprint"; frame ids without that prefix pass unchanged.
+    public static string StripNamespace(string frame, string ns)
+    {
+        if (string.IsNullOrEmpty(ns) || string.IsNullOrEmpty(frame) || frame.Length <= ns.Length + 1) return frame;
+        return frame[ns.Length] == '/' && frame.StartsWith(ns, StringComparison.Ordinal) ? frame.Substring(ns.Length + 1) : frame;
     }
 
     // Show / hide the visuals of every link whose frame starts with one of `prefixes`

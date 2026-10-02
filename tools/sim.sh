@@ -1,6 +1,7 @@
 #!/bin/bash
-# sim.sh status | home | light | stop   -- manage the Gazebo sim + sobits_teleop in the ROS container.
-#   status  topic rates of the active robot (/clock, joint_states, head image) + endpoint port
+# sim.sh status [--robot home|light] | home | light | stop   -- manage the Gazebo sim + sobits_teleop in the ROS container.
+#   status  topic rates of the active robot (detected from the running launch arguments, or --robot / env ROBOT)
+#           (/clock, joint_states, head image) + endpoint port
 #   home    docker restart, launch sobit_home_bringup gz_minimal, wait for /clock + head image (180 s),
 #           launch sobits_teleop (robot_name:=sobit_home device:=quest ...), wait for port 10000, adb reverse
 #   light   same for SOBIT LIGHT (gz_minimal with enable_tf_prefix:=false headless:=true)
@@ -45,12 +46,19 @@ start() {  # start ROBOT GZ_PACKAGE EXTRA_GZ_ARGS...
   echo "$robot ready"
 }
 
+# active_robot: sobit_home | sobit_light from the running launch arguments (empty when no sim is launched)
+active_robot() {
+  local pl; pl=$(rexec "pgrep -af 'ros2 launch'" 2>/dev/null)
+  case "$pl" in
+    *sobit_light_bringup*|*robot_name:=sobit_light*) echo sobit_light;;
+    *sobit_home_bringup*|*robot_name:=sobit_home*) echo sobit_home;;
+  esac
+}
+
 status() {
   local r=${ROBOT:-}
-  if [ -z "$r" ]; then
-    local tl; tl=$(rexec "timeout 15 ros2 topic list" 2>/dev/null)
-    case "$tl" in *"/sobit_light/"*) r=sobit_light;; *"/sobit_home/"*) r=sobit_home;; *) r=sobit_home;; esac
-  fi
+  [ -z "$r" ] && r=$(active_robot)
+  if [ -z "$r" ]; then echo "robot: none (no ros2 launch running in $C)"; r=sobit_home; fi
   echo "robot: $r"
   for t in /clock /$r/joint_states /$r/head_camera/color/image_raw/compressed; do
     printf '%-52s ' "$t"
@@ -60,9 +68,9 @@ status() {
 }
 
 case "$1" in
-  status) status;;
+  status) shift; [ "$1" = --robot ] && ROBOT=${2#sobit_} && ROBOT=sobit_$ROBOT; status;;
   home)   start sobit_home sobit_home_bringup;;
   light)  start sobit_light sobit_light_bringup enable_tf_prefix:=false headless:=true;;
   stop)   docker restart "$C" >/dev/null && echo "container restarted, nothing running";;
-  *) sed -n 2,9p "$0"; exit 2;;
+  *) sed -n 2,11p "$0"; exit 2;;
 esac

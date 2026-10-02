@@ -5,8 +5,9 @@ using Unity.Robotics.ROSTCPConnector.ROSGeometry;
 using UnityEngine;
 
 /// <summary>
-/// Arm target markers: sobits_teleop broadcasts the hand targets on /tf as base frame ->
-/// left_target_link / right_target_link. A small sphere is drawn at each target (in the model's
+/// Arm target markers: sobits_teleop broadcasts each arm's hand target on /tf as base frame ->
+/// the profile's arm target frame (SOBIT HOME: left_target_link / right_target_link, SOBIT LIGHT:
+/// arm_target_link). A small sphere is drawn at each target (in the model's
 /// root frame) with a line to the model's end effector, so the distance is where the arm still has
 /// to go. A marker is hidden when its transform was not seen for 1 s. Created by TeleopHud
 /// while the robot model is on, destroyed when it is turned off.
@@ -34,7 +35,7 @@ public class ArmTargets : MonoBehaviour
 
     readonly List<Side> _sides = new List<Side>();
     RobotModel _model;
-    string _rootFrame;
+    string _rootFrame, _namespace;
     float _nextLog;
 
     public bool HasLeft => _sides.Count > 0 && _sides[0].Visible;
@@ -43,9 +44,9 @@ public class ArmTargets : MonoBehaviour
     public float LeftErrorM => _sides.Count > 0 ? _sides[0].Error : 0f;
     public float RightErrorM => _sides.Count > 1 ? _sides[1].Error : 0f;
 
-    public static ArmTargets Create(RobotModel model)
+    public static ArmTargets Create(RobotModel model, RobotProfile profile)
     {
-        if (model == null) return null;
+        if (model == null || profile == null) return null;
         string root = OverlayMaterials.RootFrame(model);
         var source = OverlayMaterials.Source(model);
         if (root == null || source == null)
@@ -57,8 +58,14 @@ public class ArmTargets : MonoBehaviour
         var t = go.AddComponent<ArmTargets>();
         t._model = model;
         t._rootFrame = root;
-        t.AddSide(source, "left_target_link", "hand_left_end_effector_link", "L", HudUi.AccentColor);
-        t.AddSide(source, "right_target_link", "hand_right_end_effector_link", "R", HudUi.WarnColor);
+        t._namespace = profile.robotNamespace;
+        var colours = new[] { HudUi.AccentColor, HudUi.WarnColor };
+        for (int i = 0; i < profile.arms.Length; i++)
+        {
+            var arm = profile.arms[i];
+            string label = string.IsNullOrEmpty(arm.name) ? (i + 1).ToString() : arm.name.Substring(0, 1).ToUpperInvariant();
+            t.AddSide(source, arm.targetFrame, arm.effectorFrame, label, colours[i % colours.Length]);
+        }
         t._nextLog = Time.unscaledTime + LogSeconds;
         Current = t;
         var ros = ROSConnection.GetOrCreateInstance();
@@ -107,10 +114,11 @@ public class ArmTargets : MonoBehaviour
         foreach (var t in msg.transforms)
         {
             if (t == null || t.child_frame_id == null || t.header == null || t.transform == null) continue;
-            if (t.header.frame_id != _rootFrame) continue;
+            if (RobotModel.StripNamespace(t.header.frame_id, _namespace) != _rootFrame) continue;
+            string child = RobotModel.StripNamespace(t.child_frame_id, _namespace);
             foreach (var s in _sides)
             {
-                if (t.child_frame_id != s.childFrame) continue;
+                if (child != s.childFrame) continue;
                 s.position = t.transform.translation.From<FLU>();
                 s.lastTime = Time.unscaledTime;
             }

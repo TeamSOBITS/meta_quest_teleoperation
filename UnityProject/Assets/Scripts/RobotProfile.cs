@@ -42,6 +42,16 @@ public class RobotProfile : ScriptableObject
             : 4f / 3f;
     }
 
+    // One arm of the robot: the hand target broadcast on /tf (sobits_teleop, base frame -> targetFrame)
+    // and the model's end effector link the target is drawn against.
+    [Serializable]
+    public class ArmConfig
+    {
+        public string name;   // "left", "right", "arm": labels the target marker, picks the hand camera's card
+        public string targetFrame;
+        public string effectorFrame;
+    }
+
     // Robot chosen on the selection screen. Null when a teleop scene is
     // opened directly in the Editor; scripts then fall back to their own defaults.
     public static RobotProfile Selected;
@@ -72,9 +82,13 @@ public class RobotProfile : ScriptableObject
     // Frame of the head camera (the image quad hangs on it) and of the pan axis (stays fixed).
     public string cameraFrame = "head_camera_color_frame";
     public string panFrame = "head_pan_link";
-    // Head tilt and body lift frames (StatusStrip gauges; hidden when absent from the model).
+    // Head tilt and body lift frames (StatusStrip gauges; hidden when empty or absent from the model).
     public string tiltFrame = "head_tilt_link";
     public string liftFrame = "body_lift_link";
+    // Arms with a hand target and an end effector in the model (ArmTargets, HandCamPip).
+    public ArmConfig[] arms = Array.Empty<ArmConfig>();
+    // nav_msgs/Odometry topic relative to the robot namespace (BaseVelocity).
+    public string odomSuffix = "odom";
     // Camera topics relative to the robot namespace (see FullTopic).
     public string firstPersonCameraTopicSuffix = "head_camera/color/image_raw/compressed";
     public string cameraInfoSuffix = "head_camera/camera_info";

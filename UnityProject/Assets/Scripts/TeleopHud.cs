@@ -407,7 +407,7 @@ public class TeleopHud : MonoBehaviour
         var model = _fpv != null ? _fpv.Model : null;
         var profile = images != null ? images.Profile : null;
         Sync(ref _handCams, model != null && FirstPerson, () => HandCamPip.Create(images, model, profile));
-        Sync(ref _targets, model != null, () => ArmTargets.Create(model));
+        Sync(ref _targets, model != null, () => ArmTargets.Create(model, profile));
         Sync(ref _baseVel, model != null, () => BaseVelocity.Create(model, profile));
     }
 

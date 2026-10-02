@@ -1,4 +1,5 @@
 // Verify harness: Renders model pictures to SHOTS_DIR (default /tmp/shots); diagnostic, not a pass/fail suite.
+// Env VERIFY_ROBOT (default SOBIT_HOME) picks the prefab.
 // Run: tools/verify.sh --suite ModelShots   (or Unity -batchmode -projectPath <copy> -executeMethod ModelShots.Run)
 using System.IO;
 using UnityEditor;
@@ -20,7 +21,7 @@ public static class ModelShots
         if (string.IsNullOrEmpty(outDir)) outDir = "/tmp/shots";
         Directory.CreateDirectory(outDir);
         EditorSceneManager.NewScene(NewSceneSetup.EmptyScene, NewSceneMode.Single);
-        var prefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Robots/Models/SOBIT_HOME.prefab");
+        var prefab = AssetDatabase.LoadAssetAtPath<GameObject>("Assets/Robots/Models/" + (System.Environment.GetEnvironmentVariable("VERIFY_ROBOT") ?? "SOBIT_HOME") + ".prefab");
         var robot = (GameObject)PrefabUtility.InstantiatePrefab(prefab);
 
         var lg = new GameObject("Sun"); var l = lg.AddComponent<Light>();

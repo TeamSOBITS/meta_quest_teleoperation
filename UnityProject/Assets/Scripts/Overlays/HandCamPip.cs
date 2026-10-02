@@ -5,9 +5,10 @@ using UnityEngine.UI;
 using UnityEngine.XR.Interaction.Toolkit.UI;
 
 /// <summary>
-/// Hand cameras in first person: one small card per hand camera of the robot (RawImage on a
-/// rounded PanelColor box, a muted label with the camera's name). A card floats outboard of and a
-/// little below its gripper (the model's hand_*_end_effector_link), to the side of the line of sight
+/// Hand cameras in first person: one small card per hand camera of the robot (a camera whose topic
+/// suffix contains "hand"; RawImage on a rounded PanelColor box, a muted label with the camera's name).
+/// A card floats outboard of and a little below its gripper (the end effector link of the profile's
+/// arm: the one named "left" / "right" in the camera's topic, else the only arm), to the side of the line of sight
 /// so it never covers what the head camera shows there, and faces the head. Created by TeleopHud in
 /// the first-person camera layout, destroyed when the layout or the robot model is switched off.
 /// In layout mode (<see cref="SetEditable"/>) each card has a Rename button above its top-right corner.
@@ -48,8 +49,8 @@ public class HandCamPip : MonoBehaviour
         var go = new GameObject("Hand Cam PiP");
         var pip = go.AddComponent<HandCamPip>();
         pip._images = images;
-        pip.Add(model, profile, true, "hand_left_camera/color/image_raw/compressed", "hand_left_end_effector_link", "Left hand");
-        pip.Add(model, profile, false, "hand_right_camera/color/image_raw/compressed", "hand_right_end_effector_link", "Right hand");
+        foreach (var panel in images.Panels)
+            if (IsHandCamera(panel.Config)) pip.Add(model, profile, panel.Config);
         if (pip._cards.Count == 0)
         {
             Debug.LogWarning("HandCams: robot has no hand camera; nothing to show");
@@ -62,15 +63,30 @@ public class HandCamPip : MonoBehaviour
         return pip;
     }
 
-    void Add(RobotModel model, RobotProfile profile, bool left, string suffix, string frame, string label)
-    {
-        int index = _images.IndexOf(suffix);
-        if (index < 0) return;
-        var link = model.Frame(frame);
-        if (link == null) { Debug.LogWarning($"HandCams: frame '{frame}' not in the model, skipping the {label} camera"); return; }
+    static bool IsHandCamera(RobotProfile.CameraConfig config)
+        => config != null && config.topicSuffix != null && config.topicSuffix.ToLowerInvariant().Contains("hand");
 
-        var config = _images.Panels[index].Config;
-        var card = new Card { index = index, left = SideOf(suffix, config, left), link = link, config = config, aspect = config.Aspect };
+    // The arm a hand camera belongs to: named like the camera ("left" / "right"), else the only arm.
+    static RobotProfile.ArmConfig ArmOf(RobotProfile profile, RobotProfile.CameraConfig config)
+    {
+        string suffix = config.topicSuffix.ToLowerInvariant();
+        foreach (var arm in profile.arms)
+            if (!string.IsNullOrEmpty(arm.name) && suffix.Contains(arm.name.ToLowerInvariant())) return arm;
+        return profile.arms.Length == 1 ? profile.arms[0] : null;
+    }
+
+    // The card's side comes from the camera's name; a hand camera without "left" / "right" goes to the viewer's right.
+    void Add(RobotModel model, RobotProfile profile, RobotProfile.CameraConfig config)
+    {
+        int index = _images.IndexOf(config.topicSuffix);
+        if (index < 0) return;
+        var arm = ArmOf(profile, config);
+        string label = config.displayName;
+        if (arm == null) { Debug.LogWarning($"HandCams: no arm for the {label} camera, skipping it"); return; }
+        var link = model.Frame(arm.effectorFrame);
+        if (link == null) { Debug.LogWarning($"HandCams: frame '{arm.effectorFrame}' not in the model, skipping the {label} camera"); return; }
+
+        var card = new Card { index = index, left = SideOf(config.topicSuffix, config, false), link = link, config = config, aspect = config.Aspect };
         var go = new GameObject("Hand Cam " + label, typeof(RectTransform));
         card.go = go;
         go.transform.SetParent(transform, false);

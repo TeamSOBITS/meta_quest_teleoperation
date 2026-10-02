@@ -1,5 +1,6 @@
 // Verify harness: Experiments batches 2-3: hand cams, arm targets, base velocity, head lock, FPV card, camera toggles.
-// Needs the live sim (HOME) on 127.0.0.1:10000 and no other ROS client (stop the app on the headset).
+// Env VERIFY_ROBOT=SOBIT_LIGHT runs it against SOBIT LIGHT (RobotSpec; sim: tools/sim.sh light).
+// Needs the live sim on 127.0.0.1:10000 and no other ROS client (stop the app on the headset).
 // Run: tools/verify.sh --suite ExperimentsVerify2   (or Unity -batchmode -projectPath <copy> -executeMethod ExperimentsVerify2.Run)
 using System;
 using System.Collections;
@@ -39,6 +40,7 @@ public static class ExperimentsVerify2
         }
     }
     static string Script(string name) => VerifyPaths.Tool(name);
+    static RobotSpec Spec => RobotSpec.Current;
 
     public static void Run()
     {
@@ -166,6 +168,17 @@ public static class ExperimentsVerify2
     // head space, card y = hand y - 0.05 (+-0.02).
     static void HandsPlacement(string tag, Transform head, Transform lc, Transform rc, Transform le, Transform re)
     {
+        if (rc == null)   // one arm: the card is outboard to the viewer's right of the hand, below it
+        {
+            Vector3 d1 = (le.position - head.position).normalized;
+            float dist = Vector3.Cross(lc.position - head.position, d1).magnitude;
+            float x1 = head.InverseTransformPoint(lc.position).x, hx = head.InverseTransformPoint(le.position).x;
+            float y1 = lc.position.y - (le.position.y - 0.05f);
+            Check(dist >= 0.2f, $"4 [{tag}]: card to head->hand line {dist:F3} m (>= 0.2)");
+            Check(x1 > hx, $"4 [{tag}]: single hand camera: card x {x1:F3} right of the hand x {hx:F3} in head space");
+            Check(Mathf.Abs(y1) <= 0.02f, $"4 [{tag}]: card y - (hand y - 0.05): {y1:F3} (+-0.02)");
+            return;
+        }
         float Dist(Transform card, Transform hand)
         {
             Vector3 d = (hand.position - head.position).normalized;
@@ -190,17 +203,17 @@ public static class ExperimentsVerify2
         Log("===== experiments batches 2-3");
         PlayerPrefs.DeleteAll();
         PlayerPrefs.SetString("RosIPAddress", "127.0.0.1");
-        PlayerPrefs.SetInt("RobotModel/SOBIT_HOME", 1); PlayerPrefs.SetString("CameraLayout/SOBIT_HOME", "firstperson");
+        PlayerPrefs.SetInt($"RobotModel/{Spec.Asset}", 1); PlayerPrefs.SetString($"CameraLayout/{Spec.Asset}", "firstperson");
         PlayerPrefs.Save();
 
         {
             var h = Sh("home.sh", ""); var w = WaitExit(h, 90); while (w.MoveNext()) yield return w.Current;
-            var pre = new[] { Pub("head 0.0 0.0"), Pub("lift 0.2"), Pub("armhome") };
+            var pre = new[] { Pub("head 0.0 0.0"), Spec.HasLift ? Pub("lift 0.2") : null, Pub("armhome") }.Where(x => x != null).ToArray();
             while (pre.Any(p => !p.HasExited)) yield return Seconds(0.2);
             yield return Seconds(2.0);
         }
 
-        var profile = AssetDatabase.LoadAssetAtPath<RobotProfile>("Assets/Robots/SOBIT_HOME.asset");
+        var profile = AssetDatabase.LoadAssetAtPath<RobotProfile>(Spec.ProfilePath);
         EditorSceneManager.OpenScene("Assets/Scenes/TeleopScene.unity");
         RobotProfile.Selected = profile;
         Object.FindFirstObjectByType<QuestControllerPublisher>().controlRobot = false;
@@ -212,8 +225,8 @@ public static class ExperimentsVerify2
 
         var ros = ROSConnection.GetOrCreateInstance();
         Check(Object.FindObjectsByType<ROSConnection>(FindObjectsSortMode.None).Length == 1, "exactly one ROSConnection");
-        ros.Subscribe<JointStateMsg>("/sobit_home/joint_states", OnJointStates);
-        ros.Subscribe<RosMessageTypes.Nav.OdometryMsg>("/sobit_home/odom", m => { _odomLin = (float)m.twist.twist.linear.x; _odomAng = (float)m.twist.twist.angular.z; _odomCount++; });
+        ros.Subscribe<JointStateMsg>(Spec.JointStates, OnJointStates);
+        ros.Subscribe<RosMessageTypes.Nav.OdometryMsg>(Spec.Odom, m => { _odomLin = (float)m.twist.twist.linear.x; _odomAng = (float)m.twist.twist.angular.z; _odomCount++; });
         var hud = Object.FindFirstObjectByType<TeleopHud>();
         var images = Object.FindFirstObjectByType<ImageSubscriber>();
 
@@ -229,12 +242,15 @@ public static class ExperimentsVerify2
         if (!Check(hud.FirstPerson && model != null && model.AcceptedTransforms > 0 && fpv.FramesReceived > 0 && _jsCount > 0,
                    $"first person live: TF {model?.AcceptedTransforms}, frames {fpv?.FramesReceived}, js {_jsCount}"))
             yield break;
-        for (int attempt = 0; attempt < 3 && (Math.Abs(Q("head_pan_joint")) > 0.01 || Math.Abs(Q("head_tilt_joint")) > 0.01 || Math.Abs(Q("body_lift_joint") - 0.2) > 0.005); attempt++)
+        double LiftErr() => Spec.HasLift ? Math.Abs(Q(Spec.LiftJoint) - 0.2) : 0.0;
+        for (int attempt = 0; attempt < 3 && (Math.Abs(Q(Spec.PanJoint)) > 0.01 || Math.Abs(Q(Spec.TiltJoint)) > 0.01 || LiftErr() > 0.005); attempt++)
         {
-            var hp = Pub("head 0.0 0.0"); var lp = Pub("lift 0.2");
-            var se = Settle(lp, new Dictionary<string, double> { ["head_pan_joint"] = 0, ["head_tilt_joint"] = 0, ["body_lift_joint"] = 0.2 }, 12); while (se.MoveNext()) yield return se.Current;
+            var hp = Pub("head 0.0 0.0"); var lp = Spec.HasLift ? Pub("lift 0.2") : hp;
+            var targets0 = new Dictionary<string, double> { [Spec.PanJoint] = 0, [Spec.TiltJoint] = 0 };
+            if (Spec.HasLift) targets0[Spec.LiftJoint] = 0.2;
+            var se = Settle(lp, targets0, 12); while (se.MoveNext()) yield return se.Current;
         }
-        Check(Math.Abs(Q("head_pan_joint")) < 0.01 && Math.Abs(Q("head_tilt_joint")) < 0.01, $"start pose: head pan {Q("head_pan_joint"):F3} tilt {Q("head_tilt_joint"):F3}, lift {Q("body_lift_joint"):F3}");
+        Check(Math.Abs(Q(Spec.PanJoint)) < 0.01 && Math.Abs(Q(Spec.TiltJoint)) < 0.01, $"start pose: head pan {Q(Spec.PanJoint):F3} tilt {Q(Spec.TiltJoint):F3}, lift {(Spec.HasLift ? Q(Spec.LiftJoint).ToString("F3") : "none")}");
         fpv.Recenter();
         yield return Seconds(1.5);
         var head = FirstPersonView.Head;
@@ -242,39 +258,40 @@ public static class ExperimentsVerify2
         Log($"    head {V(head.position)} yaw {head.eulerAngles.y:F1}; model root {V(model.Root.position)} yaw {model.Root.eulerAngles.y:F1}; root frame '{OverlayMaterials.RootFrame(model)}'");
 
         // ================= 4. hand cams =================
-        int li = images.IndexOf("hand_left_camera/color/image_raw/compressed");
-        int ri = images.IndexOf("hand_right_camera/color/image_raw/compressed");
+        int nCards = Spec.Sides.Length;
+        int li = images.IndexOf(Spec.Sides[0].cameraSuffix);
+        int ri = Spec.DualArm ? images.IndexOf(Spec.Sides[1].cameraSuffix) : -1;
         var pip = Object.FindFirstObjectByType<HandCamPip>();
-        Check(pip != null && pip.CardCount == 2, $"4: HandCamPip exists, CardCount {pip?.CardCount} == 2");
+        Check(pip != null && pip.CardCount == nCards, $"4: HandCamPip exists, CardCount {pip?.CardCount} == {nCards}");
         var views = pip.GetComponentsInChildren<RawImage>(true).Where(r => r.name == "View").ToArray();
         end = Now + 5;
         while (Now < end && views.Any(v => v.texture == null)) yield return Seconds(0.1);
-        Check(views.Length == 2 && views.All(v => v.texture != null), $"4: both cards got a texture within 5 s ({views.Count(v => v.texture != null)}/{views.Length})");
-        int dl0 = images.DroppedFrames(li), dr0 = images.DroppedFrames(ri);
+        Check(views.Length == nCards && views.All(v => v.texture != null), $"4: all cards got a texture within 5 s ({views.Count(v => v.texture != null)}/{views.Length})");
+        int dl0 = images.DroppedFrames(li), dr0 = ri >= 0 ? images.DroppedFrames(ri) : 0;
         yield return Seconds(3.0);
-        Check(images.Fps(li) > 5f && images.Fps(ri) > 5f,
-              $"4: hand cams decoding with blocks hidden: L fps {images.Fps(li):F1} decode {images.DecodeMs(li):F2} ms dropped {dl0}->{images.DroppedFrames(li)}; R fps {images.Fps(ri):F1} decode {images.DecodeMs(ri):F2} ms dropped {dr0}->{images.DroppedFrames(ri)}");
+        Check(images.Fps(li) > 5f && (ri < 0 || images.Fps(ri) > 5f),
+              $"4: hand cams decoding with blocks hidden: L fps {images.Fps(li):F1} decode {images.DecodeMs(li):F2} ms dropped {dl0}->{images.DroppedFrames(li)}{(ri >= 0 ? $"; R fps {images.Fps(ri):F1} decode {images.DecodeMs(ri):F2} ms dropped {dr0}->{images.DroppedFrames(ri)}" : "")}");
         var cards = pip.GetComponentsInChildren<Canvas>(true).Where(c => c.name.StartsWith("Hand Cam ")).ToArray();
-        var leftCard = cards.First(c => c.name.Contains("Left")).transform;
-        var rightCard = cards.First(c => c.name.Contains("Right")).transform;
-        var leftEff = model.Frame("hand_left_end_effector_link");
-        var rightEff0 = model.Frame("hand_right_end_effector_link");
+        var leftCard = (Spec.DualArm ? cards.First(c => c.name.Contains("Left")) : cards[0]).transform;
+        var rightCard = Spec.DualArm ? cards.First(c => c.name.Contains("Right")).transform : null;
+        var leftEff = model.Frame(profile.arms[0].effectorFrame);
+        var rightEff0 = Spec.DualArm ? model.Frame(profile.arms[1].effectorFrame) : null;
         HandsPlacement("start", head, leftCard, rightCard, leftEff, rightEff0);
         Vector3 toHead = (head.position - leftCard.position).normalized;
         Check(Vector3.Dot(-leftCard.forward, toHead) > 0.95f, $"4: left card faces the head (dot {Vector3.Dot(-leftCard.forward, toHead):F3})");
         Vector3 lc0 = leftCard.position;
-        var p = Pub("armleft");
-        var e = Settle(p, new Dictionary<string, double> { ["arm_left_elbow_joint"] = 2.5 }); while (e.MoveNext()) yield return e.Current;
+        var p = Pub("arm");
+        var e = Settle(p, Spec.ArmMoved); while (e.MoveNext()) yield return e.Current;
         yield return Seconds(1.0);
         float moved = Vector3.Distance(leftCard.position, lc0);
-        Check(moved > 0.2f, $"4: after armleft the left card moved {moved:F3} m (> 0.2): {V(lc0)} -> {V(leftCard.position)}");
-        HandsPlacement("armleft", head, leftCard, rightCard, leftEff, rightEff0);
+        Check(moved > Spec.MinCardMove, $"4: after pub arm the first card moved {moved:F3} m (> {Spec.MinCardMove}): {V(lc0)} -> {V(leftCard.position)}");
+        HandsPlacement("arm", head, leftCard, rightCard, leftEff, rightEff0);
         {   // both arms at home for the picture: the cards outboard of the grippers, the head image between them
             var ph = Pub("armhome");
-            var eh = Settle(ph, new Dictionary<string, double> { ["arm_left_elbow_joint"] = 1.5709 }); while (eh.MoveNext()) yield return eh.Current;
+            var eh = Settle(ph, Spec.ArmReady); while (eh.MoveNext()) yield return eh.Current;
             yield return Seconds(1.0);
             HandsPlacement("armhome", head, leftCard, rightCard, leftEff, rightEff0);
-            Log($"    hand cards below the eye: L {Vector3.Angle(Vector3.ProjectOnPlane(leftCard.position - head.position, Vector3.up), leftCard.position - head.position):F0} deg, R {Vector3.Angle(Vector3.ProjectOnPlane(rightCard.position - head.position, Vector3.up), rightCard.position - head.position):F0} deg");
+            Log($"    hand card below the eye: first {Vector3.Angle(Vector3.ProjectOnPlane(leftCard.position - head.position, Vector3.up), leftCard.position - head.position):F0} deg");
             Shot("04_handcams_hands", head.position, Down(head, 42f), 90f);
         }
 
@@ -282,7 +299,7 @@ public static class ExperimentsVerify2
         // round 3: no "handcams" toggle; the cards go with the first-person layout. Blocks layout (model on):
         // PiP + head card destroyed, every ForceDecode cleared; back to first person: 2 cards again.
         pip.gameObject.SetActive(false);   // picture only: no cards in front of the arms
-        Shot("10_key_light", head.position, Look(head, (leftEff.position + model.Frame("hand_right_end_effector_link").position) / 2f), 80f);   // arms lit, no cards in front of them
+        Shot("10_key_light", head.position, Look(head, rightEff0 != null ? (leftEff.position + rightEff0.position) / 2f : leftEff.position), 80f);   // arms lit, no cards in front of them
         pip.gameObject.SetActive(true);
         hud.SetCameraLayout("blocks");
         yield return Frames(3);
@@ -293,31 +310,33 @@ public static class ExperimentsVerify2
         yield return Frames(3);
         pip = Object.FindFirstObjectByType<HandCamPip>();
         strip = Object.FindFirstObjectByType<StatusStrip>();
-        Check(pip != null && pip.CardCount == 2 && fpv.ImageShown, "4: first-person layout again -> 2 cards, head card");
+        Check(pip != null && pip.CardCount == nCards && fpv.ImageShown, $"4: first-person layout again -> {nCards} cards, head card");
 
         // ================= 5. arm targets =================
         var targets = Object.FindFirstObjectByType<ArmTargets>();
         Check(targets != null && !targets.HasLeft && !targets.HasRight, "5: ArmTargets exists, no targets yet");
-        var rightEff = model.Frame("hand_right_end_effector_link");
-        foreach (var side in new[] { "left", "right" })
+        var rightEff = rightEff0;
+        for (int si = 0; si < nCards; si++)
         {
-            bool left = side == "left";
-            var tp = Sh("targets.sh", $"{side} 8");
+            var sd = Spec.Sides[si];
+            string side = sd.name;
+            bool left = si == 0;
+            var tp = Sh("targets.sh", $"{sd.targetsArg} 8");
             double t0 = Now;
             Func<bool> has = () => left ? targets.HasLeft : targets.HasRight;
             while (!has() && Now - t0 < 10) yield return Seconds(0.05);
             double seenAfter = Now - t0;
             Check(has(), $"5: {side}: Has{(left ? "Left" : "Right")} true {seenAfter:F2} s after starting `ros2 topic pub` (CLI start-up included)");
             yield return Seconds(1.0);
-            var marker = model.Root.Find("Target " + (left ? "L" : "R"));
+            var marker = model.Root.Find("Target " + sd.marker);
             Vector3 local = model.Root.InverseTransformPoint(marker.position);
-            Vector3 want = new Vector3(left ? -0.2f : 0.2f, 0.9f, 0.4f);
+            Vector3 want = new Vector3(sd.markerX, 0.9f, 0.4f);
             Check((local - want).magnitude < 0.01f, $"5: {side}: marker in model-root space {V(local)} ~ {V(want)}");
             var eff = left ? leftEff : rightEff;
             float err = left ? targets.LeftErrorM : targets.RightErrorM;
             float d = Vector3.Distance(marker.position, eff.position);
             Check(err > 0f && Mathf.Abs(err - d) < 0.01f, $"5: {side}: error {err:F3} m == |marker - effector| {d:F3}");
-            var line = targets.GetComponentsInChildren<LineRenderer>(true).First(l => l.name.EndsWith(left ? " L" : " R"));
+            var line = targets.GetComponentsInChildren<LineRenderer>(true).First(l => l.name.EndsWith(" " + sd.marker));
             Check(line.enabled && Vector3.Distance(line.GetPosition(0), marker.position) < 0.001f && Vector3.Distance(line.GetPosition(1), eff.position) < 0.001f, $"5: {side}: line enabled from marker to effector");
             var w = WaitExit(tp); while (w.MoveNext()) yield return w.Current;
             double stop = Now;
@@ -326,16 +345,18 @@ public static class ExperimentsVerify2
         }
         p = Pub("armhome");
         var tb = Sh("targets.sh", "both 14");
-        e = Settle(p, new Dictionary<string, double> { ["arm_left_elbow_joint"] = 1.5709 }); while (e.MoveNext()) yield return e.Current;
+        e = Settle(p, Spec.ArmReady); while (e.MoveNext()) yield return e.Current;
+        Func<bool> allTargets = () => targets.HasLeft && (!Spec.DualArm || targets.HasRight);
         end = Now + 8;
-        while (Now < end && !(targets.HasLeft && targets.HasRight)) yield return Seconds(0.1);
+        while (Now < end && !allTargets()) yield return Seconds(0.1);
         yield return Seconds(1.0);
-        Check(targets.HasLeft && targets.HasRight, $"5: both targets shown; errors L {targets.LeftErrorM:F3} m R {targets.RightErrorM:F3} m");
+        Check(allTargets(), $"5: all targets shown; errors L {targets.LeftErrorM:F3} m{(Spec.DualArm ? $" R {targets.RightErrorM:F3} m" : "")}");
         pip.gameObject.SetActive(false);   // picture only: the cards hang in front of the markers
         yield return Frames(3);
         {
-            var ml = model.Root.Find("Target L").position; var mr = model.Root.Find("Target R").position;
-            Shot("05_targets", head.position, Look(head, (ml + mr + leftEff.position + rightEff.position) / 4f), 80f);
+            var ml = model.Root.Find("Target " + Spec.Sides[0].marker).position;
+            var mr = Spec.DualArm ? model.Root.Find("Target " + Spec.Sides[1].marker).position : ml;
+            Shot("05_targets", head.position, Look(head, (ml + mr + leftEff.position + (rightEff != null ? rightEff.position : leftEff.position)) / 4f), 80f);
         }
         pip.gameObject.SetActive(true);
         { var w = WaitExit(tb); while (w.MoveNext()) yield return w.Current; }
@@ -528,12 +549,12 @@ public static class ExperimentsVerify2
         }
         Check(Object.FindFirstObjectByType<HandCamPip>() == null && Object.FindFirstObjectByType<ArmTargets>() == null && Object.FindFirstObjectByType<BaseVelocity>() == null,
               "4/5/6: leaving first person destroys PiP, targets, base velocity");
-        Check(model == null || model.Root.Find("Target L") == null, "5: target markers gone with the model");
+        Check(model == null || model.Root.Find("Target " + Spec.Sides[0].marker) == null, "5: target markers gone with the model");
 
         // ================= second robot screen: statics survive, ROSConnection is new =================
         EditorApplication.ExitPlaymode();
         while (Application.isPlaying) yield return Seconds(0.1);
-        PlayerPrefs.SetInt("RobotModel/SOBIT_HOME", 1); PlayerPrefs.SetString("CameraLayout/SOBIT_HOME", "firstperson");
+        PlayerPrefs.SetInt($"RobotModel/{Spec.Asset}", 1); PlayerPrefs.SetString($"CameraLayout/{Spec.Asset}", "firstperson");
         PlayerPrefs.Save();
         EditorSceneManager.OpenScene("Assets/Scenes/TeleopScene.unity");
         RobotProfile.Selected = profile;
@@ -559,7 +580,7 @@ public static class ExperimentsVerify2
         Check(rtt.Samples - s0 > 10, $"2nd screen: RTT samples {rtt.Samples - s0} on the new ROSConnection (subscription redone)");
         publisher.controlRobot = false;
         targets = Object.FindFirstObjectByType<ArmTargets>();
-        var t2 = Sh("targets.sh", "left 9");
+        var t2 = Sh("targets.sh", Spec.Sides[0].targetsArg + " 9");
         double tt0 = Now;
         while (!targets.HasLeft && Now - tt0 < 12) yield return Seconds(0.1);
         Check(targets.HasLeft, $"2nd screen: arm target received on the new ROSConnection ({Now - tt0:F2} s after starting the CLI)");

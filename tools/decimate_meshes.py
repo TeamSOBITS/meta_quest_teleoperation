@@ -1,31 +1,40 @@
 #!/usr/bin/env python3
-"""Decimate the SOBIT HOME meshes referenced by the URDF into Unity-friendly binary STLs.
+"""Decimate the meshes a robot URDF references into Unity-friendly binary STLs.
 
 Setup (host python is externally managed, use a venv):
     python3 -m venv /tmp/venv && /tmp/venv/bin/pip install numpy trimesh fast-simplification pycollada
 Run:
-    /tmp/venv/bin/python tools/decimate_meshes.py
+    /tmp/venv/bin/python tools/decimate_meshes.py --robot sobit_home     (default; or sobit_light)
 
-Inputs : tools/models/sobit_home/src/meshes/**  (copy of sobit_home_description/meshes, referenced files only)
-         tools/models/sobit_home/src/ext/<pkg>/<file>  (package:// meshes of other packages, optional; e.g.
+Inputs : tools/models/<robot>/{<robot>.urdf, budget.json}
+         tools/models/<robot>/src/meshes/**  (copy of <robot>_description/meshes, referenced files only)
+         tools/models/<robot>/src/ext/<pkg>/<file>  (meshes of other packages, optional; e.g.
          docker cp <container>:/home/<user>/colcon_ws/src/realsense_ros/realsense2_description/meshes/d415.stl
          tools/models/sobit_home/src/ext/realsense2_description/  -- 21 MB, not kept in git)
-Outputs: tools/models/sobit_home/meshes_lod/<rel path>[.<material>].stl and colors.json
+         URIs: package://<pkg>/meshes/<rel> or file:///.../share/<pkg>/meshes/<rel>; own package = <robot>_description
+Outputs: tools/models/<robot>/meshes_lod/<rel path>[.<material>].stl and colors.json
 Units/axes are those of the source (ROS axes; STL in the units stored, DAE converted to metres through
 <unit meter> and node transforms). The Unity builder applies the URDF <scale> and the ROS->Unity axis change.
 """
-import json, os, re, struct, sys, collections
+import argparse, json, os, re, struct, sys, collections
 import xml.etree.ElementTree as ET
 import numpy as np
 import trimesh
 import fast_simplification
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-MODEL = os.path.join(ROOT, "tools", "models", "sobit_home")
-SRC = os.path.join(MODEL, "src")
-URDF = os.path.join(MODEL, "sobit_home.urdf")
-OUT = os.path.join(MODEL, "meshes_lod")
-BUDGET = json.load(open(os.path.join(MODEL, "budget.json")))
+ROBOT = "sobit_home"
+MODEL = SRC = URDF = OUT = BUDGET = None
+
+
+def configure(robot):
+    global ROBOT, MODEL, SRC, URDF, OUT, BUDGET
+    ROBOT = robot
+    MODEL = os.path.join(ROOT, "tools", "models", robot)
+    SRC = os.path.join(MODEL, "src")
+    URDF = os.path.join(MODEL, robot + ".urdf")
+    OUT = os.path.join(MODEL, "meshes_lod")
+    BUDGET = json.load(open(os.path.join(MODEL, "budget.json")))
 
 
 def src_path(rel):
@@ -40,12 +49,12 @@ def referenced():
     cnt = collections.Counter()
     for m in ET.parse(URDF).getroot().iter("mesh"):
         f = m.get("filename")
-        mm = re.match(r"package://sobit_home_description/meshes/(.*)", f)
-        if mm:
-            cnt[mm.group(1)] += 1
+        mm = re.match(r"package://([^/]+)/meshes/(.*)", f) or re.match(r"file://.*/share/([^/]+)/meshes/(.*)", f)
+        if not mm:
             continue
-        mm = re.match(r"package://([^/]+)/meshes/(.*)", f)
-        if mm:
+        if mm.group(1) == ROBOT + "_description":
+            cnt[mm.group(2)] += 1
+        else:
             cnt["ext/%s/%s" % (mm.group(1), mm.group(2))] += 1
     return cnt
 
@@ -163,6 +172,9 @@ def fmt_b(v):
 
 
 def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--robot", default="sobit_home")
+    configure(ap.parse_args().robot)
     inst = referenced()
     colors = {}
     tot_src = tot_out = 0

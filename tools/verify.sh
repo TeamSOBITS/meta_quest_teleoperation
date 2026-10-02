@@ -6,7 +6,7 @@
 #                 LayoutVerifier AddRobotTest SelectionShot FirstPersonVerify ExperimentsVerify ExperimentsVerify2 ExperimentsVerify3 ExperimentsVerify4
 #   --build       BuildApk.Build on the copy (-nographics -buildTarget Android); APK copied to UnityProject/Builds/
 #   --shots       SceneShots: baseline pictures + scene_stats.json in <copy-parent>/shots/baseline/
-# Env: SCRATCH (work dir, default ~/.cache/teleop-verify), VERIFY_DIR (default $SCRATCH/verify/UnityProject), UNITY (editor binary),
+# Env: VERIFY_ROBOT (SOBIT_HOME default, SOBIT_LIGHT: robot the FirstPersonVerify/ExperimentsVerify2-4/ModelShots suites and tools/sim helpers target; switch the sim with tools/sim.sh home|light), SCRATCH (work dir, default ~/.cache/teleop-verify), VERIFY_DIR (default $SCRATCH/verify/UnityProject), UNITY (editor binary),
 #      TELEOP_TOOLS (default <repo>/tools/sim). Live suites need the sim (tools/sim.sh home) and no other ROS client
 #      (adb shell am force-stop com.unity.template.vr). A flock on $SCRATCH/verify.lock serialises runs. Exit code != 0 if anything failed.
 set -u

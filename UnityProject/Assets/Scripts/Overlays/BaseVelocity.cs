@@ -66,7 +66,7 @@ public class BaseVelocity : MonoBehaviour
         v.BuildMeshes(source);
         v.BuildChip();
         Current = v;
-        string topic = profile.FullTopic("odom");
+        string topic = profile.FullTopic(profile.odomSuffix);
         var ros = ROSConnection.GetOrCreateInstance();
         if (_subscribedOn != ros || _subscribedTopic != topic)
         {

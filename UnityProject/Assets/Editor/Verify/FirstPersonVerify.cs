@@ -1,5 +1,6 @@
 // Verify harness: First-person view: static prefab checks plus live joint following (RunStatic / RunLive variants).
-// Needs the live sim (HOME) on 127.0.0.1:10000 and no other ROS client (stop the app on the headset).
+// Env VERIFY_ROBOT=SOBIT_LIGHT checks SOBIT LIGHT (RobotSpec); the sim must be the same robot (tools/sim.sh home|light).
+// Needs the live sim on 127.0.0.1:10000 and no other ROS client (stop the app on the headset).
 // Run: tools/verify.sh --suite FirstPersonVerify   (or Unity -batchmode -projectPath <copy> -executeMethod FirstPersonVerify.Run)
 using System;
 using System.Collections;
@@ -23,9 +24,10 @@ using Object = UnityEngine.Object;
 //   RunLive   = live checks only
 public static class FirstPersonVerify
 {
-    const string PrefabPath = "Assets/Robots/Models/SOBIT_HOME.prefab";
-    static string UrdfPath => VerifyPaths.ModelInput("sobit_home", "sobit_home.urdf");
-    static string LodDir => VerifyPaths.ModelInput("sobit_home", "meshes_lod");
+    static RobotSpec Spec => RobotSpec.Current;   // env VERIFY_ROBOT, default SOBIT_HOME
+    static string PrefabPath => Spec.PrefabPath;
+    static string UrdfPath => VerifyPaths.ModelInput(Spec.Lower, Spec.Lower + ".urdf");
+    static string LodDir => VerifyPaths.ModelInput(Spec.Lower, "meshes_lod");
 
     static IEnumerator _run;
     static int _failures, _passes;
@@ -146,7 +148,7 @@ public static class FirstPersonVerify
         var root = go.transform;
 
         var links = go.GetComponentsInChildren<RobotLink>(true);
-        Check(links.Length == 85 && links.Length == _urdfLinks.Count, $"link count {links.Length} (expected 85, URDF {_urdfLinks.Count})");
+        Check(links.Length == Spec.Links && links.Length == _urdfLinks.Count, $"link count {links.Length} (expected {Spec.Links}, URDF {_urdfLinks.Count})");
         var byFrame = links.ToDictionary(l => l.frame);
         Check(_urdfLinks.All(byFrame.ContainsKey), "every URDF link has a RobotLink");
         var bad = new List<string>();
@@ -177,13 +179,13 @@ public static class FirstPersonVerify
             meshes++;
             for (int i = 0; i < mf.sharedMesh.subMeshCount; i++) tris += mf.sharedMesh.GetIndexCount(i) / 3;
         }
-        Check(tris <= 250000, $"triangles {tris} <= 250000 ({meshes} mesh renderers)");
+        Check(tris <= Spec.MaxTris, $"triangles {tris} <= {Spec.MaxTris} ({meshes} mesh renderers)");
 
         var rends = go.GetComponentsInChildren<Renderer>(true);
         Bounds all = rends[0].bounds; foreach (var r in rends) all.Encapsulate(r.bounds);
         Log($"    union bounds min={all.min:F3} max={all.max:F3} size={all.size:F3}");
-        Check(all.size.y >= 1.2f && all.size.y <= 1.9f, $"height {all.size.y:F3} in [1.2,1.9]");
-        Check(all.min.y >= -0.05f && all.min.y <= 0.1f, $"min y {all.min.y:F3} in [-0.05,0.1]");
+        Check(all.size.y >= Spec.MinHeight && all.size.y <= Spec.MaxHeight, $"height {all.size.y:F3} in [{Spec.MinHeight},{Spec.MaxHeight}]");
+        Check(all.min.y >= Spec.MinMinY && all.min.y <= Spec.MaxMinY, $"min y {all.min.y:F3} in [{Spec.MinMinY},{Spec.MaxMinY}]");
         bool first = true; Bounds body = default;
         foreach (var r in rends)
         {
@@ -192,16 +194,19 @@ public static class FirstPersonVerify
             if (first) { body = r.bounds; first = false; } else body.Encapsulate(r.bounds);
         }
         Check(body.size.x < 0.8f && body.size.z < 0.8f, $"base/torso (no arm_/hand_) extent x={body.size.x:F3} z={body.size.z:F3} < 0.8");
-        float lx = byFrame["arm_left_base_link"].transform.position.x, rx = byFrame["arm_right_base_link"].transform.position.x;
-        Check(lx < 0 && rx > 0, $"arm_left_base x={lx:F3} < 0 < arm_right_base x={rx:F3}");
+        if (Spec.DualArm)
+        {
+            float lx = byFrame["arm_left_base_link"].transform.position.x, rx = byFrame["arm_right_base_link"].transform.position.x;
+            Check(lx < 0 && rx > 0, $"arm_left_base x={lx:F3} < 0 < arm_right_base x={rx:F3}");
+        }
         var cam = byFrame["head_camera_color_frame"].transform;
         float camAngle = Vector3.Angle(cam.forward, root.forward);
-        Check(cam.position.y > 0.9f && camAngle < 5f, $"head_camera_color_frame y={cam.position.y:F3} > 0.9, forward angle {camAngle:F2} < 5 (pos {cam.position:F3})");
-        Log("    wheel_ links y: " + string.Join(", ", links.Where(l => l.frame.StartsWith("wheel_")).Select(l => $"{l.frame}={l.transform.position.y:F3}")));
+        Check(cam.position.y > Spec.MinCameraY && camAngle < 5f, $"head_camera_color_frame y={cam.position.y:F3} > {Spec.MinCameraY}, forward angle {camAngle:F2} < 5 (pos {cam.position:F3})");
+        Log("    wheel links y: " + string.Join(", ", links.Where(l => l.frame.Contains("wheel")).Select(l => $"{l.frame}={l.transform.position.y:F3}")));
         // Steering bases/steering links sit above the wheels by URDF (0.319 / 0.223 m); the wheels themselves must be low.
-        var wheels = links.Where(l => l.frame.StartsWith("wheel_drive_")).ToList();
+        var wheels = links.Where(l => l.frame.Contains(Spec.WheelLinkContains)).ToList();
         var highWheels = wheels.Where(l => l.transform.position.y >= 0.2f).Select(l => $"{l.frame}={l.transform.position.y:F3}").ToList();
-        Check(wheels.Count > 0 && highWheels.Count == 0, $"{wheels.Count} wheel_drive_ links y < 0.2 {string.Join(", ", highWheels)}");
+        Check(wheels.Count > 0 && highWheels.Count == 0, $"{wheels.Count} '{Spec.WheelLinkContains}' links y < 0.2 {string.Join(", ", highWheels)}");
 
         var far = new List<(float d, string what)>();
         foreach (var r in rends)
@@ -308,7 +313,7 @@ public static class FirstPersonVerify
         LoadUrdf();
         PlayerPrefs.DeleteAll();
         PlayerPrefs.SetString("RosIPAddress", "127.0.0.1");
-        PlayerPrefs.SetInt("RobotModel/SOBIT_HOME", 1); PlayerPrefs.SetString("CameraLayout/SOBIT_HOME", "firstperson");
+        PlayerPrefs.SetInt($"RobotModel/{Spec.Asset}", 1); PlayerPrefs.SetString($"CameraLayout/{Spec.Asset}", "firstperson");
         PlayerPrefs.SetInt("DebugCapture", 1);
         PlayerPrefs.Save();
         string capturePath = Path.Combine(Application.persistentDataPath, "fpv_capture.png");
@@ -316,12 +321,12 @@ public static class FirstPersonVerify
 
         // Start with the head turned so the first-TF recenter is meaningful.
         var pre = Pub("head -0.4 0.0");
-        var preLift = Pub("lift 0.5");
+        var preLift = Spec.HasLift ? Pub("lift 0.5") : null;
         var preArm = Pub("armhome");
-        while (!pre.HasExited || !preLift.HasExited || !preArm.HasExited) yield return Seconds(0.2);
+        while (!pre.HasExited || (preLift != null && !preLift.HasExited) || !preArm.HasExited) yield return Seconds(0.2);
         yield return Seconds(2.0);
 
-        var profile = AssetDatabase.LoadAssetAtPath<RobotProfile>("Assets/Robots/SOBIT_HOME.asset");
+        var profile = AssetDatabase.LoadAssetAtPath<RobotProfile>(Spec.ProfilePath);
         EditorSceneManager.OpenScene("Assets/Scenes/TeleopScene.unity");
         RobotProfile.Selected = profile;
         var pubEdit = Object.FindFirstObjectByType<QuestControllerPublisher>();
@@ -334,7 +339,7 @@ public static class FirstPersonVerify
         yield return Frames(2);
 
         var ros = ROSConnection.GetOrCreateInstance();
-        if (!_jsSubscribed) { ros.Subscribe<JointStateMsg>("/sobit_home/joint_states", OnJointStates); _jsSubscribed = true; }
+        if (!_jsSubscribed) { ros.Subscribe<JointStateMsg>(Spec.JointStates, OnJointStates); _jsSubscribed = true; }
         var hud = Object.FindFirstObjectByType<TeleopHud>();
         var images = Object.FindFirstObjectByType<ImageSubscriber>();
         Check(hud != null && hud.FirstPerson, "TeleopHud starts in first person from PlayerPrefs");
@@ -359,38 +364,40 @@ public static class FirstPersonVerify
         var head = Camera.main.transform;
         var root = model.Root;
         var camFrame = model.Frame(profile.cameraFrame);
-        var pan = model.Frame("head_pan_link");
-        var tilt = model.Frame("head_tilt_link");
-        var lift = model.Frame("body_lift_link");
+        var pan = model.Frame(Spec.PanLink);
+        var tilt = model.Frame(Spec.TiltLink);
+        var lift = Spec.HasLift ? model.Frame(Spec.LiftLink) : null;
+        Check(Spec.HasLift == !string.IsNullOrEmpty(profile.liftFrame), $"profile liftFrame '{profile.liftFrame}' matches the robot (lift: {Spec.HasLift})");
 
         // First-TF recenter: the camera frame sits at the head and looks where the head looks.
         {
             float d = (camFrame.position - head.position).magnitude;
             Vector3 a = camFrame.forward, b = head.forward; a.y = 0; b.y = 0;
             float yaw = Vector3.Angle(a, b);
-            Check(d < 0.01f && yaw < 2f, $"after first TF: camera frame at the head ({d * 1000:F1} mm) and yaw aligned ({yaw:F2} deg) with pan q={Q("head_pan_joint"):F3}");
+            Check(d < 0.01f && yaw < 2f, $"after first TF: camera frame at the head ({d * 1000:F1} mm) and yaw aligned ({yaw:F2} deg) with pan q={Q(Spec.PanJoint):F3}");
         }
         Check(model.TfHz > 10f, $"TfHz {model.TfHz:F1} > 10");
         Check(images.Panels.All(p => !p.Visible), $"all {images.Panels.Count} camera blocks hidden in first person");
         Check(GameObject.Find("HUD Bar") == null || !GameObject.Find("HUD Bar").activeInHierarchy, "HUD bar hidden in first person");
 
-        var headJoints = new[] { "head_pan_joint", "head_tilt_joint" };
-        var armJoints = _joints.Values.Where(j => j.name.StartsWith("arm_left_") && j.type != "fixed").Select(j => j.name).ToArray();
+        var headJoints = new[] { Spec.PanJoint, Spec.TiltJoint };
+        var armJoints = _joints.Values.Where(j => j.name.StartsWith(Spec.ArmJointPrefix) && j.type != "fixed").Select(j => j.name).ToArray();
         var allMoving = _joints.Values.Where(j => j.type != "fixed" && _q.ContainsKey(j.name)).Select(j => j.name).ToList();
         CompareJoints(model, "initial pose", allMoving);
 
         // Head target 1.
         var p1 = Pub("head 0.5 0.3");
-        var e = Settle(p1, new Dictionary<string, double> { ["head_pan_joint"] = 0.5, ["head_tilt_joint"] = 0.3 }); while (e.MoveNext()) yield return e.Current;
+        var e = Settle(p1, new Dictionary<string, double> { [Spec.PanJoint] = 0.5, [Spec.TiltJoint] = 0.3 }); while (e.MoveNext()) yield return e.Current;
         {
-            float qp = (float)Q("head_pan_joint"), qt = (float)Q("head_tilt_joint");
-            float ap = Quaternion.Angle(pan.localRotation, Quaternion.AngleAxis(-qp * Mathf.Rad2Deg, Vector3.up));
-            var tj = _joints["head_tilt_joint"];
-            float at = Quaternion.Angle(tilt.localRotation, tj.rot * Quaternion.AngleAxis(-qt * Mathf.Rad2Deg, Vector3.right));
-            float dpos = (tilt.localPosition - new Vector3(0f, 0.131f, 0.05f)).magnitude;
+            float qp = (float)Q(Spec.PanJoint), qt = (float)Q(Spec.TiltJoint);
+            var tj = _joints[Spec.TiltJoint];
+            Expected(_joints[Spec.PanJoint], qp, out _, out var panWant); Expected(tj, qt, out var tiltPos, out var tiltWant);
+            float ap = Quaternion.Angle(pan.localRotation, panWant);
+            float at = Quaternion.Angle(tilt.localRotation, tiltWant);
+            float dpos = (tilt.localPosition - tiltPos).magnitude;
             Check(ap < 1.5f, $"head 1: pan q={qp:F3} model error {ap:F2} deg < 1.5");
-            Check(at < 1.5f, $"head 1: tilt q={qt:F3} model error {at:F2} deg < 1.5 (origin rot {tj.rot.eulerAngles:F1})");
-            Check(dpos < 0.002f, $"head_tilt_link localPosition {tilt.localPosition:F4} ~ (0,0.131,0.05) err {dpos * 1000:F2} mm");
+            Check(at < 1.5f, $"head 1: tilt q={qt:F3} model error {at:F2} deg < 1.5 (origin rot {tj.rot.eulerAngles:F1}, axis {tj.axis:F2})");
+            Check(dpos < 0.002f, $"{Spec.TiltLink} localPosition {tilt.localPosition:F4} ~ URDF {tiltPos:F4} err {dpos * 1000:F2} mm");
             Check(Math.Abs(qp - 0.5) < 0.03 && Math.Abs(qt - 0.3) < 0.03, "head 1 reached the target in the sim");
             Check(model.TfHz > 10f, $"TfHz {model.TfHz:F1} > 10");
         }
@@ -412,47 +419,63 @@ public static class FirstPersonVerify
         Shot("fpv_view_recentered_down30", downPose);
         Object.DestroyImmediate(downPose.gameObject);
 
-        // Lift: model local y follows; pan anchor stays fixed while the lift moves.
-        Vector3 anchor = Field<Vector3>(fpv, "_anchorPoint");
-        double qLift0 = Q("body_lift_joint"); float yLift0 = lift.localPosition.y;
-        float maxAnchorErr = 0f, maxAnchorDrift = 0f; Vector3 rootStart = root.position;
-        var p2 = Pub("lift 0.2");
-        double lend = EditorApplication.timeSinceStartup + 25;
-        while (EditorApplication.timeSinceStartup < lend)
+        if (Spec.HasLift)
         {
-            maxAnchorErr = Mathf.Max(maxAnchorErr, (pan.position - anchor).magnitude);
-            maxAnchorDrift = Mathf.Max(maxAnchorDrift, (Field<Vector3>(fpv, "_anchorPoint") - anchor).magnitude);
-            if (p2.HasExited && Math.Abs(Q("body_lift_joint") - 0.2) < 0.003) break;
-            yield return Frames(1);
-        }
-        for (int i = 0; i < 20; i++) { maxAnchorErr = Mathf.Max(maxAnchorErr, (pan.position - anchor).magnitude); yield return Frames(1); }
-        {
-            double qLift1 = Q("body_lift_joint"); float yLift1 = lift.localPosition.y;
-            double dq = qLift1 - qLift0; float dy = yLift1 - yLift0;
-            Check(Math.Abs(dq - (-0.3)) < 0.03, $"lift reached 0.2 in the sim (q {qLift0:F3} -> {qLift1:F3})");
-            Check(Math.Abs(dy - dq) < 0.005, $"body_lift_link local y change {dy:F4} = joint change {dq:F4} (+-5 mm)");
-            Check(maxAnchorErr < 0.002f && maxAnchorDrift < 1e-5f, $"pan anchor held while lifting: max |pan - anchor| {maxAnchorErr * 1000:F2} mm, anchor drift {maxAnchorDrift * 1000:F3} mm; root moved {(root.position - rootStart).y:F3} m in y");
-            Check(Mathf.Abs((root.position - rootStart).y - (float)(-dq)) < 0.01f, "model root moved up by the lift drop (user stays at the head)");
+            // Lift: model local y follows; pan anchor stays fixed while the lift moves.
+            Vector3 anchor = Field<Vector3>(fpv, "_anchorPoint");
+            double qLift0 = Q(Spec.LiftJoint); float yLift0 = lift.localPosition.y;
+            float maxAnchorErr = 0f, maxAnchorDrift = 0f; Vector3 rootStart = root.position;
+            var p2 = Pub("lift 0.2");
+            double lend = EditorApplication.timeSinceStartup + 25;
+            while (EditorApplication.timeSinceStartup < lend)
+            {
+                maxAnchorErr = Mathf.Max(maxAnchorErr, (pan.position - anchor).magnitude);
+                maxAnchorDrift = Mathf.Max(maxAnchorDrift, (Field<Vector3>(fpv, "_anchorPoint") - anchor).magnitude);
+                if (p2.HasExited && Math.Abs(Q(Spec.LiftJoint) - 0.2) < 0.003) break;
+                yield return Frames(1);
+            }
+            for (int i = 0; i < 20; i++) { maxAnchorErr = Mathf.Max(maxAnchorErr, (pan.position - anchor).magnitude); yield return Frames(1); }
+            {
+                double qLift1 = Q(Spec.LiftJoint); float yLift1 = lift.localPosition.y;
+                double dq = qLift1 - qLift0; float dy = yLift1 - yLift0;
+                Check(Math.Abs(dq - (-0.3)) < 0.03, $"lift reached 0.2 in the sim (q {qLift0:F3} -> {qLift1:F3})");
+                Check(Math.Abs(dy - dq) < 0.005, $"body_lift_link local y change {dy:F4} = joint change {dq:F4} (+-5 mm)");
+                Check(maxAnchorErr < 0.002f && maxAnchorDrift < 1e-5f, $"pan anchor held while lifting: max |pan - anchor| {maxAnchorErr * 1000:F2} mm, anchor drift {maxAnchorDrift * 1000:F3} mm; root moved {(root.position - rootStart).y:F3} m in y");
+                Check(Mathf.Abs((root.position - rootStart).y - (float)(-dq)) < 0.01f, "model root moved up by the lift drop (user stays at the head)");
+            }
+
         }
 
-        // Arm left to initial_pose.
-        var hand = model.Frame("hand_left_camera_base_link");
+        // Arm to its "away" pose (HOME: left arm initial_pose, LIGHT: floor_ready_pose).
+        var hand = model.Frame(Spec.HandFrame);
         Vector3 handBefore = root.InverseTransformPoint(hand.position);
-        var p3 = Pub("armleft");
-        var armTargets = new Dictionary<string, double> { ["arm_left_shoulder_tilt_joint"] = -0.75, ["arm_left_upper_roll_joint"] = -1.22, ["arm_left_upper_flex_joint"] = -0.2, ["arm_left_elbow_joint"] = 2.5 };
-        e = Settle(p3, armTargets); while (e.MoveNext()) yield return e.Current;
+        var p3 = Pub("arm");
+        e = Settle(p3, Spec.ArmMoved); while (e.MoveNext()) yield return e.Current;
         Vector3 handAfter = root.InverseTransformPoint(hand.position);
-        Check((handAfter - handBefore).magnitude > 0.05f, $"hand_left_camera_base_link moved {(handAfter - handBefore).magnitude:F3} m in root space ({handBefore:F3} -> {handAfter:F3})");
-        CompareJoints(model, "arm left", armJoints);
+        Check((handAfter - handBefore).magnitude > 0.05f, $"{Spec.HandFrame} moved {(handAfter - handBefore).magnitude:F3} m in root space ({handBefore:F3} -> {handAfter:F3})");
+        CompareJoints(model, "arm", armJoints);
         CompareJoints(model, "all joints after arm", allMoving);
+
+        if (!Spec.HasLift)
+        {   // SOBIT LIGHT's gripper: hand_joint open 0.029 / close -0.013 (prismatic, metres)
+            foreach (var (cmd, target) in new[] { ("close", -0.013), ("open", 0.029) })
+            {
+                var ph = Pub("hand " + cmd);
+                e = Settle(ph, new Dictionary<string, double> { ["hand_joint"] = target }); while (e.MoveNext()) yield return e.Current;
+                yield return Seconds(2.0);   // the gripper is slow (velocity limit 0.08 m/s); Settle accepts 0.01
+                Check(Math.Abs(Q("hand_joint") - target) < 0.003, $"hand {cmd}: hand_joint q={Q("hand_joint"):F4} target {target}");
+                CompareJoints(model, "hand " + cmd, new[] { "hand_joint" }, 1.5f, 3f);
+            }
+        }
 
         // Head target 2.
         var p4 = Pub("head -0.4 0.0");
-        e = Settle(p4, new Dictionary<string, double> { ["head_pan_joint"] = -0.4, ["head_tilt_joint"] = 0.0 }); while (e.MoveNext()) yield return e.Current;
+        e = Settle(p4, new Dictionary<string, double> { [Spec.PanJoint] = -0.4, [Spec.TiltJoint] = 0.0 }); while (e.MoveNext()) yield return e.Current;
         {
-            float qp = (float)Q("head_pan_joint"), qt = (float)Q("head_tilt_joint");
-            float ap = Quaternion.Angle(pan.localRotation, Quaternion.AngleAxis(-qp * Mathf.Rad2Deg, Vector3.up));
-            float at = Quaternion.Angle(tilt.localRotation, _joints["head_tilt_joint"].rot * Quaternion.AngleAxis(-qt * Mathf.Rad2Deg, Vector3.right));
+            float qp = (float)Q(Spec.PanJoint), qt = (float)Q(Spec.TiltJoint);
+            Expected(_joints[Spec.PanJoint], qp, out _, out var panWant2); Expected(_joints[Spec.TiltJoint], qt, out _, out var tiltWant2);
+            float ap = Quaternion.Angle(pan.localRotation, panWant2);
+            float at = Quaternion.Angle(tilt.localRotation, tiltWant2);
             Check(Math.Abs(qp + 0.4) < 0.03 && ap < 1.5f && at < 1.5f, $"head 2: pan q={qp:F3} err {ap:F2} deg, tilt q={qt:F3} err {at:F2} deg");
         }
 
@@ -464,7 +487,7 @@ public static class FirstPersonVerify
         var viewRt = Field<RectTransform>(fpv, "_viewRt");
         bool hasInfo = Field<bool>(fpv, "_hasInfo");
         float w = viewRt.sizeDelta.x / 1000f, h = viewRt.sizeDelta.y / 1000f;
-        float wHfov = 2f * 1.5f * Mathf.Tan(1.2113f / 2f);
+        float wHfov = 2f * 1.5f * Mathf.Tan(profile.defaultHfov / 2f);
         if (hasInfo)
         {
             double fx = Field<double>(fpv, "_fx"), iw = Field<double>(fpv, "_infoW");
@@ -491,7 +514,7 @@ public static class FirstPersonVerify
         yield return Frames(3);
         Check(!hud.FirstPerson && images.Panels.All(p => p.Visible), $"blocks reappear ({images.Panels.Count(p => p.Visible)}/{images.Panels.Count})");
         Check(Object.FindObjectsByType<RobotModel>(FindObjectsSortMode.None).Length == 0 && Object.FindFirstObjectByType<FirstPersonView>() == null, "model gone in blocks mode");
-        Check(PlayerPrefs.GetInt("RobotModel/SOBIT_HOME", -1) == 0 && PlayerPrefs.GetString("CameraLayout/SOBIT_HOME") == "firstperson", "RobotModel pref = 0, CameraLayout pref kept = firstperson");
+        Check(PlayerPrefs.GetInt($"RobotModel/{Spec.Asset}", -1) == 0 && PlayerPrefs.GetString($"CameraLayout/{Spec.Asset}") == "firstperson", "RobotModel pref = 0, CameraLayout pref kept = firstperson");
         Shot("fpv_blocks_after_toggle", head);
         Exception ex = null;
         try { hud.SetRobotModel(true); } catch (Exception x) { ex = x; }

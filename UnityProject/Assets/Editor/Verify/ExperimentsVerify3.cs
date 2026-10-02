@@ -112,10 +112,10 @@ public static class ExperimentsVerify3
         Log("===== feedback round 2");
         PlayerPrefs.DeleteAll();
         PlayerPrefs.SetString("RosIPAddress", "127.0.0.1");
-        PlayerPrefs.SetInt("RobotModel/SOBIT_HOME", 1); PlayerPrefs.SetString("CameraLayout/SOBIT_HOME", "firstperson");
+        PlayerPrefs.SetInt($"RobotModel/{RobotSpec.Current.Asset}", 1); PlayerPrefs.SetString($"CameraLayout/{RobotSpec.Current.Asset}", "firstperson");
         PlayerPrefs.Save();
 
-        var profile = AssetDatabase.LoadAssetAtPath<RobotProfile>("Assets/Robots/SOBIT_HOME.asset");
+        var profile = AssetDatabase.LoadAssetAtPath<RobotProfile>(RobotSpec.Current.ProfilePath);
         EditorSceneManager.OpenScene("Assets/Scenes/TeleopScene.unity");
         RobotProfile.Selected = profile;
         Object.FindFirstObjectByType<QuestControllerPublisher>().controlRobot = false;
@@ -187,9 +187,9 @@ public static class ExperimentsVerify3
         // ================= 2. camera toggles in first person =================
         {
             var headPanel = images.Panels[headIdx];
-            int li = images.IndexOf("hand_left_camera/color/image_raw/compressed");
+            int li = images.IndexOf(RobotSpec.Current.Sides[0].cameraSuffix);
             var leftPanel = images.Panels[li];
-            Check(AllBlocksInactive() && fpv.CardVisible && fpv.CameraOn && pip.ActiveCardCount == 2, $"2: start: blocks inactive, card visible, CameraOn, ActiveCardCount {pip.ActiveCardCount}");
+            Check(AllBlocksInactive() && fpv.CardVisible && fpv.CameraOn && pip.ActiveCardCount == RobotSpec.Current.Sides.Length, $"2: start: blocks inactive, card visible, CameraOn, ActiveCardCount {pip.ActiveCardCount}");
             images.SetCameraVisible(headPanel, false);
             yield return Frames(2);
             int f0 = fpv.FramesReceived;
@@ -201,12 +201,12 @@ public static class ExperimentsVerify3
             Check(fpv.CardVisible && fpv.CameraOn && fpv.FramesReceived > f0 && AllBlocksInactive(), $"2: head on -> card visible, frames {f0} -> {fpv.FramesReceived}, blocks inactive");
             images.SetCameraVisible(leftPanel, false);
             yield return Frames(2);
-            Check(pip.ActiveCardCount == 1 && AllBlocksInactive(), $"2: left hand cam off -> ActiveCardCount {pip.ActiveCardCount} (1), blocks inactive");
+            Check(pip.ActiveCardCount == RobotSpec.Current.Sides.Length - 1 && AllBlocksInactive(), $"2: left hand cam off -> ActiveCardCount {pip.ActiveCardCount}, blocks inactive");
             images.SetCameraVisible(headPanel, false);
             yield return Frames(2);
             images.ResetLayout();
             yield return Frames(3);
-            Check(pip.ActiveCardCount == 2 && fpv.CardVisible && fpv.CameraOn && images.Panels.All(images.IsOn) && AllBlocksInactive(),
+            Check(pip.ActiveCardCount == RobotSpec.Current.Sides.Length && fpv.CardVisible && fpv.CameraOn && images.Panels.All(images.IsOn) && AllBlocksInactive(),
                   $"2: ResetLayout -> all on (cards {pip.ActiveCardCount}, head card {fpv.CardVisible}, IsOn {images.Panels.Count(images.IsOn)}/{images.Panels.Count}), blocks still inactive");
             yield return Seconds(1.0);
         }

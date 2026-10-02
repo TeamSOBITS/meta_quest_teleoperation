@@ -10,23 +10,26 @@ using UnityEngine;
 using UnityEngine.Rendering;
 
 /// <summary>
-/// Builds the SOBIT HOME model prefab from the URDF + decimated STL meshes (tools/decimate_meshes.py).
+/// Builds a robot model prefab (SOBIT HOME / SOBIT LIGHT) from the URDF + decimated STL meshes (tools/decimate_meshes.py --robot).
 /// One GameObject per link (direct child of its parent link), fixed joints baked in, no physics.
 /// ROS (FLU) -> Unity: position (x,y,z) -> (-y,z,x); rpy -> AngleAxis(-yaw,up)*AngleAxis(pitch,right)*AngleAxis(-roll,forward).
 /// Mesh vertices get the same axis change and their triangle winding is flipped (mirror).
-/// Run: menu "Robots/Build SOBIT HOME model" or  Unity -batchmode -projectPath P -executeMethod UrdfModelBuilder.BuildSobitHome
+/// Run: menu "Robots/Build SOBIT HOME model" / "Robots/Build SOBIT LIGHT model" or
+///   Unity -batchmode -projectPath P -executeMethod UrdfModelBuilder.BuildSobitHome (or BuildSobitLight)
 /// Normals: all vertices are welded (1e-5 m) and normals recalculated, i.e. smooth shading everywhere (no hard edges).
 /// </summary>
 public static class UrdfModelBuilder
 {
-    const string ModelDir = "Assets/Robots/Models/sobit_home";
-    // Builder inputs live outside Assets: <repo>/tools/models/sobit_home/{sobit_home.urdf, meshes_lod/ (STL + colors.json)}.
-    static string InputDir => Path.GetFullPath(Path.Combine(Application.dataPath, "../../tools/models/sobit_home"));
-    static string UrdfPath => Path.Combine(InputDir, "sobit_home.urdf");
+    // Builder inputs live outside Assets: <repo>/tools/models/<robot>/{<robot>.urdf, meshes_lod/ (STL + colors.json)}.
+    static string robotName = "sobit_home";
+    static string ModelDir => "Assets/Robots/Models/" + robotName;
+    static string InputDir => Path.GetFullPath(Path.Combine(Application.dataPath, "../../tools/models/" + robotName));
+    static string UrdfPath => Path.Combine(InputDir, robotName + ".urdf");
     static string LodDir => Path.Combine(InputDir, "meshes_lod");
-    const string GenDir = ModelDir + "/generated";
-    const string PrefabPath = "Assets/Robots/Models/SOBIT_HOME.prefab";
-    const string RootName = "SOBIT_HOME";
+    static string GenDir => ModelDir + "/generated";
+    static string RootName => robotName.ToUpperInvariant();
+    static string PrefabPath => "Assets/Robots/Models/" + RootName + ".prefab";
+    const float MaxLinkExtent = 1.5f;
     const float WeldQuantum = 1e-5f;
     static readonly Color DefaultColor = new Color(0.6f, 0.6f, 0.6f, 1f);
 
@@ -39,10 +42,15 @@ public static class UrdfModelBuilder
     static int missing, visualCount, totalTris;
 
     [MenuItem("Robots/Build SOBIT HOME model")]
-    public static void BuildSobitHome()
+    public static void BuildSobitHome() { Run("sobit_home"); }
+
+    [MenuItem("Robots/Build SOBIT LIGHT model")]
+    public static void BuildSobitLight() { Run("sobit_light"); }
+
+    static void Run(string name)
     {
         bool ok = false;
-        try { ok = Build(); }
+        try { ok = Build(name); }
         catch (Exception e) { Debug.LogError("FPV build: exception " + e); }
         if (Application.isBatchMode) EditorApplication.Exit(ok ? 0 : 1);
     }
@@ -77,8 +85,9 @@ public static class UrdfModelBuilder
     }
 
     // ---- main --------------------------------------------------------------------------------------------------
-    static bool Build()
+    static bool Build(string name)
     {
+        robotName = name;
         meshCache.Clear(); matCache.Clear(); missing = 0; visualCount = 0; totalTris = 0;
         if (!File.Exists(UrdfPath)) { Debug.LogError("FPV build: URDF not found " + UrdfPath); return false; }
 
@@ -96,6 +105,7 @@ public static class UrdfModelBuilder
 
         // clean output folder
         if (AssetDatabase.IsValidFolder(GenDir)) AssetDatabase.DeleteAsset(GenDir);
+        if (!AssetDatabase.IsValidFolder(ModelDir)) AssetDatabase.CreateFolder("Assets/Robots/Models", robotName);
         AssetDatabase.CreateFolder(ModelDir, "generated");
 
         var joints = new List<JointInfo>();
@@ -151,6 +161,7 @@ public static class UrdfModelBuilder
 
         foreach (var kv in gos)
             if (linkNodes.TryGetValue(kv.Key, out var ln)) BuildVisuals(kv.Value, ln);
+        foreach (var kv in gos) WarnOversizedLink(kv.Key, kv.Value);
 
         AssetDatabase.SaveAssets();
         AssetDatabase.Refresh();
@@ -171,20 +182,38 @@ public static class UrdfModelBuilder
         }
         string Pos(string f) { return gos.TryGetValue(f, out var g) ? root.transform.InverseTransformPoint(g.transform.position).ToString("F3") : "n/a"; }
         var bb = ub ?? new Bounds();
-        string posSummary = " head_camera_color_frame=" + Pos("head_camera_color_frame") +
-                  " arm_left_base_link=" + Pos("arm_left_base_link") + " arm_right_base_link=" + Pos("arm_right_base_link");
+        string posSummary = gos.ContainsKey("head_camera_color_frame") ? " head_camera_color_frame=" + Pos("head_camera_color_frame") : "";
 
         var prefab = PrefabUtility.SaveAsPrefabAsset(root, PrefabPath);
         UnityEngine.Object.DestroyImmediate(root);
         if (prefab == null) { Debug.LogError("FPV build: SaveAsPrefabAsset failed"); return false; }
         AssetDatabase.SaveAssets();
 
-        Debug.Log("FPV build: links=" + gos.Count + " visuals=" + visualCount + " missingVisuals=" + missing + " tris=" + totalTris +
+        Debug.Log("FPV build: robot=" + robotName + " links=" + gos.Count + " visuals=" + visualCount + " missingVisuals=" + missing + " tris=" + totalTris +
                   " meshAssets=" + meshCache.Count + " materials=" + matCache.Count +
                   " boundsSize=" + bb.size.ToString("F3") + " minY=" + bb.min.y.ToString("F3") + " maxY=" + bb.max.y.ToString("F3") +
                   " boundsX=[" + bb.min.x.ToString("F3") + "," + bb.max.x.ToString("F3") + "] boundsZ=[" + bb.min.z.ToString("F3") + "," + bb.max.z.ToString("F3") + "]" +
                   posSummary + " prefab=" + PrefabPath);
         return true;
+    }
+
+    /// <summary>Warns when one link's own visuals span more than MaxLinkExtent metres (mm/m unit mix-ups).</summary>
+    static void WarnOversizedLink(string link, GameObject go)
+    {
+        Bounds? b = null;
+        foreach (var mf in go.GetComponentsInChildren<MeshFilter>())
+        {
+            if (mf.GetComponentInParent<RobotLink>() != go.GetComponent<RobotLink>()) continue;
+            var mb = mf.sharedMesh.bounds;
+            var m = go.transform.worldToLocalMatrix * mf.transform.localToWorldMatrix;
+            for (int i = 0; i < 8; i++)
+            {
+                var w = m.MultiplyPoint3x4(mb.center + Vector3.Scale(mb.extents, new Vector3((i & 1) == 0 ? -1 : 1, (i & 2) == 0 ? -1 : 1, (i & 4) == 0 ? -1 : 1)));
+                if (b == null) b = new Bounds(w, Vector3.zero); else { var t = b.Value; t.Encapsulate(w); b = t; }
+            }
+        }
+        if (b.HasValue && b.Value.size.magnitude > MaxLinkExtent)
+            Debug.LogWarning("FPV build: link " + link + " is " + b.Value.size.ToString("F2") + " m (> " + MaxLinkExtent + " m), check mm/m units");
     }
 
     static void AddLink(GameObject go, string frame, string parent, bool isRoot)
@@ -249,11 +278,13 @@ public static class UrdfModelBuilder
     static string ToLodRelative(string uri)
     {
         var m = Regex.Match(uri, @"^package://([^/]+)/meshes/(.+)$");
-        if (m.Success) return m.Groups[1].Value == "sobit_home_description" ? m.Groups[2].Value : "ext/" + m.Groups[1].Value + "/" + m.Groups[2].Value;
+        if (m.Success) return RelativeToPackage(m.Groups[1].Value, m.Groups[2].Value);
         m = Regex.Match(uri, @"/share/([^/]+)/meshes/(.+)$");
-        if (m.Success) return m.Groups[1].Value == "sobit_home_description" ? m.Groups[2].Value : "ext/" + m.Groups[1].Value + "/" + m.Groups[2].Value;
+        if (m.Success) return RelativeToPackage(m.Groups[1].Value, m.Groups[2].Value);
         return null;
     }
+
+    static string RelativeToPackage(string pkg, string rel) { return pkg == robotName + "_description" ? rel : "ext/" + pkg + "/" + rel; }
 
     static List<Variant> ResolveVariants(string uri)
     {
