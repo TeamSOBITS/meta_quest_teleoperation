@@ -2,3 +2,4 @@
 # Source meshes copied from sobit_home_description (45 MB); regenerate: see tools/decimate_meshes.py
 tools/sobit_home_meshes_src/
 tools/__pycache__/
+tools/models/*/src/
