@@ -57,6 +57,8 @@ public class ImageSubscriber : MonoBehaviour
                     ? cameraResolutions[i].y : 480;
 
             materials[i]      = imageRenderers[i].material;
+            materials[i].mainTextureScale = new Vector2(1, -1);
+            materials[i].mainTextureOffset = new Vector2(0, 1);
             textures[i]       = new Texture2D(w, h, TextureFormat.RGB24, false);
             lastRenderTime[i] = 0.0;
 
