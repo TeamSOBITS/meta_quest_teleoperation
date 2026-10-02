@@ -23,13 +23,13 @@ public class ImageSubscriber : MonoBehaviour
     public Transform panelParent;
 
     [Header("Layout (metres, relative to the head)")]
-    public float distance = 4.3f;
-    public float columnGap = 0.15f;
-    public float rowGap = 0.15f;
+    public float distance = HudTheme.ReferenceDistance;
+    public float columnGap = HudTheme.BlockGap;
+    public float rowGap = HudTheme.BlockGap;
     // Area the auto layout may use. minBottom keeps blocks above the HUD bar (compact: 0.7x, 0.3 m lower than at full size).
     public float maxWidth = 6.0f;
     public float maxTop = 2.0f;
-    public float minBottom = -1.75f;
+    public float minBottom = HudTheme.LayoutMinBottom;
     // Upper limit for how much views grow when cameras are hidden (1 = default size).
     public float maxGrow = 1.6f;
 

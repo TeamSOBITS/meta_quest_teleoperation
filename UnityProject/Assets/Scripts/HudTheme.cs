@@ -12,6 +12,8 @@ public static class HudTheme
 
     // Distance the camera blocks sit at; sizes below are tuned for it (metres).
     public const float ReferenceDistance = 4.3f;
+    // Gap between camera blocks and the lowest y the auto layout may use (keeps blocks above the HUD bar), metres.
+    public const float BlockGap = 0.15f, LayoutMinBottom = -1.75f;
     // Font sizes (metres at ReferenceDistance; HudUi.FontAt scales them for other distances).
     public const float TitleFont = 0.14f;   // camera names, ROS IP
     public const float BodyFont  = 0.09f;   // topics, control panel entries

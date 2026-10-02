@@ -28,9 +28,6 @@ public class RobotSelectionHud : MonoBehaviour
     // One card per profile, in this order.
     public RobotProfile[] robots;
 
-    // IP shown before the user has typed one (the robot scenes' ROSConnection default).
-    public string defaultIp = "127.0.0.1";
-
     // Sizes in mm on a canvas at HudTheme.ReferenceDistance (same scale as the robot screens).
     const float CardWidthMm = 1500f, CardPaddingMm = 60f, CardGapMm = 160f, RadiusMm = HudTheme.PanelRadius;
     const float IpRowWidthMm = 3000f, IpRowHeightMm = 260f;
@@ -68,7 +65,7 @@ public class RobotSelectionHud : MonoBehaviour
 
     void Start()
     {
-        _ip = RosIpSettings.Load(defaultIp);
+        _ip = RosIpSettings.Load(Settings.DefaultRosIp);
         StudioEnvironment.Apply(Camera.main);
         _head = Camera.main != null ? Camera.main.transform : transform;
         Build();
