@@ -132,9 +132,29 @@ public class ImageSubscriber : MonoBehaviour
         Ready?.Invoke();
     }
 
-    void AddPanel(RobotProfile.CameraConfig cam)
+    // "Compressed images" (HUD bar, default on): off = the compressed topics of the robot are not
+    // used, their raw twin is (sensor_msgs/Image) instead. Global; changing it reopens the robot
+    // screen (subscriptions cannot be dropped, see HudBar).
+    public const string CompressedKey = "Images/Compressed";
+    public static bool Compressed => PlayerPrefs.GetInt(CompressedKey, 1) == 1;
+    const string CompressedSuffix = "/compressed";
+
+    // Topic that is subscribed for `cam`, and whether it carries raw images.
+    string EffectiveTopic(RobotProfile.CameraConfig cam, out bool raw)
     {
         string topic = _profile.FullTopic(cam);
+        raw = cam.raw;
+        if (!Compressed && topic.EndsWith(CompressedSuffix))
+        {
+            topic = topic.Substring(0, topic.Length - CompressedSuffix.Length);
+            raw = true;
+        }
+        return topic;
+    }
+
+    void AddPanel(RobotProfile.CameraConfig cam)
+    {
+        string topic = EffectiveTopic(cam, out bool raw);
         int index = _panels.Count;
         var panel = CameraPanel.Create(panelParent, cam, topic, InSetup);   // topic line: setup mode only
         string label = PlayerPrefs.GetString(LabelKey(_profile, cam), "");
@@ -158,7 +178,7 @@ public class ImageSubscriber : MonoBehaviour
         _received.Add(0);
         _loggedReceived.Add(0);
 
-        if (cam.raw)
+        if (raw)
             ros.Subscribe<ImageMsg>(topic, msg => OnRawMessage(msg, index));
         else
             ros.Subscribe<CompressedImageMsg>(topic, msg => OnCompressedMessage(msg, index));
@@ -376,7 +396,7 @@ public class ImageSubscriber : MonoBehaviour
     CameraPanel _renaming;
     string _labelBeforeRename;
 
-    void BeginRename(CameraPanel panel)
+    public void BeginRename(CameraPanel panel)
     {
         if (_renameKeyboard.IsOpen) return;
         _renaming = panel;
@@ -546,8 +566,9 @@ public class ImageSubscriber : MonoBehaviour
     {
         if (_profile == null || string.IsNullOrEmpty(topicSuffixOrFullTopic)) return -1;
         string wanted = _profile.FullTopic(topicSuffixOrFullTopic);
+        string raw = wanted.EndsWith(CompressedSuffix) ? wanted.Substring(0, wanted.Length - CompressedSuffix.Length) : wanted;
         for (int i = 0; i < _panels.Count; i++)
-            if (_panels[i].Topic == wanted) return i;
+            if (_panels[i].Topic == wanted || _panels[i].Topic == raw) return i;
         return -1;
     }
 

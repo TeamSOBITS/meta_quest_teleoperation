@@ -1,11 +1,11 @@
 using UnityEngine;
 
 /// <summary>
-/// Tinted copies of a material the robot model already carries, for the experiments' markers and
+/// Tinted copies of a material the robot model already carries, for the overlay markers and
 /// lines. Nothing here looks a shader up by name (Shader.Find fails in a build that did not
 /// include the shader): a copy of an existing material keeps its shader.
 /// </summary>
-public static class ExperimentMaterials
+public static class OverlayMaterials
 {
     // The first material found on the model's renderers, or null.
     public static Material Source(RobotModel model)

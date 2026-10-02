@@ -8,8 +8,8 @@ using UnityEngine;
 /// Arm target markers: sobits_teleop broadcasts the hand targets on /tf as base frame ->
 /// left_target_link / right_target_link. A small sphere is drawn at each target (in the model's
 /// root frame) with a line to the model's end effector, so the distance is where the arm still has
-/// to go. A marker is hidden when its transform was not seen for 1 s. Created by TeleopHud in
-/// first person while the "targets" experiment is on, destroyed when either turns off.
+/// to go. A marker is hidden when its transform was not seen for 1 s. Created by TeleopHud
+/// while the robot model is on, destroyed when it is turned off.
 /// </summary>
 [DefaultExecutionOrder(250)]
 public class ArmTargets : MonoBehaviour
@@ -46,8 +46,8 @@ public class ArmTargets : MonoBehaviour
     public static ArmTargets Create(RobotModel model)
     {
         if (model == null) return null;
-        string root = ExperimentMaterials.RootFrame(model);
-        var source = ExperimentMaterials.Source(model);
+        string root = OverlayMaterials.RootFrame(model);
+        var source = OverlayMaterials.Source(model);
         if (root == null || source == null)
         {
             Debug.LogWarning("Targets: model has no root link or no material; markers skipped");
@@ -77,7 +77,7 @@ public class ArmTargets : MonoBehaviour
         if (side.effector == null)
             Debug.LogWarning($"Targets: frame '{effectorFrame}' not in the model; no line for the {label} target");
 
-        var material = ExperimentMaterials.Tinted(source, colour);
+        var material = OverlayMaterials.Tinted(source, colour);
         var marker = GameObject.CreatePrimitive(PrimitiveType.Sphere);
         marker.name = "Target " + label;
         var collider = marker.GetComponent<Collider>();

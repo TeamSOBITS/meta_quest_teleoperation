@@ -8,11 +8,17 @@ using UnityEngine.UI;
 ///   +-----------------------------------------------------------------------------+
 ///   | SOBIT LIGHT  (JOY ON)                 ROS IP 192.168.11.20 (connected) [Edit]|
 ///   |-----------------------------------------------------------------------------|
-///   | [x] Publish Joy | [x] Head Camera    [x] Hand Camera    | [ Reset layout ]   |
-///   | [ ] Lazy follow | [x] Front Camera   [ ] Back Camera    | [ <- Robots    ]   |
-///   | [ ] Passthrough |                                       | [ Recenter     ]   |
-///   | [ ] First person|  (hint, first person only)            |                    |
+///   | [x] Control robot [ ] Lazy follow | [x] Head Camera   [x] Hand Camera | [Reset layout]|
+///   | [ ] Passthrough [x] Compressed img| [x] Front Camera  [ ] Back Camera | [<- Robots   ]|
+///   | [ ] Robot model                   |                                   | [Recenter    ]|
+///   | Camera layout [Blocks][First person]| (hint, first-person layout only) |               |
 ///   +-----------------------------------------------------------------------------+
+///
+/// Robot model shows the robot's 3D model around you (greyed "(no model)" for robots without one).
+/// Camera layout (only with the model on): Blocks keeps the camera blocks, First person shows the
+/// head camera at its true field of view and the hand cameras at the hands. Compressed images off
+/// subscribes the raw image topics instead; it reopens the robot screen (subscriptions cannot be
+/// dropped), so it is applied at once.
 ///
 /// Passthrough swaps the dark studio background for the real room (see PassthroughMode);
 /// the choice is saved and also applies to the robot selection screen.
@@ -23,14 +29,14 @@ using UnityEngine.UI;
 public class HudBar : MonoBehaviour
 {
     // Sizes in mm on a canvas at HudUi.ReferenceDistance.
-    const float WidthMm = 4200f, PaddingMm = 50f, GapMm = 40f, RadiusMm = 60f, OutlineMm = 22f;
+    const float WidthMm = 5000f, PaddingMm = 50f, GapMm = 40f, RadiusMm = 60f, OutlineMm = 22f;
     const float HeaderHeightMm = 220f, RowHeightMm = 150f;
-    const float JoyColumnMm = 850f, ButtonColumnMm = 560f, EditWidthMm = 420f, PillWidthMm = 640f;
+    const float JoyColumnMm = 2000f, ButtonColumnMm = 560f, EditWidthMm = 420f, PillWidthMm = 640f;
     const int CameraColumns = 2, LeftColumnRows = 4;
     // Space between the lowest camera block and the bar (metres). Blocks are turned to face
     // the eye, which brings their lower outer corners slightly down in view; this gap absorbs it.
     const float GapBelowCamerasM = 0.17f;
-    // The bar is always built at this scale (2.94 m wide instead of 4.2 m); it hangs from the
+    // The bar is always built at this scale (3.5 m wide instead of 5 m); it hangs from the
     // same top edge, so the space below the camera blocks that it frees is given to them
     // (ImageSubscriber.minBottom is lowered by the same amount).
     public const float CompactScale = 0.7f;
@@ -46,8 +52,8 @@ public class HudBar : MonoBehaviour
 
     QuestControllerPublisher _publisher;
     TeleopHud _hud;
-    Toggle _firstPersonToggle;
-    Button _recenter;
+    Toggle _modelToggle;
+    Button _blocksButton, _firstPersonButton, _recenter;
     TextMeshProUGUI _fpHint;
     TextMeshProUGUI _ip, _pillText, _joyText;
     Image _pill, _joyChip, _outline;
@@ -57,12 +63,13 @@ public class HudBar : MonoBehaviour
     {
         // Button column: Reset layout + Back, or in setup mode Reset layout + Save robot + Cancel.
         int buttonRows = images.InSetup ? 3 : 2;
-        // The left column holds three toggles (Publish Joy, Lazy follow, Passthrough).
+        // The left column holds two toggles per row (Control robot, Lazy follow, Passthrough, Compressed
+        // images, Robot model) and the Camera layout row.
         // Added robots get "Find cameras" and "Joy namespace" buttons in the next free slots of
         // the camera toggles.
         int cameraSlots = images.Panels.Count + (images.Profile.isCustom ? 2 : 0);
         // Models: the first-person hint takes the row below the camera toggles; Recenter takes a
-        // button slot (shown in first person only).
+        // button slot (shown while the model is on).
         bool hasModel = images.Profile.HasModel;
         if (hasModel) buttonRows = Mathf.Max(buttonRows, 3);
         int cameraRows = Mathf.CeilToInt(cameraSlots / (float)CameraColumns);
@@ -80,7 +87,7 @@ public class HudBar : MonoBehaviour
         bar._publisher = publisher;
         bar._images = images;
         bar._hud = hud;
-        hud.ViewModeChanged += bar.SyncViewMode;
+        hud.ViewChanged += bar.SyncView;
         bar.Build(root, images, hud, heightMm);
         images.VisibilityReset += bar.SyncCameraToggles;
         images.LabelsChanged += bar.SyncCameraToggles;
@@ -148,27 +155,54 @@ public class HudBar : MonoBehaviour
         HudUi.Place(divider.rectTransform, PaddingMm, top, inner, 4f);
         top += 4f + GapMm;
 
-        // --- Controls: Publish Joy | camera toggles | Reset layout / Back to robots ---
+        // --- Controls: left column | camera toggles | Reset layout / Back to robots ---
+        // Two toggles per row; each is half the column.
+        float half = (JoyColumnMm - GapMm) / 2f, rightX = PaddingMm + half + GapMm;
+        float row1 = top + RowHeightMm + GapMm, row2 = top + 2f * (RowHeightMm + GapMm), row3 = top + 3f * (RowHeightMm + GapMm);
+
         // Control robot: TF (head/controller poses) + Joy. Off = the robot receives nothing.
         var joy = HudUi.Toggle(root, "Control robot", body, _publisher.controlRobot, on => _publisher.controlRobot = on);
         joy.interactable = !images.InSetup;  // setup mode stays in layout mode
-        HudUi.Place((RectTransform)joy.transform, PaddingMm, top, JoyColumnMm, RowHeightMm);
+        HudUi.Place((RectTransform)joy.transform, PaddingMm, top, half, RowHeightMm);
         var lazy = HudUi.Toggle(root, "Lazy follow", body, hud.LazyFollow, hud.SetLazyFollow);
-        HudUi.Place((RectTransform)lazy.transform, PaddingMm, top + RowHeightMm + GapMm, JoyColumnMm, RowHeightMm);
+        HudUi.Place((RectTransform)lazy.transform, rightX, top, half, RowHeightMm);
 
         var passthrough = HudUi.Toggle(root, "Passthrough", body, PassthroughMode.Enabled, on =>
         {
             PassthroughMode.Enabled = on;
             PassthroughMode.Apply(Camera.main, on);
         });
-        HudUi.Place((RectTransform)passthrough.transform, PaddingMm, top + 2f * (RowHeightMm + GapMm), JoyColumnMm, RowHeightMm);
+        HudUi.Place((RectTransform)passthrough.transform, PaddingMm, row1, half, RowHeightMm);
 
-        // First person: needs the robot's 3D model; without one the toggle is greyed out.
+        // Compressed images (global, default on). Off = raw image topics. Topics cannot be unsubscribed,
+        // so a change reopens the robot screen through the selection screen (RobotSelectionHud.AutoOpen).
+        var compressed = HudUi.Toggle(root, "Compressed", body, ImageSubscriber.Compressed, on =>
+        {
+            if (on == ImageSubscriber.Compressed) return;
+            PlayerPrefs.SetInt(ImageSubscriber.CompressedKey, on ? 1 : 0);
+            PlayerPrefs.Save();
+            RobotSelectionHud.AutoOpen = images.Profile;
+            _publisher.BackToRobotSelection();
+        });
+        compressed.interactable = !images.InSetup;   // reopening would drop the robot being set up
+        HudUi.Place((RectTransform)compressed.transform, rightX, row1, half, RowHeightMm);
+
+        // Robot model: needs the robot's 3D model; without one the toggle is greyed out.
         bool hasModel = images.Profile.HasModel;
-        _firstPersonToggle = HudUi.Toggle(root, hasModel ? "First person" : "First person (no model)", body,
-            hud.FirstPerson, hud.SetFirstPerson);
-        _firstPersonToggle.interactable = hasModel && !images.InSetup;
-        HudUi.Place((RectTransform)_firstPersonToggle.transform, PaddingMm, top + 3f * (RowHeightMm + GapMm), JoyColumnMm, RowHeightMm);
+        _modelToggle = HudUi.Toggle(root, "Robot model", body,
+            hud.RobotModelOn, on => hud.SetRobotModel(on));
+        _modelToggle.interactable = hasModel && !images.InSetup;
+        HudUi.Place((RectTransform)_modelToggle.transform, PaddingMm, row2, half, RowHeightMm);
+
+        // Camera layout: segmented Blocks | First person, only usable while the model is on.
+        float segFont = body * 0.9f, labelW = 640f, segW = (JoyColumnMm - labelW - 2f * GapMm) / 2f;
+        var layoutLabel = HudUi.Label(root, "Camera layout", "Camera layout", body, TextAlignmentOptions.Left);
+        layoutLabel.textWrappingMode = TextWrappingModes.NoWrap;
+        HudUi.Place(layoutLabel.rectTransform, PaddingMm, row3, labelW, RowHeightMm);
+        _blocksButton = HudUi.Button(root, "Blocks", segFont, () => hud.SetCameraLayout(FirstPersonView.LayoutBlocks));
+        HudUi.Place((RectTransform)_blocksButton.transform, PaddingMm + labelW + GapMm, row3, segW, RowHeightMm);
+        _firstPersonButton = HudUi.Button(root, "First person", segFont, () => hud.SetCameraLayout(FirstPersonView.LayoutFirstPerson));
+        HudUi.Place((RectTransform)_firstPersonButton.transform, PaddingMm + labelW + 2f * GapMm + segW, row3, segW, RowHeightMm);
 
         float camLeft = PaddingMm + JoyColumnMm + GapMm;
         float camWidth = inner - JoyColumnMm - GapMm - ButtonColumnMm - GapMm;
@@ -248,17 +282,33 @@ public class HudBar : MonoBehaviour
             _recenter = HudUi.Button(root, "Recenter", body, hud.Recenter);
             HudUi.Place((RectTransform)_recenter.transform, buttonsLeft, top + 2f * (RowHeightMm + GapMm), ButtonColumnMm, RowHeightMm);
         }
-        SyncViewMode();
+        SyncView();
     }
 
-    // The view mode changed (or a toggle press was refused): follow it. Recenter and the hint
-    // only make sense in first person.
-    void SyncViewMode()
+    // The model or the layout changed (or a toggle press was refused): follow it. The layout buttons
+    // work with the model on only (off: Blocks shown as selected, greyed); Recenter needs the model;
+    // the hint is about the first-person layout.
+    void SyncView()
     {
         if (_hud == null) return;
-        if (_firstPersonToggle != null) _firstPersonToggle.SetIsOnWithoutNotify(_hud.FirstPerson);
-        if (_recenter != null) _recenter.gameObject.SetActive(_hud.FirstPerson);
+        bool model = _hud.RobotModelOn;
+        string layout = model ? _hud.CameraLayout : FirstPersonView.LayoutBlocks;
+        if (_modelToggle != null) _modelToggle.SetIsOnWithoutNotify(model);
+        Segment(_blocksButton, layout == FirstPersonView.LayoutBlocks, model);
+        Segment(_firstPersonButton, layout == FirstPersonView.LayoutFirstPerson, model);
+        if (_recenter != null) _recenter.gameObject.SetActive(model);
         if (_fpHint != null) _fpHint.gameObject.SetActive(_hud.FirstPerson);
+    }
+
+    // Segmented control look: the selected button is tinted with the accent colour (25 %), text white.
+    static void Segment(Button button, bool selected, bool interactable)
+    {
+        if (button == null) return;
+        button.interactable = interactable;
+        var a = HudUi.AccentColor;
+        button.GetComponent<Image>().color = selected ? new Color(a.r, a.g, a.b, 0.25f) : HudUi.ControlColor;
+        var text = button.GetComponentInChildren<TextMeshProUGUI>();
+        if (text != null) text.color = Color.white;
     }
 
     const string FindCamerasText = "Find cameras";
@@ -306,7 +356,7 @@ public class HudBar : MonoBehaviour
 
     void OnDestroy()
     {
-        if (_hud != null) _hud.ViewModeChanged -= SyncViewMode;
+        if (_hud != null) _hud.ViewChanged -= SyncView;
         if (_images != null)
         {
             _images.VisibilityReset -= SyncCameraToggles;

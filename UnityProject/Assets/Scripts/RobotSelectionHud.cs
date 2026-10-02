@@ -55,6 +55,11 @@ public class RobotSelectionHud : MonoBehaviour
     TextMeshProUGUI _ipLabel, _addName;
     RobotPresence _presence;
     bool _opening;
+
+    // Set by the robot screen's "Compressed images" toggle before it returns here: this robot is
+    // opened again straight away (through the usual presence Close + 1 s handoff), so the new
+    // image topics are used. Consumed once in Start.
+    public static RobotProfile AutoOpen;
     readonly Dictionary<RobotProfile, Image> _dots = new Dictionary<RobotProfile, Image>();
     static readonly Color OfflineDotColor = new Color(1f, 1f, 1f, 0.18f);
 
@@ -65,6 +70,16 @@ public class RobotSelectionHud : MonoBehaviour
         _head = Camera.main != null ? Camera.main.transform : transform;
         Build();
         _presence = RobotPresence.Create(_all, _ip);
+        if (AutoOpen != null)
+        {
+            var robot = AutoOpen;
+            AutoOpen = null;
+            Debug.Log($"[RobotSelection] reopening {robot.displayName}");
+            RobotProfile.Selected = robot;
+            RobotProfile.SetupMode = false;
+            StartCoroutine(Open(robot));
+            return;
+        }
 #if UNITY_ANDROID && !UNITY_EDITOR
         ApplyLaunchExtras();
 #endif
@@ -73,9 +88,9 @@ public class RobotSelectionHud : MonoBehaviour
 #if UNITY_ANDROID && !UNITY_EDITOR
     // Autonomous tests start the app with intent extras, e.g.
     //   am start -n <pkg>/<activity> --es robot SOBIT_HOME --es viewmode firstperson --es capture 1
-    // robot = profile asset name (opens it), viewmode = firstperson | blocks, capture = 1 (save a
-    // screenshot of the robot screen, see TeleopHud), exp = "key=1,key=0" experiment toggles
-    // (ExperimentSettings; saved like a click in the Experiments panel). Read once per app run, so
+    // robot = profile asset name (opens it), viewmode = firstperson (model + first-person layout) |
+    // model (model + blocks layout) | blocks (no model), session only; capture = 1 (save a
+    // screenshot of the robot screen, see TeleopHud). Read once per app run, so
     // "Back to robots" does not open the robot again.
     static bool _extrasHandled;
 
@@ -83,7 +98,7 @@ public class RobotSelectionHud : MonoBehaviour
     {
         if (_extrasHandled) return;
         _extrasHandled = true;
-        string robot = null, viewMode = null, capture = null, exp = null;
+        string robot = null, viewMode = null, capture = null;
         int record = 0, fps = 15, switchAt = -1;
         try
         {
@@ -96,7 +111,6 @@ public class RobotSelectionHud : MonoBehaviour
                     robot = intent.Call<string>("getStringExtra", "robot");
                     viewMode = intent.Call<string>("getStringExtra", "viewmode");
                     capture = intent.Call<string>("getStringExtra", "capture");
-                    exp = intent.Call<string>("getStringExtra", "exp");              // --es exp "headlock=1,status=0"
                     record = intent.Call<int>("getIntExtra", "record", 0);          // --ei record 60
                     fps = intent.Call<int>("getIntExtra", "fps", 15);
                     switchAt = intent.Call<int>("getIntExtra", "switchat", -1);
@@ -108,8 +122,7 @@ public class RobotSelectionHud : MonoBehaviour
             Debug.LogWarning($"FPV: could not read intent extras: {e.Message}");
             return;
         }
-        Debug.Log($"FPV: intent robot={robot} viewmode={viewMode} capture={capture} record={record} fps={fps} switchat={switchAt} exp={exp}");
-        ApplyExperimentExtras(exp);
+        Debug.Log($"FPV: intent robot={robot} viewmode={viewMode} capture={capture} record={record} fps={fps} switchat={switchAt}");
 
         // DebugCapture must not linger: set only by this launch, cleared when no extra is present.
         if (capture == "1") PlayerPrefs.SetInt("DebugCapture", 1);
@@ -123,7 +136,7 @@ public class RobotSelectionHud : MonoBehaviour
             PlayerPrefs.Save();
             return;
         }
-        if (viewMode == FirstPersonView.ModeFirstPerson || viewMode == FirstPersonView.ModeBlocks)
+        if (viewMode == FirstPersonView.LayoutFirstPerson || viewMode == FirstPersonView.LayoutBlocks || viewMode == "model")
             FirstPersonView.ViewModeOverride = viewMode;   // this robot screen only, not saved
         PlayerPrefs.Save();
         if (record > 0)   // session only, never saved
@@ -132,19 +145,6 @@ public class RobotSelectionHud : MonoBehaviour
                 seconds = record, fps = Mathf.Clamp(fps, 1, 60), switchAt = switchAt >= 0 ? switchAt : record / 2f,
             };
         Select(profile);
-    }
-
-    // "key=1,key=0,...": sets each experiment toggle (persists, as from the Experiments panel).
-    static void ApplyExperimentExtras(string exp)
-    {
-        if (string.IsNullOrEmpty(exp)) return;
-        ExperimentSettings.RegisterAll();
-        foreach (var pair in exp.Split(','))
-        {
-            var kv = pair.Split('=');
-            if (kv.Length != 2 || string.IsNullOrWhiteSpace(kv[0])) continue;
-            ExperimentSettings.Set(kv[0].Trim(), kv[1].Trim() == "1");
-        }
     }
 #endif
 

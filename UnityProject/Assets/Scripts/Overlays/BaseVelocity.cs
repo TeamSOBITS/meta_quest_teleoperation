@@ -9,8 +9,8 @@ using UnityEngine.UI;
 /// Base velocity on the floor at the model's base, from the odometry twist (v2: filled meshes):
 /// a flat arrow along the driving direction (longer when faster), a filled arc band with an
 /// arrowhead swinging to the left or right for the turn rate, and a small floating chip with the
-/// numbers ("0.15 m/s", "0.50 rad/s"). All hidden while the base is still. Created by TeleopHud in
-/// first person while the "basevel" experiment is on, destroyed when either turns off.
+/// numbers ("0.15 m/s", "0.50 rad/s"). All hidden while the base is still. Created by TeleopHud
+/// while the robot model is on, destroyed when it is turned off.
 /// Directions: ROS x (forward) is the root's Unity +Z, ROS y (left) is Unity -X.
 /// </summary>
 [DefaultExecutionOrder(250)]
@@ -54,7 +54,7 @@ public class BaseVelocity : MonoBehaviour
     public static BaseVelocity Create(RobotModel model, RobotProfile profile)
     {
         if (model == null || profile == null) return null;
-        var source = ExperimentMaterials.Source(model);
+        var source = OverlayMaterials.Source(model);
         if (source == null)
         {
             Debug.LogWarning("BaseVel: model has no material; arrow skipped");
@@ -86,15 +86,15 @@ public class BaseVelocity : MonoBehaviour
         _arrowMesh.vertices = _arrowVerts;
         _arrowMesh.triangles = new[] { 0, 1, 2, 0, 2, 3, 4, 5, 6 };   // clockwise seen from above
         _arrowMesh.RecalculateNormals();
-        _arrowR = AddRenderer(arrow, _arrowMesh, ExperimentMaterials.Transparent(
-            ExperimentMaterials.Tinted(source, new Color(HudUi.AccentColor.r, HudUi.AccentColor.g, HudUi.AccentColor.b, Alpha))));
+        _arrowR = AddRenderer(arrow, _arrowMesh, OverlayMaterials.Transparent(
+            OverlayMaterials.Tinted(source, new Color(HudUi.AccentColor.r, HudUi.AccentColor.g, HudUi.AccentColor.b, Alpha))));
 
         var arc = new GameObject("Turn");
         _arcT = arc.transform;
         _arcT.SetParent(transform, false);
         _arcMesh = new Mesh { name = "Base velocity turn" };
-        _arcR = AddRenderer(arc, _arcMesh, ExperimentMaterials.Transparent(
-            ExperimentMaterials.Tinted(source, new Color(HudUi.WarnColor.r, HudUi.WarnColor.g, HudUi.WarnColor.b, Alpha))));
+        _arcR = AddRenderer(arc, _arcMesh, OverlayMaterials.Transparent(
+            OverlayMaterials.Tinted(source, new Color(HudUi.WarnColor.r, HudUi.WarnColor.g, HudUi.WarnColor.b, Alpha))));
     }
 
     static MeshRenderer AddRenderer(GameObject go, Mesh mesh, Material material)

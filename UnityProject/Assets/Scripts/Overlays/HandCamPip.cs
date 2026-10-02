@@ -2,24 +2,19 @@ using System.Collections.Generic;
 using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.XR.Interaction.Toolkit.UI;
 
 /// <summary>
 /// Hand cameras in first person: one small card per hand camera of the robot (RawImage on a
-/// rounded PanelColor box, a muted "Left hand" / "Right hand" label). In mode "hands" a card floats
-/// outboard of and a little below its gripper (the model's hand_*_end_effector_link), to the side
-/// of the line of sight so it never covers what the head camera shows there, and faces the head;
-/// in mode "corners"
-/// both cards are head-locked at the bottom corners of the view. Created by TeleopHud in first
-/// person while the "handcams" experiment is on, destroyed when either turns off.
-/// The mode is a second pref, "Exp/handcams.mode" (<see cref="Mode"/>).
+/// rounded PanelColor box, a muted label with the camera's name). A card floats outboard of and a
+/// little below its gripper (the model's hand_*_end_effector_link), to the side of the line of sight
+/// so it never covers what the head camera shows there, and faces the head. Created by TeleopHud in
+/// the first-person camera layout, destroyed when the layout or the robot model is switched off.
+/// In layout mode (<see cref="SetEditable"/>) each card has a Rename button above its top-right corner.
 /// </summary>
 public class HandCamPip : MonoBehaviour
 {
-    public const string ModeHands = "hands", ModeCorners = "corners";
-    const string ModePref = "Exp/handcams.mode";
-
-    const float CardWidthHandsM = 0.22f, CardWidthCornersM = 0.30f, OutboardM = 0.28f, BelowHandM = 0.05f, SideDeadZoneM = 0.03f;
-    const float CornerDistanceM = 0.9f, CornerXM = 0.52f, CornerYM = -0.35f;   // x: clear of the status strip
+    const float CardWidthM = 0.22f, OutboardM = 0.28f, BelowHandM = 0.05f;
     const float PaddingMm = 8f, RadiusMm = 14f, LabelMm = 30f;
     static readonly Color WaitingColor = new Color(0.15f, 0.15f, 0.15f, 1f);
 
@@ -36,24 +31,12 @@ public class HandCamPip : MonoBehaviour
         public float aspect;
         public RobotProfile.CameraConfig config;
         public bool sized;
-        public string builtMode;
+        public TextMeshProUGUI name;
+        public Button rename;
     }
 
     ImageSubscriber _images;
     readonly List<Card> _cards = new List<Card>();
-
-    public static string Mode
-    {
-        get => PlayerPrefs.GetString(ModePref, ModeHands) == ModeCorners ? ModeCorners : ModeHands;
-        set
-        {
-            string v = value == ModeCorners ? ModeCorners : ModeHands;
-            if (Mode == v) return;
-            PlayerPrefs.SetString(ModePref, v);
-            PlayerPrefs.Save();
-            Debug.Log($"[Experiments] handcams.mode -> {v}");
-        }
-    }
 
     public int CardCount => _cards.Count;
     // Cards whose camera is on in the bar (the others are hidden and not decoded).
@@ -75,6 +58,7 @@ public class HandCamPip : MonoBehaviour
         }
         images.FrameReady += pip.OnFrame;
         images.CameraVisibilityChanged += pip.OnCameraVisibility;
+        images.LabelsChanged += pip.OnLabels;
         return pip;
     }
 
@@ -86,11 +70,12 @@ public class HandCamPip : MonoBehaviour
         if (link == null) { Debug.LogWarning($"HandCams: frame '{frame}' not in the model, skipping the {label} camera"); return; }
 
         var config = _images.Panels[index].Config;
-        var card = new Card { index = index, left = left, link = link, config = config, aspect = config.Aspect };
+        var card = new Card { index = index, left = SideOf(suffix, config, left), link = link, config = config, aspect = config.Aspect };
         var go = new GameObject("Hand Cam " + label, typeof(RectTransform));
         card.go = go;
         go.transform.SetParent(transform, false);
         var canvas = go.AddComponent<Canvas>();
+        go.AddComponent<TrackedDeviceGraphicRaycaster>();   // for the Rename button
         canvas.renderMode = RenderMode.WorldSpace;
         canvas.sortingOrder = HudUi.CanvasSortingOrder - 5;   // above the FPV image, behind the HUD
         canvas.worldCamera = Camera.main;
@@ -106,20 +91,52 @@ public class HandCamPip : MonoBehaviour
         card.waiting = HudUi.Label(card.view.transform, "Waiting", "Waiting", LabelMm * 0.8f);
         card.waiting.color = HudUi.MutedText;
         HudUi.Stretch(card.waiting.rectTransform);
-        card.badge = CameraBadge.Create(card.view.transform, LabelMm);
-        var name = HudUi.Label(card.rt, "Name", label, LabelMm);
+        card.badge = CameraBadge.Create(card.view.transform, card.view.rectTransform.sizeDelta);
+        var name = card.name = HudUi.Label(card.rt, "Name", _images.Panels[index].Label, LabelMm);
         name.color = HudUi.MutedText;
         name.textWrappingMode = TextWrappingModes.NoWrap;
-        // Layout is applied in ApplyMode (card size depends on the mode).
+        name.enableAutoSizing = true;   // renamed cameras can have long names
+        name.fontSizeMin = LabelMm * 0.5f;
+        name.fontSizeMax = LabelMm;
         name.rectTransform.anchorMin = new Vector2(0f, 1f);
         name.rectTransform.anchorMax = new Vector2(1f, 1f);
         name.rectTransform.pivot = new Vector2(0.5f, 1f);
         name.rectTransform.anchoredPosition = new Vector2(0f, -PaddingMm * 0.5f);
         name.rectTransform.sizeDelta = new Vector2(0f, LabelMm * 1.2f);
 
+        // Rename: layout mode only, above the card's top-right corner (same look as a camera block's).
+        int panelIndex = index;
+        card.rename = HudUi.Button(card.rt, "Rename", LabelMm, () => _images.BeginRename(_images.Panels[panelIndex]));
+        var rrt = (RectTransform)card.rename.transform;
+        rrt.anchorMin = rrt.anchorMax = rrt.pivot = new Vector2(1f, 1f);
+        rrt.sizeDelta = new Vector2(LabelMm * 4.6f, LabelMm * 1.6f);
+        rrt.anchoredPosition = new Vector2(0f, rrt.sizeDelta.y + PaddingMm * 0.5f);
+        card.rename.gameObject.SetActive(false);
+
         _cards.Add(card);
-        ApplyMode(card);
+        ApplySize(card);
         SetCardOn(card, _images.IsOn(_images.Panels[index]));
+    }
+
+    // Card side from the camera's identity: "left" in the topic -> true, "right" -> false, else `fallback`.
+    public static bool SideOf(string topic, RobotProfile.CameraConfig config, bool fallback)
+    {
+        string t = ((topic ?? "") + " " + (config?.topicSuffix ?? "")).ToLowerInvariant();
+        bool l = t.Contains("left"), r = t.Contains("right");
+        return l != r ? l : fallback;
+    }
+
+    // Layout mode: the cards' Rename buttons are available.
+    public void SetEditable(bool editable)
+    {
+        foreach (var c in _cards) c.rename.gameObject.SetActive(editable);
+    }
+
+    // A camera was renamed: show the new name.
+    void OnLabels()
+    {
+        if (this == null) return;
+        foreach (var c in _cards) c.name.text = _images.Panels[c.index].Label;
     }
 
     void OnCameraVisibility(int index, bool on)
@@ -137,13 +154,10 @@ public class HandCamPip : MonoBehaviour
         _images.ForceDecode(c.index, on);
     }
 
-    // (Re)size the card for the current mode and parent it (hands: free, corners: under the head).
-    void ApplyMode(Card c)
+    // (Re)size the card for the camera's aspect ratio.
+    void ApplySize(Card c)
     {
-        string mode = Mode;
-        c.builtMode = mode;
-        float widthM = mode == ModeCorners ? CardWidthCornersM : CardWidthHandsM;
-        float viewW = widthM * HudUi.MmPerMetre - 2f * PaddingMm;
+        float viewW = CardWidthM * HudUi.MmPerMetre - 2f * PaddingMm;
         float viewH = viewW / Mathf.Max(c.aspect, 0.1f);
         float top = PaddingMm + LabelMm * 1.2f;
         c.rt.sizeDelta = new Vector2(viewW + 2f * PaddingMm, top + viewH + PaddingMm);
@@ -152,10 +166,7 @@ public class HandCamPip : MonoBehaviour
         v.pivot = new Vector2(0.5f, 1f);
         v.sizeDelta = new Vector2(viewW, viewH);
         v.anchoredPosition = new Vector2(0f, -top);
-
-        var head = FirstPersonView.Head;
-        c.rt.SetParent(mode == ModeCorners && head != null ? head : transform, false);
-        c.rt.localScale = Vector3.one / HudUi.MmPerMetre;
+        c.badge?.Fit(v.sizeDelta);
     }
 
     void OnFrame(int index, Texture2D tex)
@@ -174,7 +185,7 @@ public class HandCamPip : MonoBehaviour
             {
                 c.sized = true;
                 c.aspect = (float)tex.width / tex.height;
-                ApplyMode(c);
+                ApplySize(c);
             }
         }
     }
@@ -188,30 +199,20 @@ public class HandCamPip : MonoBehaviour
     void LateUpdate()
     {
         var head = FirstPersonView.Head;
-        string mode = Mode;
+        if (head == null) return;
         foreach (var c in _cards)
         {
-            if (!c.on) continue;
-            if (c.builtMode != mode) ApplyMode(c);
-            if (head == null) continue;
-            if (mode == ModeCorners)
-            {
-                c.rt.localPosition = new Vector3(c.left ? -CornerXM : CornerXM, CornerYM, CornerDistanceM);
-                c.rt.localRotation = Quaternion.LookRotation(c.rt.localPosition);
-            }
-            else if (c.link != null)
-            {
-                c.rt.position = HandsPosition(c, head);
-                // Canvas front faces -Z, so look away from the head.
-                c.rt.rotation = Quaternion.LookRotation(c.rt.position - head.position, Vector3.up);
-            }
+            if (!c.on || c.link == null) continue;
+            c.rt.position = HandsPosition(c, head);
+            // Canvas front faces -Z, so look away from the head.
+            c.rt.rotation = Quaternion.LookRotation(c.rt.position - head.position, Vector3.up);
         }
     }
 
     // Outboard and low: `outward` is the horizontal direction perpendicular to the line of sight
     // (head -> hand); cross(up, forward) points to the viewer's right. The card goes to the side
-    // the hand is on in head space (its own side by default; the hand's real side when it has
-    // crossed over), so the left hand's card ends up on the viewer's left.
+    // the camera's identity gives (left camera: viewer's left, right camera: right), never the hand's
+    // position, so the cards do not swap sides when the arms cross.
     Vector3 HandsPosition(Card c, Transform head)
     {
         Vector3 hand = c.link.position;
@@ -219,9 +220,7 @@ public class HandCamPip : MonoBehaviour
         outward.y = 0f;
         if (outward.sqrMagnitude < 1e-6f) outward = Vector3.ProjectOnPlane(head.right, Vector3.up);
         outward.Normalize();
-        float x = head.InverseTransformPoint(hand).x;   // + = viewer's right
-        float side = Mathf.Abs(x) > SideDeadZoneM ? Mathf.Sign(x) : c.left ? -1f : 1f;
-        Vector3 pos = hand + outward * (side * OutboardM);
+        Vector3 pos = hand + outward * ((c.left ? -1f : 1f) * OutboardM);
         pos.y = hand.y - BelowHandM;
         return pos;
     }
@@ -231,10 +230,11 @@ public class HandCamPip : MonoBehaviour
         if (_images == null) return;
         _images.FrameReady -= OnFrame;
         _images.CameraVisibilityChanged -= OnCameraVisibility;
+        _images.LabelsChanged -= OnLabels;
         foreach (var c in _cards)
         {
             _images.ForceDecode(c.index, false);   // the head camera's stays
-            if (c.rt != null) Destroy(c.rt.gameObject);   // corner cards hang under the head, not under us
+            if (c.rt != null) Destroy(c.rt.gameObject);
         }
     }
 }

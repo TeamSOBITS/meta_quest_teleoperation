@@ -111,11 +111,11 @@ public class CameraPanel : MonoBehaviour
 
         float body = TopicFontSize * MmPerMetre;
         _waiting = HudUi.Label(_view.transform, "Waiting",
-            $"Waiting for\n<color=#FFFFFF>{ShortTopic(config.topicSuffix).Replace("/", "/\u200B")}</color>", body);
+            $"Waiting for\n<color=#FFFFFF>{ShortTopic(topic).Replace("/", "/\u200B")}</color>", body);
         _waiting.color = HudUi.MutedText;
         HudUi.Stretch(_waiting.rectTransform, body);
 
-        _badge = CameraBadge.Create(_view.transform, body);
+        _badge = CameraBadge.Create(_view.transform, new Vector2(1f, 1f));
 
         // Rename: shown in layout mode only, above the card's top-right corner.
         _rename = HudUi.Button(transform, "Rename", TopicFontSize * MmPerMetre, () => RenameRequested?.Invoke(this));
@@ -169,6 +169,7 @@ public class CameraPanel : MonoBehaviour
         if (_topic != null) Place(_topic.rectTransform, top, topicH, viewW);
 
         _collider.size = new Vector3(totalW, totalH, 2f);
+        _badge.Fit(new Vector2(viewW, viewH));
 
         var m = Measure(size);
         Width  = m.Width;
@@ -315,20 +316,47 @@ public class CameraBadge
     public bool Visible => _bg.gameObject.activeSelf;
     public bool Stale => _stale;
 
+    // Size relative to the view it decorates: font height = 7 % of the view's height, clamped to
+    // [MinFontMm, MaxFontMm]; corner radius = font; margin from the top-right corner = 3 % of the view's width.
+    public const float FontRatio = 0.07f, MarginRatio = 0.03f, MinFontMm = 8f, MaxFontMm = 120f;
+
     CameraBadge(Image bg, TextMeshProUGUI text) { _bg = bg; _text = text; }
 
-    // Hidden until the first frame (Show / Tick turn it on).
-    public static CameraBadge Create(Transform view, float fontMm)
+    public RectTransform Rect => _bg.rectTransform;
+    public float FontMm { get; private set; }
+
+    // Hidden until the first frame (Show / Tick turn it on). `viewMm` is the view's size in canvas units.
+    public static CameraBadge Create(Transform view, Vector2 viewMm)
     {
-        var bg = HudUi.Round(HudUi.Box(view, "Badge", new Color(0f, 0f, 0f, 0.55f)), fontMm);
+        var bg = HudUi.Round(HudUi.Box(view, "Badge", new Color(0f, 0f, 0f, 0.55f)), 10f);
         var rt = bg.rectTransform;
         rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(1f, 1f);
-        rt.anchoredPosition = new Vector2(-0.5f * fontMm, -0.5f * fontMm);
-        var text = HudUi.Label(bg.transform, "Label", "", fontMm * 0.85f);
+        var text = HudUi.Label(bg.transform, "Label", "", 10f);
         text.textWrappingMode = TextWrappingModes.NoWrap;
         HudUi.Stretch(text.rectTransform);
         bg.gameObject.SetActive(false);
-        return new CameraBadge(bg, text);
+        var badge = new CameraBadge(bg, text);
+        badge.Fit(viewMm);
+        return badge;
+    }
+
+    // Re-apply the size for a view of `viewMm` (call whenever the view is resized).
+    public void Fit(Vector2 viewMm)
+    {
+        float font = Mathf.Clamp(FontRatio * viewMm.y, MinFontMm, MaxFontMm);
+        FontMm = font;
+        float margin = MarginRatio * viewMm.x;
+        _bg.rectTransform.anchoredPosition = new Vector2(-margin, -margin);
+        _text.fontSize = font * 0.85f;
+        HudUi.Round(_bg, font);
+        Resize();
+    }
+
+    void Resize()
+    {
+        if (string.IsNullOrEmpty(_text.text)) { _bg.rectTransform.sizeDelta = new Vector2(_text.fontSize * 3f, _text.fontSize * 1.4f); return; }
+        var size = _text.GetPreferredValues(_text.text);
+        _bg.rectTransform.sizeDelta = new Vector2(size.x + _text.fontSize, size.y * 1.15f);
     }
 
     public void Show(bool on) => _bg.gameObject.SetActive(on);
@@ -338,8 +366,7 @@ public class CameraBadge
         if (_text.text == text) return;
         _text.text = text;
         _text.color = color;
-        var size = _text.GetPreferredValues(text);
-        _bg.rectTransform.sizeDelta = new Vector2(size.x + _text.fontSize, size.y * 1.15f);
+        Resize();
     }
 
     // Poll ImageSubscriber's rate and last-frame time (about 5 Hz). No frame yet: hidden.

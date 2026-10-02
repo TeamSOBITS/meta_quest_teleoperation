@@ -35,12 +35,18 @@ public class TeleopHud : MonoBehaviour
 
     public bool LazyFollow { get; private set; }
 
-    // First-person view (3D robot model + head camera image) instead of the camera blocks.
-    public bool FirstPerson { get; private set; }
-    // Raised when the view mode changes (the bar syncs its toggle and buttons).
-    public event Action ViewModeChanged;
+    // Robot model (3D model around the user; needs a robot with a model) and camera layout:
+    // "blocks" (the camera blocks stay as arranged) or "firstperson" (head camera image at its true
+    // field of view and hand cards instead of the blocks). Both are kept per robot. Without the
+    // model the layout control is disabled and the blocks are shown.
+    public bool RobotModelOn { get; private set; }
+    public string CameraLayout { get; private set; } = FirstPersonView.LayoutBlocks;
+    // The first-person layout is in effect (model on + layout "firstperson").
+    public bool FirstPerson => RobotModelOn && CameraLayout == FirstPersonView.LayoutFirstPerson;
+    // Raised when the model or the layout changes (the bar syncs its controls).
+    public event Action ViewChanged;
     FirstPersonView _fpv;
-    // Experiments (see Experiments/): round-trip latency probe and the first-person status strip.
+    // Overlays (see Overlays/): round-trip latency probe, status strip, hand cams, arm targets, base velocity.
     RoundTrip _roundTrip;
     StatusStrip _strip;
     HandCamPip _handCams;
@@ -75,11 +81,8 @@ public class TeleopHud : MonoBehaviour
         images.Ready -= BuildHud;
         if (_waiting != null) Destroy(_waiting);
 
-        ExperimentSettings.RegisterAll();
-        ExperimentSettings.Changed += OnExperimentChanged;
         _bar = HudBar.Create(hudParent, publisher, images, this).transform;
-        ExperimentsPanel.Create(_bar);
-        UpdateRoundTrip();
+        if (publisher != null) _roundTrip = RoundTrip.Create(publisher);
         images.CamerasAdded += RebuildBar;
 
         var dragger = gameObject.AddComponent<PanelDragger>();
@@ -97,12 +100,31 @@ public class TeleopHud : MonoBehaviour
         FirstPersonView.ViewModeOverride = null;   // one robot screen only
         if (profile != null && profile.HasModel)
         {
-            string mode = modeOverride ?? PlayerPrefs.GetString(FirstPersonView.ViewModeKey(profile), FirstPersonView.ModeBlocks);
-            if (mode == FirstPersonView.ModeFirstPerson)
-                SetFirstPerson(true, save: modeOverride == null);
+            bool model = PlayerPrefs.GetInt(FirstPersonView.ModelKey(profile), 0) == 1;
+            string layout = PlayerPrefs.GetString(FirstPersonView.LayoutKey(profile), FirstPersonView.LayoutBlocks);
+            // The old single "ViewMode" pref: first person meant model + first-person layout. Once.
+            string old = FirstPersonView.OldViewModeKey(profile);
+            if (PlayerPrefs.HasKey(old))
+            {
+                if (PlayerPrefs.GetString(old, "") == FirstPersonView.LayoutFirstPerson)
+                {
+                    model = true;
+                    layout = FirstPersonView.LayoutFirstPerson;
+                    PlayerPrefs.SetInt(FirstPersonView.ModelKey(profile), 1);
+                    PlayerPrefs.SetString(FirstPersonView.LayoutKey(profile), layout);
+                }
+                PlayerPrefs.DeleteKey(old);
+                PlayerPrefs.Save();
+            }
+            bool save = modeOverride == null;
+            if (modeOverride == FirstPersonView.LayoutFirstPerson) { model = true; layout = FirstPersonView.LayoutFirstPerson; }
+            else if (modeOverride == "model") { model = true; layout = FirstPersonView.LayoutBlocks; }
+            else if (modeOverride == FirstPersonView.LayoutBlocks) { model = false; layout = FirstPersonView.LayoutBlocks; }
+            CameraLayout = NormalizeLayout(layout);
+            if (model) SetRobotModel(true, save);
         }
 
-        UpdateStatusStrip();   // blocks mode (first person made its own above)
+        UpdateStatusStrip();   // model off (the model path made its own above)
 
         if (PlayerPrefs.GetInt(CaptureKey, 0) == 1)
             StartCoroutine(CaptureLater());
@@ -126,50 +148,75 @@ public class TeleopHud : MonoBehaviour
         hudParent = parent;
     }
 
-    // Blocks (default) or first person. The choice is kept per robot. Robots without a model
-    // stay in blocks mode.
-    public void SetFirstPerson(bool on) => SetFirstPerson(on, true);
+    static string NormalizeLayout(string layout)
+        => layout == FirstPersonView.LayoutFirstPerson ? FirstPersonView.LayoutFirstPerson : FirstPersonView.LayoutBlocks;
 
-    internal void SetFirstPerson(bool on, bool save)
+    // Robot model on / off (default off, kept per robot). Robots without a model stay off.
+    public void SetRobotModel(bool on, bool save = true)
     {
         var profile = images != null ? images.Profile : null;
         if (on && (profile == null || !profile.HasModel))
         {
-            Debug.Log("FPV: this robot has no model, staying in blocks mode");
-            ViewModeChanged?.Invoke();   // puts the toggle back
+            Debug.Log("FPV: this robot has no model, staying in blocks view");
+            ViewChanged?.Invoke();   // puts the toggle back
             return;
         }
-        if (on == FirstPerson) return;
-        FirstPerson = on;
+        if (on == RobotModelOn) return;
+        RobotModelOn = on;
         if (profile != null && save)
         {
-            PlayerPrefs.SetString(FirstPersonView.ViewModeKey(profile),
-                on ? FirstPersonView.ModeFirstPerson : FirstPersonView.ModeBlocks);
+            PlayerPrefs.SetInt(FirstPersonView.ModelKey(profile), on ? 1 : 0);
             PlayerPrefs.Save();
         }
+        ApplyView();
+    }
 
-        DestroyStrip();   // the other mode's strip: placement and model differ
-        if (on)
+    // Camera layout, "blocks" (default) or "firstperson" (kept per robot). It only takes effect while
+    // the robot model is on; the choice is remembered meanwhile.
+    public void SetCameraLayout(string layout, bool save = true)
+    {
+        layout = NormalizeLayout(layout);
+        var profile = images != null ? images.Profile : null;
+        if (layout == CameraLayout) return;
+        CameraLayout = layout;
+        if (profile != null && save && profile.HasModel)
         {
-            _fpv = FirstPersonView.Create(images, profile);
-            UpdateFpvExperiments();
-            images.SetBlocksShown(false);
-            if (_bar != null) _bar.gameObject.SetActive(false);   // menu / hand gesture brings it back
-            PlaceBar();
+            PlayerPrefs.SetString(FirstPersonView.LayoutKey(profile), layout);
+            PlayerPrefs.Save();
         }
-        else
+        ApplyView();
+    }
+
+    bool _fpApplied;   // the first-person layout was in effect after the last ApplyView
+
+    // Bring the scene in line with RobotModelOn / CameraLayout. Safe to repeat.
+    void ApplyView()
+    {
+        var profile = images != null ? images.Profile : null;
+        bool fp = FirstPerson;
+
+        DestroyStrip();   // placement and model readings differ between layouts
+        if (RobotModelOn && _fpv == null) _fpv = FirstPersonView.Create(images, profile);
+        else if (!RobotModelOn && _fpv != null)
         {
-            UpdateFpvExperiments();   // destroys them
-            if (_fpv != null) Destroy(_fpv.gameObject);
+            Destroy(_fpv.gameObject);
             _fpv = null;
-            images.SetBlocksShown(true);
+        }
+        if (_fpv != null) _fpv.SetFirstPersonLayout(fp);
+        SyncOverlays();
+        images.SetBlocksShown(!fp);
+
+        if (fp != _fpApplied)   // only a layout change moves the bar; toggling the model must not hide the menu in use
+        {
+            _fpApplied = fp;
+            if (_bar != null) _bar.gameObject.SetActive(!fp);   // menu / hand gesture brings it back
             PlaceBar();
-            if (_bar != null) _bar.gameObject.SetActive(true);
         }
         UpdateStatusStrip();
         UpdateControllerVisuals();
-        Debug.Log($"FPV: view mode -> {(on ? "firstperson" : "blocks")}");
-        ViewModeChanged?.Invoke();
+        PushEditable(true);
+        Debug.Log($"FPV: view -> model {(RobotModelOn ? "on" : "off")}, layout {(RobotModelOn ? CameraLayout : FirstPersonView.LayoutBlocks)}");
+        ViewChanged?.Invoke();
     }
 
     // First person: put the model back under the headset.
@@ -229,7 +276,6 @@ public class TeleopHud : MonoBehaviour
         Destroy(_bar.gameObject);
         _bar = HudBar.Create(hudParent, publisher, images, this).transform;
         _bar.SetParent(parent, false);
-        ExperimentsPanel.Create(_bar);
         BarLowered = false;   // the new bar is at its normal pose
         PlaceBar();
         DestroyStrip();   // blocks mode: it sits where the (possibly taller) bar's bottom row is
@@ -237,31 +283,14 @@ public class TeleopHud : MonoBehaviour
         UpdateControllerVisuals();
     }
 
-    void OnExperimentChanged(string key, bool on)
-    {
-        if (this == null) return;
-        if (key == ExperimentSettings.Rtt) UpdateRoundTrip();
-        else if (key == ExperimentSettings.Status) UpdateStatusStrip();
-        else if (key == ExperimentSettings.HandCams || key == ExperimentSettings.Targets
-                 || key == ExperimentSettings.BaseVel) UpdateFpvExperiments();
-    }
-
-    // The round-trip probe exists while the "rtt" experiment is on (and setup mode is not).
-    void UpdateRoundTrip()
-    {
-        bool want = ExperimentSettings.IsOn(ExperimentSettings.Rtt) && publisher != null;
-        if (want && _roundTrip == null) _roundTrip = RoundTrip.Create(publisher);
-        else if (!want && _roundTrip != null) { Destroy(_roundTrip.gameObject); _roundTrip = null; }
-    }
-
-    // The status strip exists in both modes while the "status" experiment is on, and is active only
-    // while the bar (menu) is hidden: it takes the bar's place. In first person it hangs under the
-    // head with the model's head / lift readings; in blocks mode (no model) at the bar's bottom row.
+    // The status strip exists in both camera layouts and is active only while the bar (menu) is
+    // hidden: it takes the bar's place. In the first-person layout it hangs under the head with the
+    // model's head / lift readings; in the blocks layout at the bar's bottom row.
     public StatusStrip Strip => _strip;
 
     void UpdateStatusStrip()
     {
-        bool want = _bar != null && ExperimentSettings.IsOn(ExperimentSettings.Status) && (!FirstPerson || (_fpv != null && _fpv.Model != null));
+        bool want = _bar != null && (!FirstPerson || (_fpv != null && _fpv.Model != null));
         if (want && _strip == null)
         {
             var profile = images.Profile;
@@ -372,17 +401,26 @@ public class TeleopHud : MonoBehaviour
             if (h.renderer != null && h.renderer.enabled) { h.renderer.enabled = false; h.restore = true; }
     }
 
-    // Hand cams, arm targets and base velocity exist in first person while their experiment is on.
-    void UpdateFpvExperiments()
+    // Arm targets and base velocity exist while the robot model is on, hand cams in the first-person layout.
+    void SyncOverlays()
     {
-        var model = FirstPerson && _fpv != null ? _fpv.Model : null;
+        var model = _fpv != null ? _fpv.Model : null;
         var profile = images != null ? images.Profile : null;
-        Sync(ref _handCams, model != null && ExperimentSettings.IsOn(ExperimentSettings.HandCams),
-             () => HandCamPip.Create(images, model, profile));
-        Sync(ref _targets, model != null && ExperimentSettings.IsOn(ExperimentSettings.Targets),
-             () => ArmTargets.Create(model));
-        Sync(ref _baseVel, model != null && ExperimentSettings.IsOn(ExperimentSettings.BaseVel),
-             () => BaseVelocity.Create(model, profile));
+        Sync(ref _handCams, model != null && FirstPerson, () => HandCamPip.Create(images, model, profile));
+        Sync(ref _targets, model != null, () => ArmTargets.Create(model));
+        Sync(ref _baseVel, model != null, () => BaseVelocity.Create(model, profile));
+    }
+
+    // Layout mode (controls off): the first-person cards get their Rename buttons, as the blocks do.
+    bool? _editable;
+
+    void PushEditable(bool force)
+    {
+        bool editable = publisher != null && !publisher.controlRobot;
+        if (!force && _editable == editable) return;
+        _editable = editable;
+        if (_fpv != null) _fpv.SetEditable(editable);
+        if (_handCams != null) _handCams.SetEditable(editable);
     }
 
     static void Sync<T>(ref T field, bool want, System.Func<T> create) where T : Component
@@ -393,7 +431,6 @@ public class TeleopHud : MonoBehaviour
 
     void OnDestroy()
     {
-        ExperimentSettings.Changed -= OnExperimentChanged;
         SetControllerVisualsHidden(false);
         if (images != null)
         {
@@ -437,6 +474,7 @@ public class TeleopHud : MonoBehaviour
     void Update()
     {
         if (_waitingStatus != null) _waitingStatus.text = images.SetupStatus;
+        PushEditable(false);
 
         // Menu shows/hides the HUD bar: the left controller's menu button, or with hand tracking
         // the hand menu gesture (left palm facing you + pinch). Back to robots is on the bar.

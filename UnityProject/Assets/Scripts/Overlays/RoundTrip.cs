@@ -9,7 +9,7 @@ using UnityEngine;
 /// headset's own TF (child frame <c>headChildFrame</c>, e.g. hmd_odom) stamped with the wall-clock
 /// UTC time; the endpoint echoes it back on /tf. RTT = now (UTC) - stamp, measured when the echo
 /// arrives. Only meaningful while the publisher is actually publishing (control on, connected).
-/// Created by TeleopHud while the "rtt" experiment is on.
+/// Created by TeleopHud with the HUD.
 /// </summary>
 public class RoundTrip : MonoBehaviour
 {
@@ -52,7 +52,7 @@ public class RoundTrip : MonoBehaviour
         var ros = ROSConnection.GetOrCreateInstance();
         if (_subscribedOn != ros)
         {
-            _subscribedOn = ros;   // subscribe once per connection; toggling the experiment must not add callbacks
+            _subscribedOn = ros;   // subscribe once per connection; a new instance must not add callbacks
             ros.Subscribe<TFMessageMsg>(TfTopic, msg => { if (Current != null) Current.OnTf(msg); });
         }
         return rtt;

@@ -7,9 +7,9 @@ using UnityEngine.UI;
 /// Small head-locked status strip shown while the HUD bar (menu) is hidden, in both view modes:
 /// at the bottom of the first-person view, or in blocks mode where the bar normally sits. One row: connection, CONTROL ON / LAYOUT, image fps and age, TF rate, round trip,
 /// a labelled HEAD box (crosshair, dot at pan x / tilt y, L/R ticks, "pan 29° tilt 17°") and a
-/// labelled LIFT bar with its height ("0.40 m"). Created by TeleopHud in either mode while the "status"
-/// experiment is on (active only while the bar is hidden), destroyed when it turns off. Blocks mode has
-/// no robot model: there HEAD, LIFT and the TF rate are left out ("TF —") and the strip is narrower.
+/// labelled LIFT bar with its height ("0.40 m"). Created by TeleopHud in both camera layouts
+/// (active only while the bar is hidden) and rebuilt when the layout changes.
+/// In the blocks layout there is no model reading: HEAD, LIFT and the TF rate are left out ("TF —") and the strip is narrower.
 ///
 /// Head and lift are read from the model's link local poses, which RobotModel sets straight from
 /// /tf (FLU -> Unity). A ROS rotation of t about z shows up as -t about Unity's up axis, and a

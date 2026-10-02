@@ -7,12 +7,15 @@ using Unity.XR.CoreUtils;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.XR;
+using UnityEngine.XR.Interaction.Toolkit.UI;
 
 /// <summary>
-/// First-person view: the headset is the robot's head camera. Shows a life-size
-/// <see cref="RobotModel"/> around the user and the head camera's image, drawn at the camera's true
-/// field of view, on a quad in front of the camera frame. Created by TeleopHud when the mode is on
-/// and destroyed when it is off.
+/// Robot model around the user (the headset is the robot's head camera): a life-size
+/// <see cref="RobotModel"/> with the head and microphone links hidden. In the first-person camera
+/// layout (<see cref="SetFirstPersonLayout"/>) it also shows the head camera's image, drawn at the
+/// camera's true field of view, on a quad in front of the camera frame; in the blocks layout there is
+/// no quad (the camera blocks show the images). Created by TeleopHud while the robot model is on and
+/// destroyed when it is off.
 ///
 /// Placement. The model hangs under the XR Origin (not the camera offset): the origin is the
 /// transform whose space is the tracking space, so it moves with the playspace and its floor is
@@ -27,7 +30,7 @@ using UnityEngine.XR;
 [DefaultExecutionOrder(200)]
 public class FirstPersonView : MonoBehaviour
 {
-    public const string ModeBlocks = "blocks", ModeFirstPerson = "firstperson";
+    public const string LayoutBlocks = "blocks", LayoutFirstPerson = "firstperson";
     // Distance of the image quad from the camera frame (metres).
     const float QuadDistance = 1.5f;
     const float NearClip = 0.1f;
@@ -38,15 +41,19 @@ public class FirstPersonView : MonoBehaviour
     const float LogSeconds = 5f;
     static readonly Color WaitingColor = new Color(0.15f, 0.15f, 0.15f, 1f);
 
-    // Set by the launch intent (autonomous tests): overrides the mode for the next robot screen
-    // only, is never saved. TeleopHud.BuildHud consumes and clears it.
+    // Set by the launch intent (autonomous tests): "firstperson" (model on + first-person layout),
+    // "model" (model on + blocks layout) or "blocks" (model off) for the next robot screen only,
+    // never saved. TeleopHud.BuildHud consumes and clears it.
     public static string ViewModeOverride;
     // Replaces the headset pose for Recenter (the demo recorder films from a fixed, level head).
     public static Transform HeadOverride;
     public static Transform Head => HeadOverride != null ? HeadOverride : Camera.main != null ? Camera.main.transform : null;
 
-    public static string ViewModeKey(RobotProfile r) => ViewModeKey(r.name);
-    public static string ViewModeKey(string robotName) => $"ViewMode/{robotName}";
+    // Per robot: RobotModel/{robot} = 0 | 1 (default 0), CameraLayout/{robot} = blocks | firstperson.
+    public static string ModelKey(RobotProfile r) => $"RobotModel/{r.name}";
+    public static string LayoutKey(RobotProfile r) => $"CameraLayout/{r.name}";
+    // Old single "ViewMode/{robot}" pref (blocks | firstperson); migrated once by TeleopHud.
+    public static string OldViewModeKey(RobotProfile r) => $"ViewMode/{r.name}";
 
     ImageSubscriber _images;
     RobotProfile _profile;
@@ -72,8 +79,9 @@ public class FirstPersonView : MonoBehaviour
     double _fx, _fy, _cx, _cy, _infoW, _infoH;
     float _textureAspect = 4f / 3f;
 
-    // Experiment "headlock": the image hangs under the headset instead of the robot's camera frame.
-    public bool HeadLocked { get; private set; }
+    bool _quadFramed;   // the current quad has shown a frame
+    public bool ImageShown => _canvasRt != null;
+    Button _rename;
 
     public RobotModel Model => _model;
     public int FramesReceived => _frames;
@@ -126,10 +134,7 @@ public class FirstPersonView : MonoBehaviour
             cam.nearClipPlane = NearClip;
         }
 
-        BuildQuad();
-        ExperimentSettings.Changed += OnExperimentChanged;
-        ApplyHeadLock();
-        UseTexture();
+        _cameraIndex = _images.IndexOf(_profile.firstPersonCameraTopicSuffix);
         SubscribeCameraInfo();
 
         SubsystemManager.GetSubsystems(_inputs);
@@ -143,16 +148,16 @@ public class FirstPersonView : MonoBehaviour
 
     void OnDestroy()
     {
-        ExperimentSettings.Changed -= OnExperimentChanged;
         foreach (var s in _inputs)
             if (s != null) s.trackingOriginUpdated -= OnTrackingOriginUpdated;
         if (_images != null)
         {
             _images.FrameReady -= OnFrame;
             _images.CameraVisibilityChanged -= OnCameraVisibility;
-            if (_cameraIndex >= 0) _images.ForceDecode(_cameraIndex, false);
+            _images.LabelsChanged -= OnLabels;
+            if (_cameraIndex >= 0 && _canvasRt != null) _images.ForceDecode(_cameraIndex, false);
         }
-        if (_canvasRt != null) Destroy(_canvasRt.gameObject);   // hangs under the head while "headlock" is on
+        if (_canvasRt != null) Destroy(_canvasRt.gameObject);
         if (_prevNearClip > 0f && Camera.main != null) Camera.main.nearClipPlane = _prevNearClip;
     }
 
@@ -227,6 +232,38 @@ public class FirstPersonView : MonoBehaviour
 
     // --- Image quad ---
 
+    // First-person layout: the head camera's image card on the camera frame. Blocks layout: no card,
+    // the camera blocks show the images. Safe to call repeatedly.
+    public void SetFirstPersonLayout(bool on)
+    {
+        if (_model == null || on == ImageShown) return;
+        if (on)
+        {
+            BuildQuad();
+            UseTexture();
+        }
+        else DestroyQuad();
+        Debug.Log($"FPV: image card {(on ? "shown" : "removed")}");
+    }
+
+    void DestroyQuad()
+    {
+        _images.FrameReady -= OnFrame;
+        _images.CameraVisibilityChanged -= OnCameraVisibility;
+        _images.LabelsChanged -= OnLabels;
+        if (_cameraIndex >= 0) _images.ForceDecode(_cameraIndex, false);
+        if (_canvasRt != null) Destroy(_canvasRt.gameObject);
+        _canvasRt = _viewRt = _cardRt = _outlineRt = null;
+        _view = null; _waiting = null; _name = null; _badge = null; _rename = null;
+        _quadFramed = false;
+    }
+
+    // Layout mode: the card's Rename button is available.
+    public void SetEditable(bool editable)
+    {
+        if (_rename != null) _rename.gameObject.SetActive(editable);
+    }
+
     void BuildQuad()
     {
         Transform parent = _camFrame != null ? _camFrame : _model.Root;
@@ -237,6 +274,7 @@ public class FirstPersonView : MonoBehaviour
         canvas.renderMode = RenderMode.WorldSpace;
         canvas.sortingOrder = HudUi.CanvasSortingOrder - 10;   // behind the HUD
         canvas.worldCamera = Camera.main;
+        go.AddComponent<TrackedDeviceGraphicRaycaster>();   // for the Rename button
         _canvasRt = (RectTransform)go.transform;
         _canvasRt.localScale = Vector3.one / HudUi.MmPerMetre;
         _canvasRt.localPosition = new Vector3(0f, 0f, QuadDistance);
@@ -263,31 +301,20 @@ public class FirstPersonView : MonoBehaviour
         HudUi.Stretch(_waiting.rectTransform);
 
         // Same fps / stale badge as a camera block, at the card's scale.
-        _badge = CameraBadge.Create(_view.transform, CameraPanel.TopicFontSize * HudUi.MmPerMetre * CardScale);
+        _badge = CameraBadge.Create(_view.transform, _viewRt.sizeDelta);
+
+        // Rename (layout mode only): above the card's top-right corner, like a camera block's; placed in ApplyCard.
+        float font = CameraPanel.TopicFontSize * HudUi.MmPerMetre * CardScale;
+        _rename = HudUi.Button(go.transform, "Rename", font, () =>
+        {
+            if (_cameraIndex >= 0) _images.BeginRename(_images.Panels[_cameraIndex]);
+        });
+        var rrt = (RectTransform)_rename.transform;
+        rrt.anchorMin = rrt.anchorMax = rrt.pivot = new Vector2(0.5f, 0.5f);
+        rrt.sizeDelta = new Vector2(font * 4.6f, font * 1.6f);
+        _rename.gameObject.SetActive(false);
 
         ApplyQuadSize();
-    }
-
-    void OnExperimentChanged(string key, bool on)
-    {
-        if (this == null) return;
-        if (key == ExperimentSettings.HeadLock) ApplyHeadLock();
-    }
-
-    // Re-parents the image quad (size and intrinsics untouched): under the head while "headlock" is
-    // on, else under the robot's camera frame. Same local offset either way.
-    void ApplyHeadLock()
-    {
-        if (_canvasRt == null) return;
-        var head = Head;
-        bool want = ExperimentSettings.IsOn(ExperimentSettings.HeadLock) && head != null;
-        Transform parent = want ? head : _camFrame != null ? _camFrame : _model.Root;
-        HeadLocked = want;
-        _canvasRt.SetParent(parent, false);
-        _canvasRt.localPosition = new Vector3(0f, 0f, QuadDistance);
-        _canvasRt.localRotation = Quaternion.identity;
-        _canvasRt.localScale = Vector3.one / HudUi.MmPerMetre;
-        Debug.Log($"FPV: image {(want ? "follows the head" : "on the robot camera frame")}");
     }
 
     // Size and offset from the camera intrinsics, or the default field of view until they arrive.
@@ -319,6 +346,7 @@ public class FirstPersonView : MonoBehaviour
         if (_cardRt == null || _name == null) return;
         float pad = CardPaddingMm * CardScale, gap = CameraPanel.LabelGap * HudUi.MmPerMetre * CardScale;
         Vector2 view = _viewRt.sizeDelta;
+        _badge?.Fit(view);
         float nameH = _name.GetPreferredValues(_name.text, view.x, Mathf.Infinity).y;
         Vector2 centre = _viewRt.anchoredPosition;
 
@@ -332,11 +360,18 @@ public class FirstPersonView : MonoBehaviour
         _name.rectTransform.anchorMin = _name.rectTransform.anchorMax = _name.rectTransform.pivot = new Vector2(0.5f, 0.5f);
         _name.rectTransform.sizeDelta = new Vector2(view.x, nameH);
         _name.rectTransform.anchoredPosition = centre + new Vector2(0f, view.y / 2f + gap + nameH / 2f);
+
+        if (_rename != null)   // above the card's top-right corner, right-aligned
+        {
+            var rrt = (RectTransform)_rename.transform;
+            var cardCentre = centre + new Vector2(0f, (nameH + gap) / 2f);
+            rrt.anchoredPosition = cardCentre + new Vector2(card.x / 2f - rrt.sizeDelta.x / 2f,
+                                                            card.y / 2f + rrt.sizeDelta.y / 2f + pad * 0.5f);
+        }
     }
 
     void UseTexture()
     {
-        _cameraIndex = _images.IndexOf(_profile.firstPersonCameraTopicSuffix);
         if (_cameraIndex < 0)
         {
             Debug.LogWarning($"FPV: robot has no camera on '{_profile.firstPersonCameraTopicSuffix}'; no image");
@@ -348,7 +383,16 @@ public class FirstPersonView : MonoBehaviour
         ApplyQuadSize();
         _images.FrameReady += OnFrame;
         _images.CameraVisibilityChanged += OnCameraVisibility;
+        _images.LabelsChanged += OnLabels;
         SetCameraOn(_images.IsOn(_images.Panels[_cameraIndex]));
+    }
+
+    // A camera was renamed: the card shows the head camera's name.
+    void OnLabels()
+    {
+        if (this == null || _name == null || _cameraIndex < 0) return;
+        _name.text = _images.Panels[_cameraIndex].Label;
+        ApplyCard();
     }
 
     void OnCameraVisibility(int index, bool on)
@@ -373,10 +417,11 @@ public class FirstPersonView : MonoBehaviour
 
     void OnFrame(int index, Texture2D tex)
     {
-        if (this == null || index != _cameraIndex || tex == null) return;
+        if (this == null || _view == null || index != _cameraIndex || tex == null) return;
         _frames++;
-        if (_frames == 1)
+        if (!_quadFramed)
         {
+            _quadFramed = true;
             _waiting.gameObject.SetActive(false);
             _view.color = Color.white;
             if (!_hasInfo)
@@ -411,7 +456,7 @@ public class FirstPersonView : MonoBehaviour
         _hasInfo = true;
         ApplyQuadSize();
         Debug.Log($"FPV: camera_info {msg.width}x{msg.height} fx={_fx:F1} fy={_fy:F1} cx={_cx:F1} cy={_cy:F1} " +
-                  $"quad={_viewRt.sizeDelta.x / 1000f:F3}x{_viewRt.sizeDelta.y / 1000f:F3} m");
+                  (_viewRt != null ? $"quad={_viewRt.sizeDelta.x / 1000f:F3}x{_viewRt.sizeDelta.y / 1000f:F3} m" : "(no image card in the blocks layout)"));
     }
 
     // --- Logging ---

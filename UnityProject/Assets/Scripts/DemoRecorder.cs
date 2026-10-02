@@ -5,7 +5,7 @@ using UnityEngine;
 
 /// <summary>
 /// On-device demo recorder for a headset lying on a desk: films the robot screen from a fixed,
-/// level "Demo Head" (block view, then first person) into numbered JPEGs under
+/// level "Demo Head" (block view, then the first-person layout) into numbered JPEGs under
 /// persistentDataPath/demo for `adb pull`. Started by launch extras (record / fps / switchat),
 /// session only. The HUD and the first-person anchor follow the Demo Head, not the real headset.
 /// </summary>
@@ -94,7 +94,8 @@ public class DemoRecorder : MonoBehaviour
             {
                 switched = true;
                 Debug.Log("DEMO: switch to first person");
-                _hud.SetFirstPerson(true, save: false);
+                _hud.SetCameraLayout(FirstPersonView.LayoutFirstPerson, save: false);
+                _hud.SetRobotModel(true, save: false);   // both layouts show the model; first person needs it on
                 _cam.fieldOfView = FirstPersonFov;
                 _cam.transform.localRotation = Quaternion.Euler(FirstPersonPitch, 0f, 0f);
             }
