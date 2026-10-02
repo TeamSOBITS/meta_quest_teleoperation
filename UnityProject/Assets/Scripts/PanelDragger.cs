@@ -192,7 +192,7 @@ public class PanelDragger : MonoBehaviour
     // Thumb tip to index tip of the interactor's hand (m), or -1 if that hand is not tracked.
     static float PinchDistance(InteractorHandedness handedness)
     {
-        var hands = TeleopHud.Hands;
+        var hands = HudInput.Hands;
         if (hands == null || handedness == InteractorHandedness.None) return -1f;
         var hand = handedness == InteractorHandedness.Left ? hands.leftHand : hands.rightHand;
         if (hand.isTracked &&
@@ -208,7 +208,7 @@ public class PanelDragger : MonoBehaviour
     {
         if (UsingHands)
         {
-            var hands = TeleopHud.Hands;
+            var hands = HudInput.Hands;
             if (hands != null && hands.leftHand.isTracked && hands.rightHand.isTracked &&
                 hands.leftHand.GetJoint(UnityEngine.XR.Hands.XRHandJointID.Palm).TryGetPose(out Pose l) &&
                 hands.rightHand.GetJoint(UnityEngine.XR.Hands.XRHandJointID.Palm).TryGetPose(out Pose r))

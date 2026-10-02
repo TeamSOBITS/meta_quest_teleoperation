@@ -83,72 +83,9 @@ public class RobotSelectionHud : MonoBehaviour
             StartCoroutine(Open(robot));
             return;
         }
-#if UNITY_ANDROID && !UNITY_EDITOR
-        ApplyLaunchExtras();
-#endif
+        var launch = DebugLaunchOptions.Apply(_all);   // intent extras of an autonomous test run
+        if (launch != null) Select(launch);
     }
-
-#if UNITY_ANDROID && !UNITY_EDITOR
-    // Autonomous tests start the app with intent extras, e.g.
-    //   am start -n <pkg>/<activity> --es robot SOBIT_HOME --es viewmode firstperson --es capture 1
-    // robot = profile asset name (opens it), viewmode = firstperson (model + first-person layout) |
-    // model (model + blocks layout) | blocks (no model), session only; capture = 1 (save a
-    // screenshot of the robot screen, see TeleopHud). Read once per app run, so
-    // "Back to robots" does not open the robot again.
-    static bool _extrasHandled;
-
-    void ApplyLaunchExtras()
-    {
-        if (_extrasHandled) return;
-        _extrasHandled = true;
-        string robot = null, viewMode = null, capture = null;
-        int record = 0, fps = 15, switchAt = -1;
-        try
-        {
-            using (var player = new AndroidJavaClass("com.unity3d.player.UnityPlayer"))
-            using (var activity = player.GetStatic<AndroidJavaObject>("currentActivity"))
-            using (var intent = activity?.Call<AndroidJavaObject>("getIntent"))
-            {
-                if (intent != null)
-                {
-                    robot = intent.Call<string>("getStringExtra", "robot");
-                    viewMode = intent.Call<string>("getStringExtra", "viewmode");
-                    capture = intent.Call<string>("getStringExtra", "capture");
-                    record = intent.Call<int>("getIntExtra", "record", 0);          // --ei record 60
-                    fps = intent.Call<int>("getIntExtra", "fps", 15);
-                    switchAt = intent.Call<int>("getIntExtra", "switchat", -1);
-                }
-            }
-        }
-        catch (System.Exception e)
-        {
-            Debug.LogWarning($"FPV: could not read intent extras: {e.Message}");
-            return;
-        }
-        Debug.Log($"FPV: intent robot={robot} viewmode={viewMode} capture={capture} record={record} fps={fps} switchat={switchAt}");
-
-        // DebugCapture must not linger: set only by this launch, cleared when no extra is present.
-        Settings.DebugCapture = capture == "1";
-        if (string.IsNullOrEmpty(robot)) { Settings.Save(); return; }
-
-        var profile = _all.Find(r => r.name == robot);
-        if (profile == null)
-        {
-            Debug.LogWarning($"FPV: intent robot '{robot}' not found");
-            Settings.Save();
-            return;
-        }
-        if (viewMode == FirstPersonView.LayoutFirstPerson || viewMode == FirstPersonView.LayoutBlocks || viewMode == "model")
-            FirstPersonView.ViewModeOverride = viewMode;   // this robot screen only, not saved
-        Settings.Save();
-        if (record > 0)   // session only, never saved
-            DemoRecorder.Request = new DemoRecorder.Settings
-            {
-                seconds = record, fps = Mathf.Clamp(fps, 1, 60), switchAt = switchAt >= 0 ? switchAt : record / 2f,
-            };
-        Select(profile);
-    }
-#endif
 
     // (Re)build the whole screen: built-in robots, robots added on the headset, "Add robot".
     void Build()

@@ -1,17 +1,14 @@
 using System;
-using System.Collections;
-using System.Collections.Generic;
-using System.IO;
 using TMPro;
 using UnityEngine;
-using UnityEngine.XR.Hands;
-using UnityEngine.XR.Interaction.Toolkit.Inputs;
-using UnityEngine.XR.Interaction.Toolkit.Interactors.Visuals;
 
 /// <summary>
 /// Sets up the robot screen around the camera blocks: studio surroundings, the HUD bar
 /// (ROS IP + controls), the camera block dragger, controller hints and the optional
 /// "lazy follow" mode. Runs after ImageSubscriber so it can use the blocks it created.
+/// The view state (robot model, camera layout, first person, overlays) is in
+/// <see cref="ViewController"/>, the menu input in <see cref="HudInput"/>; the public members
+/// for them forward here.
 ///
 /// For a robot being added (setup mode) it first shows a "Setting up" card while the
 /// cameras are discovered (Search again / Continue without cameras / Cancel), keeps Joy off
@@ -26,33 +23,35 @@ public class TeleopHud : MonoBehaviour
     // Panels follow this transform; defaults to the main camera.
     public Transform hudParent;
 
-
     Transform _bar;
     HeadFollower _follower;
     GameObject _waiting;
     TextMeshProUGUI _waitingStatus;
+    ViewController _view;
+    readonly HudInput _input = new HudInput();
+
+    internal Transform Bar => _bar;
 
     public bool LazyFollow { get; private set; }
 
-    // Robot model (3D model around the user; needs a robot with a model) and camera layout:
-    // "blocks" (the camera blocks stay as arranged) or "firstperson" (head camera image at its true
-    // field of view and hand cards instead of the blocks). Both are kept per robot. Without the
-    // model the layout control is disabled and the blocks are shown.
-    public bool RobotModelOn { get; private set; }
-    public string CameraLayout { get; private set; } = FirstPersonView.LayoutBlocks;
-    // The first-person layout is in effect (model on + layout "firstperson").
-    public bool FirstPerson => RobotModelOn && CameraLayout == FirstPersonView.LayoutFirstPerson;
-    // Raised when the model or the layout changes (the bar syncs its controls).
-    public event Action ViewChanged;
-    FirstPersonView _fpv;
-    // Overlays (see Overlays/): round-trip latency probe, status strip, hand cams, arm targets, base velocity.
-    RoundTrip _roundTrip;
-    StatusStrip _strip;
-    HandCamPip _handCams;
-    ArmTargets _targets;
-    BaseVelocity _baseVel;
+    // --- View state (see ViewController) ---
+    public bool RobotModelOn => _view.RobotModelOn;
+    public string CameraLayout => _view.CameraLayout;
+    public bool FirstPerson => _view.FirstPerson;
+    public event Action ViewChanged { add => _view.ViewChanged += value; remove => _view.ViewChanged -= value; }
+    public void SetRobotModel(bool on, bool save = true) => _view.SetRobotModel(on, save);
+    public void SetCameraLayout(string layout, bool save = true) => _view.SetCameraLayout(layout, save);
+    public void Recenter() => _view.Recenter();
+    public StatusStrip Strip => _view.Strip;
+    public bool ControllerVisualsHidden => _view.ControllerVisualsHidden;
+    public int HiddenVisualCount => _view.HiddenVisualCount;
+    public bool BarLowered => _view.BarLowered;
 
-    const float CaptureDelaySeconds = 10f;
+    void Awake()
+    {
+        _view = gameObject.AddComponent<ViewController>();
+        _view.Init(this);
+    }
 
     void Start()
     {
@@ -80,7 +79,7 @@ public class TeleopHud : MonoBehaviour
         if (_waiting != null) Destroy(_waiting);
 
         _bar = HudBar.Create(hudParent, publisher, images, this).transform;
-        if (publisher != null) _roundTrip = RoundTrip.Create(publisher);
+        _view.CreateRoundTrip();
         images.CamerasAdded += RebuildBar;
 
         var dragger = gameObject.AddComponent<PanelDragger>();
@@ -96,24 +95,10 @@ public class TeleopHud : MonoBehaviour
         if (profile != null && profile.HasModel) StudioEnvironment.EnsureModelKeyLight();
         string modeOverride = FirstPersonView.ViewModeOverride;
         FirstPersonView.ViewModeOverride = null;   // one robot screen only
-        if (profile != null && profile.HasModel)
-        {
-            Settings.EnsureMigrated(profile);
-            var saved = Settings.For(profile);
-            bool model = saved.ModelOn;
-            string layout = saved.Layout;
-            bool save = modeOverride == null;
-            if (modeOverride == FirstPersonView.LayoutFirstPerson) { model = true; layout = FirstPersonView.LayoutFirstPerson; }
-            else if (modeOverride == "model") { model = true; layout = FirstPersonView.LayoutBlocks; }
-            else if (modeOverride == FirstPersonView.LayoutBlocks) { model = false; layout = FirstPersonView.LayoutBlocks; }
-            CameraLayout = NormalizeLayout(layout);
-            if (model) SetRobotModel(true, save);
-        }
-
-        UpdateStatusStrip();   // model off (the model path made its own above)
+        _view.ApplyInitial(modeOverride);
 
         if (Settings.DebugCapture)
-            StartCoroutine(CaptureLater());
+            StartCoroutine(DebugCapture.Run());
 
         if (DemoRecorder.Request != null)
         {
@@ -129,130 +114,9 @@ public class TeleopHud : MonoBehaviour
         foreach (var panel in images.Panels)
             panel.transform.SetParent(parent, false);
         _bar.SetParent(parent, false);
-        if (_strip != null && !FirstPerson) _strip.transform.SetParent(parent, false);
+        if (Strip != null && !FirstPerson) Strip.transform.SetParent(parent, false);
         images.panelParent = parent;
         hudParent = parent;
-    }
-
-    static string NormalizeLayout(string layout)
-        => layout == FirstPersonView.LayoutFirstPerson ? FirstPersonView.LayoutFirstPerson : FirstPersonView.LayoutBlocks;
-
-    // Robot model on / off (default off, kept per robot). Robots without a model stay off.
-    public void SetRobotModel(bool on, bool save = true)
-    {
-        var profile = images != null ? images.Profile : null;
-        if (on && (profile == null || !profile.HasModel))
-        {
-            Debug.Log("FPV: this robot has no model, staying in blocks view");
-            ViewChanged?.Invoke();   // puts the toggle back
-            return;
-        }
-        if (on == RobotModelOn) return;
-        RobotModelOn = on;
-        if (profile != null && save)
-        {
-            Settings.For(profile).ModelOn = on;
-            Settings.Save();
-        }
-        ApplyView();
-    }
-
-    // Camera layout, "blocks" (default) or "firstperson" (kept per robot). It only takes effect while
-    // the robot model is on; the choice is remembered meanwhile.
-    public void SetCameraLayout(string layout, bool save = true)
-    {
-        layout = NormalizeLayout(layout);
-        var profile = images != null ? images.Profile : null;
-        if (layout == CameraLayout) return;
-        CameraLayout = layout;
-        if (profile != null && save && profile.HasModel)
-        {
-            Settings.For(profile).Layout = layout;
-            Settings.Save();
-        }
-        ApplyView();
-    }
-
-    bool _fpApplied;   // the first-person layout was in effect after the last ApplyView
-
-    // Bring the scene in line with RobotModelOn / CameraLayout. Safe to repeat.
-    void ApplyView()
-    {
-        var profile = images != null ? images.Profile : null;
-        bool fp = FirstPerson;
-
-        DestroyStrip();   // placement and model readings differ between layouts
-        if (RobotModelOn && _fpv == null) _fpv = FirstPersonView.Create(images, profile);
-        else if (!RobotModelOn && _fpv != null)
-        {
-            Destroy(_fpv.gameObject);
-            _fpv = null;
-        }
-        if (_fpv != null) _fpv.SetFirstPersonLayout(fp);
-        SyncOverlays();
-        images.SetBlocksShown(!fp);
-
-        if (fp != _fpApplied)   // only a layout change moves the bar; toggling the model must not hide the menu in use
-        {
-            _fpApplied = fp;
-            if (_bar != null) _bar.gameObject.SetActive(!fp);   // menu / hand gesture brings it back
-            PlaceBar();
-        }
-        UpdateStatusStrip();
-        UpdateControllerVisuals();
-        PushEditable(true);
-        Debug.Log($"FPV: view -> model {(RobotModelOn ? "on" : "off")}, layout {(RobotModelOn ? CameraLayout : FirstPersonView.LayoutBlocks)}");
-        ViewChanged?.Invoke();
-    }
-
-    // First person: put the model back under the headset.
-    public void Recenter()
-    {
-        if (_fpv != null) _fpv.Recenter();
-    }
-
-    // Autonomous tests (Settings.DebugCapture, set from an intent extra): once the screen has
-    // been up a while, save what the main camera sees as a PNG for `adb pull`, then clear the flag.
-    IEnumerator CaptureLater()
-    {
-        yield return new WaitForSecondsRealtime(CaptureDelaySeconds);
-        yield return null;
-        Settings.DebugCapture = false;
-        Settings.Save();
-
-        var cam = Camera.main;
-        if (cam == null) { Debug.LogWarning("FPV: capture failed, no main camera"); yield break; }
-        RenderTexture rt = null;
-        Texture2D png = null;
-        var previousTarget = cam.targetTexture;
-        var previousEye = cam.stereoTargetEye;
-        var previousActive = RenderTexture.active;
-        try
-        {
-            rt = new RenderTexture(1280, 720, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
-            cam.stereoTargetEye = StereoTargetEyeMask.None;
-            cam.targetTexture = rt;
-            cam.Render();
-            RenderTexture.active = rt;
-            png = new Texture2D(rt.width, rt.height, TextureFormat.RGB24, false);
-            png.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
-            png.Apply(false);
-            string path = Path.Combine(Application.persistentDataPath, "fpv_capture.png");
-            File.WriteAllBytes(path, png.EncodeToPNG());
-            Debug.Log($"FPV: capture {path}");
-        }
-        catch (Exception e)
-        {
-            Debug.LogWarning($"FPV: capture failed: {e.Message}");
-        }
-        finally
-        {
-            cam.targetTexture = previousTarget;
-            cam.stereoTargetEye = previousEye;
-            RenderTexture.active = previousActive;
-            if (rt != null) { rt.Release(); Destroy(rt); }
-            if (png != null) Destroy(png);
-        }
     }
 
     // "Find cameras" added blocks: rebuild the bar so it lists their toggles too.
@@ -262,163 +126,11 @@ public class TeleopHud : MonoBehaviour
         Destroy(_bar.gameObject);
         _bar = HudBar.Create(hudParent, publisher, images, this).transform;
         _bar.SetParent(parent, false);
-        BarLowered = false;   // the new bar is at its normal pose
-        PlaceBar();
-        DestroyStrip();   // blocks mode: it sits where the (possibly taller) bar's bottom row is
-        UpdateStatusStrip();
-        UpdateControllerVisuals();
-    }
-
-    // The status strip exists in both camera layouts and is active only while the bar (menu) is
-    // hidden: it takes the bar's place. In the first-person layout it hangs under the head with the
-    // model's head / lift readings; in the blocks layout at the bar's bottom row.
-    public StatusStrip Strip => _strip;
-
-    void UpdateStatusStrip()
-    {
-        bool want = _bar != null && (!FirstPerson || (_fpv != null && _fpv.Model != null));
-        if (want && _strip == null)
-        {
-            var profile = images.Profile;
-            Func<RoundTrip> rtt = () => _roundTrip;
-            if (FirstPerson)
-                _strip = StatusStrip.CreateInFirstPerson(FirstPersonView.Head, publisher, images, _fpv.Model, profile, _fpv.CameraIndex, rtt);
-            else
-            {
-                // Where the bar sits: same parent, distance and height as its bottom row.
-                var pos = new Vector3(0f, _bar.localPosition.y - BarHeightM() / 2f + HudBar.BottomRowCentreM, _bar.localPosition.z);
-                _strip = StatusStrip.Create(_bar.parent, pos, StatusStrip.BlocksScale, publisher, images, null, profile, BlocksStripCamera(), rtt);
-            }
-        }
-        else if (!want) DestroyStrip();
-        SyncStripActive();
-    }
-
-    float BarHeightM() => ((RectTransform)_bar).sizeDelta.y * _bar.localScale.y;
-
-    // Blocks mode: the head camera's rate if the robot has one, else the first camera that is shown.
-    int BlocksStripCamera()
-    {
-        var profile = images.Profile;
-        var fpCamera = profile != null ? profile.FirstPersonCamera : null;
-        int index = fpCamera != null ? images.IndexOf(fpCamera.topicSuffix) : -1;
-        for (int i = 0; index < 0 && i < images.Panels.Count; i++)
-            if (images.IsOn(images.Panels[i])) index = i;
-        return index;
-    }
-
-    void DestroyStrip()
-    {
-        if (_strip != null) Destroy(_strip.gameObject);
-        _strip = null;
-    }
-
-    // Active exactly while the bar is hidden.
-    void SyncStripActive()
-    {
-        if (_strip != null && _bar != null) _strip.gameObject.SetActive(!_bar.gameObject.activeSelf);
-    }
-
-    // --- First person: controller and hand visuals are hidden while the bar is hidden. ---
-    // Only what is drawn is switched off: renderers (controller models, hand mesh, line, reticle,
-    // pinch / poke visuals), the ray's XRInteractorLineVisual (it re-enables its LineRenderer every
-    // frame) and the XRHandMeshController (it re-enables the hand mesh on tracking changes). The
-    // GameObjects and interactors stay active, so input, the menu button and the hand gesture work.
-    class Hidden { public Renderer renderer; public Behaviour behaviour; public bool restore; }
-
-    readonly List<Hidden> _hidden = new List<Hidden>();
-    readonly HashSet<UnityEngine.Object> _hiddenKnown = new HashSet<UnityEngine.Object>();
-    bool _visualsDirty;
-
-    public bool ControllerVisualsHidden { get; private set; }
-    // Renderers (and visual behaviours) currently switched off by this.
-    public int HiddenVisualCount => _hidden.Count;
-
-    void UpdateControllerVisuals()
-        => SetControllerVisualsHidden(FirstPerson && _bar != null && !_bar.gameObject.activeSelf);
-
-    void SetControllerVisualsHidden(bool hide)
-    {
-        if (hide == ControllerVisualsHidden) return;
-        ControllerVisualsHidden = hide;
-        if (hide)
-        {
-            XRInputModalityManager.currentInputMode.Subscribe(OnInputModeChanged);
-            ScanVisuals();
-        }
-        else
-        {
-            XRInputModalityManager.currentInputMode.Unsubscribe(OnInputModeChanged);
-            // Renderers first: the hand mesh controller then re-applies the tracking state.
-            foreach (var h in _hidden)
-                if (h.renderer != null && h.restore) h.renderer.enabled = true;
-            foreach (var h in _hidden)
-                if (h.behaviour != null && h.restore) h.behaviour.enabled = true;
-            _hidden.Clear();
-            _hiddenKnown.Clear();
-        }
-        Debug.Log($"[TeleopHud] controller visuals {(hide ? "hidden" : "shown")}" + (hide ? $" ({_hidden.Count} objects)" : ""));
-    }
-
-    // The modality switched between controllers and hands: other objects are active now; look again.
-    void OnInputModeChanged(XRInputModalityManager.InputMode _) => _visualsDirty = true;
-
-    void ScanVisuals()
-    {
-        var modality = FindFirstObjectByType<XRInputModalityManager>();
-        if (modality == null) return;
-        foreach (var root in new[] { modality.leftController, modality.rightController, modality.leftHand, modality.rightHand })
-        {
-            if (root == null) continue;
-            foreach (var r in root.GetComponentsInChildren<Renderer>(true))
-                if (_hiddenKnown.Add(r)) { _hidden.Add(new Hidden { renderer = r, restore = r.enabled }); r.enabled = false; }
-            foreach (var l in root.GetComponentsInChildren<XRInteractorLineVisual>(true))
-                if (_hiddenKnown.Add(l)) { _hidden.Add(new Hidden { behaviour = l, restore = l.enabled }); l.enabled = false; }
-            foreach (var m in root.GetComponentsInChildren<XRHandMeshController>(true))
-                if (_hiddenKnown.Add(m)) { _hidden.Add(new Hidden { behaviour = m, restore = m.enabled }); m.enabled = false; }
-        }
-    }
-
-    void LateUpdate()
-    {
-        if (!ControllerVisualsHidden) return;
-        if (_visualsDirty) { _visualsDirty = false; ScanVisuals(); }
-        // Something drew again (e.g. a controller model switched on): keep it off, and remember to restore it.
-        foreach (var h in _hidden)
-            if (h.renderer != null && h.renderer.enabled) { h.renderer.enabled = false; h.restore = true; }
-    }
-
-    // Arm targets and base velocity exist while the robot model is on, hand cams in the first-person layout.
-    void SyncOverlays()
-    {
-        var model = _fpv != null ? _fpv.Model : null;
-        var profile = images != null ? images.Profile : null;
-        Sync(ref _handCams, model != null && FirstPerson, () => HandCamPip.Create(images, model, profile));
-        Sync(ref _targets, model != null, () => ArmTargets.Create(model, profile));
-        Sync(ref _baseVel, model != null, () => BaseVelocity.Create(model, profile));
-    }
-
-    // Layout mode (controls off): the first-person cards get their Rename buttons, as the blocks do.
-    bool? _editable;
-
-    void PushEditable(bool force)
-    {
-        bool editable = publisher != null && !publisher.controlRobot;
-        if (!force && _editable == editable) return;
-        _editable = editable;
-        if (_fpv != null) _fpv.SetEditable(editable);
-        if (_handCams != null) _handCams.SetEditable(editable);
-    }
-
-    static void Sync<T>(ref T field, bool want, System.Func<T> create) where T : Component
-    {
-        if (want && field == null) field = create();
-        else if (!want && field != null) { Destroy(field.gameObject); field = null; }
+        _view.OnBarRebuilt();
     }
 
     void OnDestroy()
     {
-        SetControllerVisualsHidden(false);
         if (images != null)
         {
             images.CamerasAdded -= RebuildBar;
@@ -456,104 +168,21 @@ public class TeleopHud : MonoBehaviour
         HudUi.Place((RectTransform)cancel.transform, left + 2f * (buttonW + gap), top, buttonW, buttonH);
     }
 
-    bool _menuWasPressed;
-
     void Update()
     {
         if (_waitingStatus != null) _waitingStatus.text = images.SetupStatus;
-        PushEditable(false);
 
-        // Menu shows/hides the HUD bar: the left controller's menu button, or with hand tracking
-        // the hand menu gesture (left palm facing you + pinch). Back to robots is on the bar.
-        // Not while a block is being dragged (the pinch of the drag would toggle the bar).
-        bool pressed = ControllerMenuPressed() || HandMenuGesture();
-        if (pressed && !_menuWasPressed && _bar != null && !PanelDragger.Dragging)
+        // Menu shows/hides the HUD bar (see HudInput).
+        if (_input.BarTogglePressed(hudParent) && _bar != null)
             ToggleBar();
-        _menuWasPressed = pressed;
     }
 
     void ToggleBar()
     {
         if (_bar == null) return;
         _bar.gameObject.SetActive(!_bar.gameObject.activeSelf);
-        PlaceBar();
-        SyncStripActive();
-        UpdateControllerVisuals();
-        Debug.Log($"[TeleopHud] menu -> bar {(_bar.gameObject.activeSelf ? "shown" : "hidden")}");
-    }
-
-    // The bar is always compact (HudBar.CompactScale, built that way); in first person it also
-    // sits lower so it never covers the image centre. Relative to the bar's built local pose.
-    // Numbers: head-camera quad at 1.5 m, vfov = 2 atan(240/462) -> 1.45 m tall, bottom edge at
-    // -0.72 m = -25.8 deg. Bar top edge = ImageSubscriber.minBottom - 0.17 = -1.92 m at 4.3 m
-    // (-24.0 deg, inside the image) minus the drop: 0.35 m -> -27.8 deg (2.0 deg below, the bare
-    // minimum, and the quad's camera_info centre shift ate it), 0.50 m -> atan(2.42/4.3) = -29.4 deg
-    // (3.6 deg below, the panel top still touched the image bottom), 0.55 m -> atan(2.47/4.3) = -29.9 deg
-    // (4.1 deg below the image bottom).
-    const float BarLoweredDrop = 0.55f;
-    Vector3 _barNormalPos;
-
-    public bool BarLowered { get; private set; }
-
-    void PlaceBar()
-    {
-        if (_bar == null) return;
-        if (FirstPerson && !BarLowered)
-        {
-            _barNormalPos = _bar.localPosition;
-            _bar.localPosition = _barNormalPos + Vector3.down * BarLoweredDrop;
-            BarLowered = true;
-        }
-        else if (!FirstPerson && BarLowered)
-        {
-            _bar.localPosition = _barNormalPos;
-            BarLowered = false;
-        }
-    }
-
-    static bool ControllerMenuPressed()
-        => UnityEngine.XR.InputDevices.GetDeviceAtXRNode(UnityEngine.XR.XRNode.LeftHand)
-               .TryGetFeatureValue(UnityEngine.XR.CommonUsages.menuButton, out bool pressed) && pressed;
-
-    // --- Hand menu gesture: left palm facing the head + thumb and index pinched. ---
-    // Read from the hand joints (XR Hands): Meta's aim "menu pressed" flag did not arrive on the
-    // Quest 3S, so it is only kept as a second source.
-    const float PinchDistance = 0.02f;     // thumb tip to index tip (m)
-    const float PalmFacingDot = 0.5f;      // cos of max angle between palm normal and the head
-    static XRHandSubsystem _hands;
-    static readonly System.Collections.Generic.List<XRHandSubsystem> _found = new();
-
-    public static XRHandSubsystem Hands
-    {
-        get
-        {
-            if (_hands != null && _hands.running) return _hands;
-            SubsystemManager.GetSubsystems(_found);
-            _hands = _found.Find(h => h.running);
-            return _hands;
-        }
-    }
-
-    public static bool HandsTracked => Hands != null && Hands.leftHand.isTracked;
-
-    bool HandMenuGesture()
-    {
-        if (PanelDragger.Dragging) return false;
-        if (MetaAimHand.left != null && ((ulong)MetaAimHand.left.aimFlags.ReadValue() & (ulong)MetaAimFlags.MenuPressed) != 0)
-            return true;
-        if (!HandsTracked || hudParent == null) return false;
-
-        var hand = Hands.leftHand;
-        if (!hand.GetJoint(XRHandJointID.Palm).TryGetPose(out Pose palm) ||
-            !hand.GetJoint(XRHandJointID.ThumbTip).TryGetPose(out Pose thumb) ||
-            !hand.GetJoint(XRHandJointID.IndexTip).TryGetPose(out Pose index))
-            return false;
-        if (Vector3.Distance(thumb.position, index.position) > PinchDistance) return false;
-
-        // Joint poses are relative to the XR Origin's tracking space, i.e. the camera's parent.
-        Vector3 head = hudParent.localPosition;
-        Vector3 palmNormal = palm.rotation * Vector3.down;   // +Y points out of the back of the hand
-        return Vector3.Dot(palmNormal, (head - palm.position).normalized) > PalmFacingDot;
+        _view.OnBarToggled();
+        DevLog.Log("[TeleopHud]", $"menu -> bar {(_bar.gameObject.activeSelf ? "shown" : "hidden")}");
     }
 
     // Setup mode: keep the discovered cameras, shown/hidden choices and layout as a new robot.
@@ -594,7 +223,7 @@ public class TeleopHud : MonoBehaviour
         foreach (var panel in images.Panels)
             panel.transform.SetParent(parent, false);
         _bar.SetParent(parent, false);
-        if (_strip != null && !FirstPerson) _strip.transform.SetParent(parent, false);
+        if (Strip != null && !FirstPerson) Strip.transform.SetParent(parent, false);
         images.panelParent = parent;
     }
 }

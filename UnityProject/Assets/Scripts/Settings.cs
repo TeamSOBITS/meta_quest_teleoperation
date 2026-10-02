@@ -39,6 +39,9 @@ public static class Settings
         set { if (value) SetBool("DebugCapture", true); else PlayerPrefs.DeleteKey(Prefix + "DebugCapture"); }
     }
 
+    // Developer tools (verbose logs, launch extras) in release builds; see DevTools.
+    public static bool DevTools { get => GetBool("DevTools", false); set => SetBool("DevTools", value); }
+
     public static int Version => PlayerPrefs.GetInt(Prefix + "Version", 0);
 
     // Flush now; the app may be killed from the Quest menu without a clean quit.

@@ -147,7 +147,7 @@ public class ArmTargets : MonoBehaviour
         if (Time.unscaledTime < _nextLog) return;
         _nextLog = Time.unscaledTime + LogSeconds;
         if (HasLeft || HasRight)
-            Debug.Log($"Targets: L err {(HasLeft ? LeftErrorM.ToString("F2") : "-")} m, " +
+            DevLog.Log("Targets", $"L err {(HasLeft ? LeftErrorM.ToString("F2") : "-")} m, " +
                       $"R err {(HasRight ? RightErrorM.ToString("F2") : "-")} m");
     }
 

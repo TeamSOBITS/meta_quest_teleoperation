@@ -303,7 +303,7 @@ public static class ExperimentsVerify2
         pip.gameObject.SetActive(true);
         hud.SetCameraLayout("blocks");
         yield return Frames(3);
-        var forced = Field<HashSet<int>>(images, "_forceDecode");
+        var forced = Field<HashSet<int>>(Field<object>(images, "_streams"), "_forceDecode");
         Check(Object.FindFirstObjectByType<HandCamPip>() == null && leftCard == null && fpv != null && fpv.Model != null && !fpv.ImageShown, "4: blocks layout -> PiP and cards destroyed, model kept, no head card");
         Check(!forced.Contains(li) && !forced.Contains(ri) && !forced.Contains(fpv.CameraIndex), $"4: ForceDecode cleared for hand cams and head (forced = [{string.Join(",", forced)}])");
         hud.SetCameraLayout("firstperson");
@@ -435,7 +435,7 @@ public static class ExperimentsVerify2
         // ================= 10. lowered bar (always 0.7 scale), shown by the menu toggle =================
         var barT = Field<Transform>(hud, "_bar");
         var hudBar = barT.GetComponent<HudBar>();
-        Vector3 normalPos = Field<Vector3>(hud, "_barNormalPos");
+        Vector3 normalPos = Field<Vector3>(Field<object>(hud, "_view"), "_barNormalPos");
         Vector3 builtScale = Vector3.one * (HudBar.CompactScale / HudUi.MmPerMetre);
         Check(hud.BarLowered && !barT.gameObject.activeSelf, $"10: first person: BarLowered {hud.BarLowered}, bar hidden");
         int toggles0 = LogCount("[TeleopHud] menu -> bar");
@@ -513,7 +513,7 @@ public static class ExperimentsVerify2
             headTgl.isOn = true;
             yield return Frames(2);
             Check(AllInactive() && images.IsOn(headPanel), $"toggle: head on again while hidden -> all panels still inactive, IsOn(head) {images.IsOn(headPanel)}");
-            Check(fpv.FramesReceived > 0 && Field<HashSet<int>>(images, "_forceDecode").Contains(fpv.CameraIndex), "toggle: head camera still force-decoded for the FPV image");
+            Check(fpv.FramesReceived > 0 && Field<HashSet<int>>(Field<object>(images, "_streams"), "_forceDecode").Contains(fpv.CameraIndex), "toggle: head camera still force-decoded for the FPV image");
             images.ResetLayout();
             yield return Frames(2);
             Check(AllInactive() && images.Panels.All(images.IsOn), $"toggle: ResetLayout while hidden -> all inactive, all IsOn ({images.Panels.Count(images.IsOn)}/{images.Panels.Count})");

@@ -103,6 +103,6 @@ public class RoundTrip : MonoBehaviour
     {
         if (Time.unscaledTime < _nextLog) return;
         _nextLog = Time.unscaledTime + LogSeconds;
-        if (HasRecent) Debug.Log($"RTT: {RttMs:F0} ms (max {RttMaxMs:F0})");
+        if (HasRecent) DevLog.Log("RTT", $"{RttMs:F0} ms (max {RttMaxMs:F0})");
     }
 }

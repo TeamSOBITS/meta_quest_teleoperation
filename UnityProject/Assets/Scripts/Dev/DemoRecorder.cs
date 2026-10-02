@@ -71,7 +71,7 @@ public class DemoRecorder : MonoBehaviour
     {
         if (Directory.Exists(_dir)) Directory.Delete(_dir, true);
         Directory.CreateDirectory(_dir);
-        Debug.Log($"DEMO: recording {_settings.seconds}s at {_settings.fps} fps, switch at {_settings.switchAt}s -> {_dir}");
+        DevLog.Log("DEMO", $"recording {_settings.seconds}s at {_settings.fps} fps, switch at {_settings.switchAt}s -> {_dir}");
 
         var rt = new RenderTexture(Width, Height, 24, RenderTextureFormat.ARGB32, RenderTextureReadWrite.sRGB);
         var tex = new Texture2D(Width, Height, TextureFormat.RGB24, false);
@@ -93,7 +93,7 @@ public class DemoRecorder : MonoBehaviour
             if (!switched && now - start >= _settings.switchAt)
             {
                 switched = true;
-                Debug.Log("DEMO: switch to first person");
+                DevLog.Log("DEMO", "switch to first person");
                 _hud.SetCameraLayout(FirstPersonView.LayoutFirstPerson, save: false);
                 _hud.SetRobotModel(true, save: false);   // both layouts show the model; first person needs it on
                 _cam.fieldOfView = FirstPersonFov;
@@ -120,7 +120,7 @@ public class DemoRecorder : MonoBehaviour
             if (now >= nextLog)
             {
                 nextLog += LogSeconds;
-                Debug.Log($"DEMO: frame {frames} t={now - start:F1}s");
+                DevLog.Log("DEMO", $"frame {frames} t={now - start:F1}s");
             }
         }
 
@@ -130,7 +130,7 @@ public class DemoRecorder : MonoBehaviour
         rt.Release();
         Destroy(rt);
         Destroy(tex);
-        Debug.Log($"DEMO: done {frames} frames in {_dir}");
+        DevLog.Log("DEMO", $"done {frames} frames in {_dir}");
         // Leave the Demo Head: the HUD hangs under it. Only stop capturing.
         Destroy(_cam.gameObject);
         Destroy(this);

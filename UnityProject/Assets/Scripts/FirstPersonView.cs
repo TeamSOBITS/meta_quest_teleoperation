@@ -116,7 +116,7 @@ public class FirstPersonView : MonoBehaviour
         {
             // Robots without a pan/tilt head: keep the eyes at the camera instead.
             _panFrame = _camFrame;
-            Debug.Log("FPV: no pan frame, anchoring at the camera frame");
+            DevLog.Log("FPV", "no pan frame, anchoring at the camera frame");
         }
 
         _model.SetLinksVisible(profile.firstPersonHiddenLinkPrefixes, false);
@@ -188,7 +188,7 @@ public class FirstPersonView : MonoBehaviour
             _anchorPoint = _panFrame.position;
             _anchored = true;
         }
-        Debug.Log($"FPV: recenter head=({head.position.x:F2},{head.position.y:F2},{head.position.z:F2}) " +
+        DevLog.Log("FPV", $"recenter head=({head.position.x:F2},{head.position.y:F2},{head.position.z:F2}) " +
                   $"yaw={head.eulerAngles.y:F0} anchor=({_anchorPoint.x:F2},{_anchorPoint.y:F2},{_anchorPoint.z:F2})");
     }
 
@@ -237,7 +237,7 @@ public class FirstPersonView : MonoBehaviour
             UseTexture();
         }
         else DestroyQuad();
-        Debug.Log($"FPV: image card {(on ? "shown" : "removed")}");
+        DevLog.Log("FPV", $"image card {(on ? "shown" : "removed")}");
     }
 
     void DestroyQuad()
@@ -343,7 +343,7 @@ public class FirstPersonView : MonoBehaviour
         CameraOn = on;
         if (_canvasRt != null) _canvasRt.gameObject.SetActive(on);
         _images.ForceDecode(_cameraIndex, on);
-        Debug.Log($"FPV: head camera {(on ? "on" : "off")}");
+        DevLog.Log("FPV", $"head camera {(on ? "on" : "off")}");
     }
 
     void Update()
@@ -385,7 +385,7 @@ public class FirstPersonView : MonoBehaviour
         _infoW = msg.width; _infoH = msg.height;
         _hasInfo = true;
         ApplyQuadSize();
-        Debug.Log($"FPV: camera_info {msg.width}x{msg.height} fx={_fx:F1} fy={_fy:F1} cx={_cx:F1} cy={_cy:F1} " +
+        DevLog.Log("FPV", $"camera_info {msg.width}x{msg.height} fx={_fx:F1} fy={_fy:F1} cx={_cx:F1} cy={_cy:F1} " +
                   (_viewRt != null ? $"quad={_viewRt.sizeDelta.x / 1000f:F3}x{_viewRt.sizeDelta.y / 1000f:F3} m" : "(no image card in the blocks layout)"));
     }
 
@@ -394,7 +394,7 @@ public class FirstPersonView : MonoBehaviour
     void LogState(string what)
     {
         if (_model == null) return;
-        var sb = new StringBuilder("FPV: ").Append(what);
+        var sb = new StringBuilder(what);
         if (what == "enable")
         {
             int visuals = 0; long tris = 0;
@@ -415,6 +415,6 @@ public class FirstPersonView : MonoBehaviour
             sb.Append($" tfHz={_model.TfHz:F1} accepted={_model.AcceptedTransforms} frames={_frames}");
             if (_panFrame != null) sb.Append($" head_pan_local_yaw={_panFrame.localEulerAngles.y:F1}");
         }
-        Debug.Log(sb.ToString());
+        DevLog.Log("FPV", sb.ToString());
     }
 }
