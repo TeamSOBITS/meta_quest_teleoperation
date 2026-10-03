@@ -6,127 +6,141 @@ using RosMessageTypes.Std;
 using RosMessageTypes.Tf2;
 using RosMessageTypes.Sensor;
 using UnityEngine.XR;
-using TMPro;
 using UnityEngine;
 using Unity.Robotics.ROSTCPConnector;
 using Unity.Robotics.ROSTCPConnector.ROSGeometry;
-using UnityEngine.InputSystem;
 using UnityEngine.SceneManagement;
 
 public class QuestControllerPublisher : MonoBehaviour
 {
     public ROSConnection ros;
 
-    // Robot namespace (e.g. "sobit_home", "sobit_pro").
-    // Controls the joy topic: /<robotNamespace>/joy
-    public string robotNamespace = "sobit_home";
+    // Robot namespace; controls the joy topic: /<robotNamespace>/joy.
+    // All of these come from the selected robot's profile at Awake (see ApplyProfile); the values
+    // here only matter when no profile is selected and none is set on the scene's ImageSubscriber.
+    public string robotNamespace = "";
 
-    // TF parent frame — publish directly under base_footprint so the Quest frames
+    // TF parent frame — publish directly under the robot's base frame so the Quest frames
     // are always expressed relative to the robot, even after the robot drives.
-    public string parent_frame_id = "base_footprint";
-    public string headChildFrame = "hmd_odom";
-    public string rightChildFrame = "right_controller_odom";
-    public string leftChildFrame = "left_controller_odom";
-    public string tfTopicName = "/tf";
+    public string parent_frame_id = "";
+    public string headChildFrame = "";
+    public string rightChildFrame = "";
+    public string leftChildFrame = "";
+    public string tfTopicName = RosNames.Tf;
 
     // TFs are always stamped with wall-clock (UTC) time.
     // sobits_teleop uses a wall-clock TF buffer so sim/real time mixing is not an issue.
     public bool useSimTime = false;  // kept for Inspector compatibility, no longer used
     public float publishFrequency = 1.0f / 60.0f;
-    public InputActionAsset inputActions;
+
+    // Drive the robot: publish head/controller poses (TF) and controller buttons/axes (Joy).
+    // Off = nothing is sent, so the robot stays still ("layout mode"; camera blocks can be dragged).
+    [UnityEngine.Serialization.FormerlySerializedAs("publishJoy")]
+    public bool controlRobot = true;
 
     private float _timeElapsed;
-    private InputAction _clutchAction;
-    private InputAction _keyboardAction;
     private string _joyTopicName;
     private string _confirmedIp;  // IP that was last explicitly connected to
 
-    private TouchScreenKeyboard _keyboard;
-    public TextMeshProUGUI textInput;
+    private readonly IpKeyboard _keyboard = new IpKeyboard();
 
     // Name of the scene to return to when the user wants to pick a different robot.
     public string robotSelectionSceneName = "RobotSelectionScene";
-    private bool _prevMenuButtonState;
+
+    // Restore the last IP typed on the keyboard. Done in Awake because ROSConnection
+    // connects in its own Start, and every Awake runs before any Start — so the first
+    // connection already goes to the saved IP, with no Disconnect/Connect cycle.
+    public void Awake()
+    {
+        var images = FindFirstObjectByType<ImageSubscriber>();
+        ApplyProfile(RobotProfile.Selected != null ? RobotProfile.Selected : images != null ? images.defaultProfile : null);
+
+        ros.RosIPAddress = RosIpSettings.Load(ros.RosIPAddress);
+    }
+
+    // Namespace and TF frame names from the robot's profile. A profile that leaves a frame empty (a robot
+    // added on the headset before the v2 schema) gets the sobits_teleop names (TeleopConventions).
+    void ApplyProfile(RobotProfile profile)
+    {
+        if (profile != null) robotNamespace = profile.robotNamespace;
+        var f = profile != null ? profile.controllerFrames : null;
+        parent_frame_id = Pick(profile != null ? profile.baseFrame : null, parent_frame_id, TeleopConventions.BaseFrame);
+        headChildFrame = Pick(f?.hmd, headChildFrame, TeleopConventions.Hmd);
+        leftChildFrame = Pick(f?.left, leftChildFrame, TeleopConventions.LeftController);
+        rightChildFrame = Pick(f?.right, rightChildFrame, TeleopConventions.RightController);
+    }
+
+    static string Pick(string fromProfile, string current, string fallback)
+        => !string.IsNullOrEmpty(fromProfile) ? fromProfile : !string.IsNullOrEmpty(current) ? current : fallback;
 
     public void Start()
     {
-        // Build namespaced joy topic: /<robotNamespace>/joy
-        _joyTopicName = string.IsNullOrEmpty(robotNamespace)
-            ? "/joy"
-            : "/" + robotNamespace + "/joy";
-
         ros.RegisterPublisher<TFMessageMsg>(tfTopicName);
-        // Publish controller buttons as sensor_msgs/Joy on the namespaced topic
-        ros.RegisterPublisher<JoyMsg>(_joyTopicName);
+        SetNamespace(robotNamespace);
 
-        
-        _keyboardAction = inputActions.FindAction("OpenKeyboard");
-        _keyboardAction.Enable();
-        textInput = GameObject.Find("ROS_IP").GetComponent<TextMeshProUGUI>();
-        textInput.text = ros.RosIPAddress;
         _confirmedIp = ros.RosIPAddress;  // record what we are already connected to
     }
+
+    // IP to show in the HUD: what is being typed while the keyboard is open, else the connected one.
+    public string DisplayedIp => _keyboard.IsOpen ? TypingDisplay(_keyboard.Text, "Type the ROS PC IP\u2026") : _confirmedIp;
+
+    // What to show while the (overlay) keyboard is open: the text so far, or a prompt.
+    public static string TypingDisplay(string typed, string prompt)
+        => string.IsNullOrEmpty(typed) ? prompt : typed + "|";
+
+    public bool HasConnectionError => ros.HasConnectionError;
+
+    // Leave the robot screen and go back to choosing a robot (HUD button and left menu button).
+    public void BackToRobotSelection() => SceneManager.LoadScene(robotSelectionSceneName);
+
+    // Joy goes to /<ns>/joy, or /joy when the robot has no namespace.
+    public string JoyTopic => _joyTopicName;
+
+    public void SetNamespace(string ns)
+    {
+        robotNamespace = (ns ?? "").Trim().Trim('/');
+        _joyTopicName = string.IsNullOrEmpty(robotNamespace) ? "/" + RosNames.Joy : "/" + robotNamespace + "/" + RosNames.Joy;
+        ros.RegisterPublisher<JoyMsg>(_joyTopicName);
+    }
+
+    // ROSConnection only disconnects on application quit. Without this, every robot screen
+    // left behind a live connection that kept reconnecting, and ros_tcp_endpoint hands its
+    // single outgoing stream to the newest connection, so old ones stole camera images.
+    void OnDestroy()
+    {
+        if (ros != null) ros.Disconnect();
+    }
+
+    // Opens the Quest system keyboard; the typed IP is applied when the user confirms.
+    public void OpenIpKeyboard() => _keyboard.Open(_confirmedIp);
 
 
     public void Update()
     {
-        if (_keyboardAction.WasPressedThisFrame())
-        {
-            TouchScreenKeyboard.hideInput = false;
-            _keyboard = TouchScreenKeyboard.Open("",
-                TouchScreenKeyboardType.NumbersAndPunctuation, false, false, false, false);
-        }
-
         // Only reconnect when the user explicitly submits a new IP via the keyboard.
         // Comparing against _confirmedIp (not ros.RosIPAddress) avoids the startup
         // race where a transient mismatch between the UI text and ros.RosIPAddress
         // triggers an extra Disconnect/Connect cycle and causes the
         // "InvalidHandle: cannot use Destroyable" exception in ros_tcp_endpoint.
-        if (_keyboard != null &&
-            _keyboard.status == TouchScreenKeyboard.Status.Done &&
-            !string.IsNullOrEmpty(_keyboard.text) &&
-            !_keyboard.text.Equals(_confirmedIp))
+        string newIp = _keyboard.Poll();
+        if (newIp != null)
         {
-            _confirmedIp = _keyboard.text;
-            textInput.text = _confirmedIp;
+            _confirmedIp = newIp;
             ros.Disconnect();
-            ros.Connect(_confirmedIp, 10000);
-            PlayerPrefs.SetString("RosIPAddress", _confirmedIp);
-            _keyboard = null;
+            ros.Connect(_confirmedIp, RosIpSettings.Port);
+            RosIpSettings.Save(_confirmedIp);
         }
 
-        // Left controller menu button: go back to the robot selection screen, so picking
-        // the wrong robot isn't a dead end. Checked independently of ROS connection state,
-        // so it still works even if the robot connection has an error.
-        var leftDevice = InputDevices.GetDeviceAtXRNode(XRNode.LeftHand);
-        if (leftDevice.TryGetFeatureValue(UnityEngine.XR.CommonUsages.menuButton, out bool menuButtonPressed))
-        {
-            if (menuButtonPressed && !_prevMenuButtonState)
-            {
-                _prevMenuButtonState = menuButtonPressed;
-                SceneManager.LoadScene(robotSelectionSceneName);
-                return;
-            }
-            _prevMenuButtonState = menuButtonPressed;
-        }
 
-        // Stop publishing when disconnected — avoids injecting stale TFs into
-        // a freshly-started ROS session.
-        if (ros.HasConnectionError) return;
+        // Stop publishing when disconnected (avoids injecting stale TFs into a freshly-started
+        // ROS session) and when robot control is off (layout mode: the robot must not move).
+        if (ros.HasConnectionError || !controlRobot) return;
 
         _timeElapsed += Time.deltaTime;
         if (_timeElapsed > publishFrequency)
         {
             PublishTfJoy();
             _timeElapsed = 0;
-        }
-    }
-    
-    void OnGUI()
-    {
-        if (_keyboard != null)
-        {
-            textInput.text = _keyboard.text;
         }
     }
 
@@ -249,6 +263,7 @@ public class QuestControllerPublisher : MonoBehaviour
     if (tfList.Count == 0) return;
 
     ros.Publish(tfTopicName, new TFMessageMsg(tfList.ToArray()));
+
 
     // --- Publish controller button states as sensor_msgs/Joy on a single /joy topic ---
     // Use Unity XR InputDevices to query Meta Quest controller buttons and axes

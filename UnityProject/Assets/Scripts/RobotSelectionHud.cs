@@ -1,0 +1,283 @@
+using System.Collections.Generic;
+using TMPro;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+using UnityEngine.UI;
+
+/// <summary>
+/// Robot selection screen, built from the robot profiles with the same HUD toolkit as the
+/// robot screens (head-locked, same distance, fonts and cards):
+///
+///                         Choose a robot
+///        ROS IP  192.168.11.20                      [ Edit ]
+///     +----------------------+   +----------------------+
+///     |       [picture]      |   |       [picture]      |
+///     |  SOBIT HOME          |   |  SOBIT LIGHT         |
+///     |  /sobit_home · 3 cam |   |  /sobit_light · 4 cam|
+///     +----------------------+   +----------------------+
+///              Point at a robot and pull the trigger
+///
+/// The robot chosen last time carries a "Last used" tag; a green dot after the name means the
+/// robot is online (it has topics in its namespace, see RobotPresence), a grey one that it is not.
+/// Each card is a button: pointing at it darkens it, pulling the trigger opens that robot.
+/// The ROS IP row only sets the IP; the ROS connection is opened (and its state shown) by the
+/// robot screen. (A reachability ping was dropped: UnityEngine.Ping does not work on Quest.)
+/// </summary>
+public partial class RobotSelectionHud : MonoBehaviour
+{
+    // One card per profile, in this order.
+    public RobotProfile[] robots;
+
+    // Sizes in mm on a canvas at HudTheme.ReferenceDistance (same scale as the robot screens).
+    const float CardWidthMm = 1500f, CardPaddingMm = 60f, CardGapMm = 160f, RadiusMm = HudTheme.PanelRadius;
+    const float IpRowWidthMm = 3000f, IpRowHeightMm = 260f;
+    const float PictureRadiusRatio = 0.6f, PictureMarginMm = 30f;   // picture frame corner (x RadiusMm); tags and buttons sit this far inside it
+    const float TagAlpha = 0.9f, RemoveButtonWidthMm = 360f;   // x text size
+    const float TitleFontScale = 1.5f, BackdropPaddingMm = 110f;
+    const string HintText = "Point at a robot and pull the trigger";
+    const float DisplayGapMm = 50f, DisplayRowHeightRatio = 1.9f;   // Display row (text size, contrast): gap above, height in body fonts
+    const float MessageSeconds = 4f, RemoveConfirmSeconds = 3f;
+    const string AddRobotTitle = "Add robot";
+    static readonly Color PictureColor = new Color(0.91f, 0.93f, 0.95f, 1f), AddPictureColor = new Color(1f, 1f, 1f, 0.06f);
+    const float InitialsBackgroundRatio = 0.35f;   // accent colour darkened behind the initials
+    static readonly Color TagTextColor = new Color(0.05f, 0.08f, 0.12f, 1f);
+    const int MaxColumns = 3;
+    // Vertical position of the whole screen's centre relative to eye level (metres).
+    const float CentreY = 0.1f;
+
+    readonly IpKeyboard _keyboard = new IpKeyboard();
+    readonly TextKeyboard _nameKeyboard = new TextKeyboard();
+    readonly List<RobotProfile> _all = new List<RobotProfile>();
+    Transform _head;
+    GameObject _screen;
+    TextMeshProUGUI _hint;
+    float _hintUntil;
+    string _ip;
+    TextMeshProUGUI _ipLabel, _addName;
+    RobotPresence _presence;
+    bool _opening;
+
+    // Set by the robot screen's "Compressed images" toggle before it returns here: this robot is
+    // opened again straight away (through the usual presence Close + 1 s handoff), so the new
+    // image topics are used. Consumed once in Start.
+    public static RobotProfile AutoOpen;
+    readonly Dictionary<RobotProfile, Image> _dots = new Dictionary<RobotProfile, Image>();
+    static readonly Color OfflineDotColor = HudTheme.WithAlpha(Color.white, 0.18f);
+
+    void Start()
+    {
+        _ip = RosIpSettings.Load(Settings.DefaultRosIp);
+        StudioEnvironment.Apply(Camera.main);
+        _head = Camera.main != null ? Camera.main.transform : transform;
+        Build();
+        _presence = RobotPresence.Create(_all, _ip);
+        if (AutoOpen != null)
+        {
+            var robot = AutoOpen;
+            AutoOpen = null;
+            Debug.Log($"[RobotSelection] reopening {robot.displayName}");
+            RobotProfile.Selected = robot;
+            RobotProfile.SetupMode = false;
+            StartCoroutine(Open(robot));
+            return;
+        }
+        var launch = DebugLaunchOptions.Apply(_all);   // intent extras of an autonomous test run
+        if (launch != null) Select(launch);
+    }
+
+    // (Re)build the whole screen: built-in robots, robots added on the headset, "Add robot".
+    void Build()
+    {
+        if (_screen != null) Destroy(_screen);
+        _all.Clear();
+        _dots.Clear();
+        _all.AddRange(robots);
+        _all.AddRange(RobotLibrary.LoadAll());
+        Settings.EnsureMigrated(_all);
+
+        float body  = HudTheme.BodyFont  * HudUi.MmPerMetre;
+        float title = HudTheme.TitleFont * HudUi.MmPerMetre;
+
+        // Card size: picture (4:3) + name + meta line.
+        float pictureW = CardWidthMm - 2f * CardPaddingMm;
+        float pictureH = pictureW * 0.75f;
+        float cardH = CardPaddingMm + pictureH + 40f + title * 1.3f + body * 1.4f + CardPaddingMm;
+
+        int n = _all.Count + 1;   // + the "Add robot" card
+        int cols = Mathf.Min(n, MaxColumns);
+        int rows = Mathf.CeilToInt(n / (float)cols);
+        float gridW = cols * CardWidthMm + (cols - 1) * CardGapMm;
+        float gridH = rows * cardH + (rows - 1) * CardGapMm;
+
+        float headingH = title * TitleFontScale * 1.4f;
+        float pad = BackdropPaddingMm;
+        float contentW = Mathf.Max(gridW, IpRowWidthMm);
+        float widthMm = contentW + 2f * pad;
+        float hintH = body * 2.2f;
+        float displayH = body * DisplayRowHeightRatio;
+        float heightMm = pad + headingH + 60f + IpRowHeightMm + 120f + gridH + 40f + hintH + DisplayGapMm + displayH + pad;
+
+        var root = HudUi.CreateCanvas("Robot Selection Screen", _head,
+            new Vector3(0f, CentreY, HudTheme.ReferenceDistance), new Vector2(widthMm, heightMm), interactive: true);
+        _screen = root.gameObject;
+
+        // One dark backdrop behind everything, so text reads on any background.
+        HudUi.Stretch(HudUi.Round(HudUi.Box(root, "Backdrop", HudTheme.Panel), RadiusMm * 1.5f).rectTransform);
+
+        // Heading
+        float top = pad;
+        var heading = HudUi.Label(root, "Heading", "Choose a robot", title * TitleFontScale);
+        heading.fontStyle = FontStyles.Bold;
+        HudUi.Place(heading.rectTransform, 0f, top, widthMm, headingH);
+        top += headingH + 60f;
+
+        // ROS IP row
+        float rowLeft = (widthMm - IpRowWidthMm) / 2f;
+        var row = HudUi.Round(HudUi.Box(root, "ROS IP", HudTheme.Surface), RadiusMm);
+        HudUi.Place(row.rectTransform, rowLeft, top, IpRowWidthMm, IpRowHeightMm);
+        BuildIpRow(row.rectTransform, body, title);
+        top += IpRowHeightMm + 120f;
+
+        // Robot cards, then "Add robot"
+        for (int i = 0; i < n; i++)
+        {
+            int r = i / cols, c = i % cols;
+            int inRow = Mathf.Min(cols, n - r * cols);
+            float rowW = inRow * CardWidthMm + (inRow - 1) * CardGapMm;
+            float left = (widthMm - rowW) / 2f + c * (CardWidthMm + CardGapMm);
+            var card = i < _all.Count
+                ? BuildCard(root, _all[i], pictureW, pictureH, body, title)
+                : BuildAddCard(root, pictureW, pictureH, body, title);
+            HudUi.Place((RectTransform)card.transform, left, top + r * (cardH + CardGapMm), CardWidthMm, cardH);
+        }
+        top += gridH + 40f;
+
+        _hint = HudUi.Label(root, "Hint", HintText, body);
+        _hint.color = HudTheme.Muted;
+        HudUi.Place(_hint.rectTransform, 0f, top, widthMm, hintH);
+        BuildDisplayRow(root, top + hintH + DisplayGapMm, widthMm, body, displayH);
+    }
+
+    // Briefly replace the hint line with a message (e.g. why a name was not accepted).
+    void ShowMessage(string text)
+    {
+        _hint.text = text;
+        _hint.color = HudTheme.Bad;
+        _hintUntil = Time.time + MessageSeconds;
+    }
+
+    Button BuildAddCard(RectTransform parent, float pictureW, float pictureH, float body, float title)
+    {
+        var bg = HudUi.Round(HudUi.Box(parent, "Card Add robot", HudTheme.Surface, raycastTarget: true), RadiusMm);
+        var button = bg.gameObject.AddComponent<Button>();
+        button.targetGraphic = bg;
+        button.colors = HudTheme.Hover;
+        button.onClick.AddListener(() => _nameKeyboard.Open("", $"Robot {_all.Count + 1}"));
+
+        float top = CardPaddingMm;
+        var frame = HudUi.Round(HudUi.Box(bg.transform, "Picture", AddPictureColor), RadiusMm * PictureRadiusRatio);
+        HudUi.Place(frame.rectTransform, CardPaddingMm, top, pictureW, pictureH);
+        var plus = HudUi.Label(frame.transform, "Plus", "+", title * 4f);
+        plus.color = HudTheme.Accent;
+        HudUi.Stretch(plus.rectTransform);
+        top += pictureH + 40f;
+
+        var name = _addName = HudUi.Label(bg.transform, "Name", AddRobotTitle, title, TextAlignmentOptions.Left);
+        name.fontStyle = FontStyles.Bold;
+        Shrink(name, title);
+        HudUi.Place(name.rectTransform, CardPaddingMm, top, pictureW, title * 1.3f);
+        top += title * 1.3f;
+
+        var meta = HudUi.Label(bg.transform, "Details", "Name it, then pick its cameras", body, TextAlignmentOptions.Left);
+        meta.color = HudTheme.Muted;
+        Shrink(meta, body);
+        HudUi.Place(meta.rectTransform, CardPaddingMm, top, pictureW, body * 1.4f);
+        return button;
+    }
+
+    void StartSetup(string displayName)
+    {
+        displayName = displayName.Trim();
+        if (displayName.Length == 0) { ShowMessage("Type a name for the robot"); return; }
+        if (RobotLibrary.IsNameTaken(displayName, _all)) { ShowMessage($"A robot named \u201c{displayName}\u201d already exists"); return; }
+
+        var robot = RobotLibrary.CreateNew(displayName);
+        RobotProfile.SetupMode = true;
+        RobotProfile.Selected = robot;
+        StartCoroutine(Open(robot));
+    }
+
+    void BuildIpRow(RectTransform row, float body, float title)
+    {
+        const float pad = HudTheme.Padding, gap = HudTheme.Gap;
+        float h = IpRowHeightMm;
+
+        var caption = HudUi.Label(row, "Caption", "ROS IP", body, TextAlignmentOptions.Left);
+        caption.color = HudTheme.Muted;
+        caption.textWrappingMode = TextWrappingModes.NoWrap;
+        float captionW = caption.GetPreferredValues("ROS IP").x;
+        HudUi.Place(caption.rectTransform, pad, 0f, captionW, h);
+
+        float editLeft = IpRowWidthMm - pad - HudTheme.EditButtonWidth;
+        var edit = HudUi.Button(row, "Edit", body, () => _keyboard.Open(_ip));   // starts empty
+        HudUi.Place((RectTransform)edit.transform, editLeft, 50f, HudTheme.EditButtonWidth, h - 100f);
+
+        float ipLeft = pad + captionW + gap;
+        _ipLabel = HudUi.Label(row, "IP", _ip, title, TextAlignmentOptions.Left);
+        _ipLabel.textWrappingMode = TextWrappingModes.NoWrap;
+        _ipLabel.overflowMode = TextOverflowModes.Ellipsis;
+        HudUi.Place(_ipLabel.rectTransform, ipLeft, 0f, editLeft - gap - ipLeft, h);
+    }
+
+    void Select(RobotProfile robot)
+    {
+        Settings.LastRobot = robot.name;
+        Settings.Save();
+        RobotProfile.Selected = robot;
+        StartCoroutine(Open(robot));
+    }
+
+    // The online check's ROS connection must be closed before the robot screen opens its own.
+    System.Collections.IEnumerator Open(RobotProfile robot)
+    {
+        if (_opening) yield break;
+        _opening = true;
+        _hint.text = $"Opening {robot.displayName}\u2026";
+        _hint.color = HudTheme.Muted;
+        _hintUntil = 0f;
+        yield return _presence.Close();
+        SceneManager.LoadScene(robot.sceneName);
+    }
+
+    void Update()
+    {
+        // The Quest overlay keyboard has no text field, so show what is being typed on the screen.
+        _ipLabel.text = _keyboard.IsOpen ? QuestControllerPublisher.TypingDisplay(_keyboard.Text, "Type the ROS PC IP\u2026") : _ip;
+        if (_addName != null)
+            _addName.text = _nameKeyboard.IsOpen ? QuestControllerPublisher.TypingDisplay(_nameKeyboard.Text, "Type a name\u2026") : AddRobotTitle;
+
+        foreach (var (robot, status) in _dots)
+        {
+            bool? online = _presence.IsOnline(robot);
+            status.gameObject.SetActive(online.HasValue);
+            status.color = online == true ? HudTheme.Good : OfflineDotColor;
+        }
+
+        string newName = _nameKeyboard.Poll();
+        if (newName != null) StartSetup(newName);
+        if (_hintUntil > 0f && Time.time > _hintUntil)
+        {
+            _hintUntil = 0f;
+            _hint.text = HintText;
+            _hint.color = HudTheme.Muted;
+        }
+
+        string newIp = _keyboard.Poll();
+        if (newIp != null)
+        {
+            _ip = newIp;
+            RosIpSettings.Save(_ip);
+            _presence.SetIp(_ip);
+        }
+    }
+}
