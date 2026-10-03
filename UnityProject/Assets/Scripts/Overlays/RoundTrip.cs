@@ -25,6 +25,9 @@ public class RoundTrip : MonoBehaviour
     bool _hasEma;
     readonly Queue<(float time, float ms)> _window = new Queue<(float, float)>();
 
+    // The live instance (null before the HUD created it).
+    public static RoundTrip Latest => Current;
+
     // Smoothed round trip (ms), max over the last second, samples since start.
     public float RttMs { get; private set; }
     public float RttMaxMs

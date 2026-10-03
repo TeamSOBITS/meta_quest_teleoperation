@@ -5,11 +5,13 @@ using UnityEngine.UI;
 
 /// <summary>
 /// Small head-locked status strip shown while the HUD bar (menu) is hidden, in both view modes:
-/// at the bottom of the first-person view, or in blocks mode where the bar normally sits. One row: connection, CONTROL ON / LAYOUT, image fps and age, TF rate, round trip,
-/// a labelled HEAD box (crosshair, dot at pan x / tilt y, L/R ticks, "pan 29° tilt 17°") and a
-/// labelled LIFT bar with its height ("0.40 m"). Created by TeleopHud in both camera layouts
+/// at the bottom of the first-person view, or in blocks mode where the bar normally sits. One row in three
+/// groups with thin dividers: LINK (the <see cref="LinkHealth"/> level "link ok / degraded / lost", image fps and age,
+/// TF rate, round trip), CONTROL (CONTROL ON / LAYOUT pill) and BODY (a labelled HEAD box: crosshair, dot at
+/// pan x / tilt y, L/R ticks, "pan 29° tilt 17°"; a labelled LIFT bar with its height "0.40 m"). Only the item that
+/// needs attention is coloured (Warn / Bad), the rest is muted. Created by TeleopHud in both camera layouts
 /// (active only while the bar is hidden) and rebuilt when the layout changes.
-/// In the blocks layout there is no model reading: HEAD, LIFT and the TF rate are left out ("TF —") and the strip is narrower.
+/// In the blocks layout there is no model reading: the BODY group (HEAD, LIFT) and the TF rate are left out ("TF —") and the strip is narrower.
 ///
 /// Head and lift are read from the model's link local poses, which RobotModel sets straight from
 /// /tf (FLU -> Unity). A ROS rotation of t about z shows up as -t about Unity's up axis, and a
@@ -22,15 +24,17 @@ public class StatusStrip : MonoBehaviour
 {
     // Placement relative to the head (metres) and size (mm, canvas units).
     const float Distance = 1.2f, DropM = -0.45f;
-    const float WidthMm = 1400f, HeightMm = 130f, RadiusMm = 18f;
+    const float HeightMm = 130f, RadiusMm = 18f;
     const float BackgroundAlpha = 0.7f;   // the strip is more see-through than a panel
     const float DotMm = 14f, HeadBoxRadiusMm = 8f, TrackRadiusMm = 4f, MarkerRadiusMm = 3f;
     static readonly Color CrosshairColor = new Color(1f, 1f, 1f, 0.3f);
-    const float NoModelWidthMm = 900f;   // without HEAD and LIFT
+    // Text: the body font; one character is about CharWidth x the font wide. The strip is as wide as its
+    // groups need (about 1500 mm with the model, less without HEAD and LIFT).
+    const float FontScale = 1f, CharWidth = 0.56f;
+    const float EdgeMm = 40f, GapMm = 12f, GroupGapMm = 26f, DividerMm = 3f, DividerHeightRatio = 0.6f;
     // Blocks mode: the strip hangs where the bar sits (4.3 m), scaled so its text is as large as the
-    // bar's body text (the font is sized for Distance and 0.88 x the body size).
-    public const float BlocksScale = HudBar.CompactScale * HudTheme.ReferenceDistance / (Distance * 0.88f);
-    const float Pad = 80f;   // left margin that centres the single row in the wider strip
+    // bar's body text (the font is sized for Distance and FontScale x the body size).
+    public const float BlocksScale = HudBar.CompactScale * HudTheme.ReferenceDistance / (Distance * FontScale);
     const float TextRefreshSeconds = 0.2f;
     const float UnknownRange = 1f;   // gauge range (rad or m) when the profile gives no limit (an asset not yet filled by UrdfModelBuilder)
 
@@ -39,6 +43,7 @@ public class StatusStrip : MonoBehaviour
     RobotModel _model;
     Func<RoundTrip> _rtt;
     int _cameraIndex;
+    LinkHealth _link;
 
     Transform _pan, _tilt, _lift;
     float _panRange, _tiltMin, _tiltMax, _liftRange;   // from the profile
@@ -63,8 +68,7 @@ public class StatusStrip : MonoBehaviour
                                      ImageSubscriber images, RobotModel model, RobotProfile profile, int cameraIndex, Func<RoundTrip> rtt)
     {
         if (parent == null) return null;
-        var root = HudUi.CreateCanvas("Status Strip", parent, localPosition,
-                                      new Vector2(model != null ? WidthMm : NoModelWidthMm, HeightMm), interactive: false);
+        var root = HudUi.CreateCanvas("Status Strip", parent, localPosition, new Vector2(1000f, HeightMm), interactive: false);   // width set by Build
         root.localScale *= scale;
         root.GetComponent<Canvas>().sortingOrder = HudTheme.SortingOrder + 1;
         var strip = root.gameObject.AddComponent<StatusStrip>();
@@ -73,6 +77,7 @@ public class StatusStrip : MonoBehaviour
         strip._model = model;
         strip._rtt = rtt;
         strip._cameraIndex = cameraIndex;
+        strip._link = new LinkHealth(images, cameraIndex, rtt);
         strip.FindFrames(profile);
         strip.Build(root);
         return strip;
@@ -105,36 +110,62 @@ public class StatusStrip : MonoBehaviour
         return t;
     }
 
+    // Three groups with thin dividers: LINK (connection level, image fps / age, TF rate, round trip),
+    // CONTROL (state pill) and, with a model, BODY (HEAD box, LIFT bar). Only the item that needs attention is coloured.
     void Build(RectTransform root)
     {
-        float font = HudUi.FontAt(HudTheme.BodyFont * 0.88f, Distance);
+        float font = HudUi.FontAt(HudTheme.BodyFont * FontScale, Distance);
+        float cw = font * CharWidth;
         var bg = HudUi.Round(HudUi.Box(root, "Background", HudTheme.WithAlpha(HudTheme.Panel, BackgroundAlpha)), RadiusMm);
         HudUi.Stretch(bg.rectTransform);
 
-        // Connection: dot + text.
+        // LINK: level dot + text, image, TF, round trip.
+        float x = EdgeMm;
         _dot = HudUi.Round(HudUi.Box(root, "Connection Dot", HudTheme.Good), DotMm / 2f);
-        HudUi.Place(_dot.rectTransform, DotMm + Pad, (HeightMm - DotMm) / 2f, DotMm, DotMm);
-        _conn = Text(root, "Connection", 34f + Pad, 150f, font);
+        HudUi.Place(_dot.rectTransform, x, (HeightMm - DotMm) / 2f, DotMm, DotMm);
+        x += DotMm + GapMm;
+        _conn = Text(root, "Connection", x, 8f * cw, font); x += 8f * cw + GapMm;
+        _image = Text(root, "Image", x, 15f * cw, font); x += 15f * cw + GapMm;
+        _tf = Text(root, "TF", x, 9f * cw, font); x += 9f * cw + GapMm;
+        _rttText = Text(root, "RTT", x, 9f * cw, font); x += 9f * cw;
 
-        // CONTROL ON pill / LAYOUT.
-        float pillH = font * 1.5f;
+        // CONTROL: CONTROL ON pill / LAYOUT.
+        x = Divider(root, x);
+        float pillH = font * 1.5f, pillW = 10.5f * cw;
         (_pill, _pillText) = HudUi.Pill(root, "Control Pill", "", font, pillH, Color.clear, Color.white, bold: true);
-        HudUi.Place(_pill.rectTransform, 192f + Pad, (HeightMm - pillH) / 2f, 135f, pillH);
-        // Bold "CONTROL ON" is wider than the pill at the strip's font: shrink to fit
-        // (it overflowed into the image fps text).
+        HudUi.Place(_pill.rectTransform, x, (HeightMm - pillH) / 2f, pillW, pillH);
+        // Bold "CONTROL ON" is wider than the pill at the strip's font: shrink to fit.
         _pillText.enableAutoSizing = true;
         _pillText.fontSizeMax = font;
         _pillText.fontSizeMin = font * 0.5f;
         _pillText.margin = new Vector4(8f, 0f, 8f, 0f);
+        x += pillW;
 
-        _image = Text(root, "Image", 337f + Pad, 170f, font);
-        _tf = Text(root, "TF", 515f + Pad, 95f, font);
-        _rttText = Text(root, "RTT", 618f + Pad, 100f, font);
+        if (_model != null)
+        {
+            x = Divider(root, x);
+            x = BuildBody(root, x, font, cw);
+        }
+        root.sizeDelta = new Vector2(x + EdgeMm, HeightMm);
+        UpdateTexts();
+    }
 
-        // HEAD: labelled box with a crosshair; the dot is where the head looks (x = pan, left to the
-        // left; y = tilt, up is up), with tiny L / R ticks and the angles in muted text beside it.
+    // Thin vertical divider between groups; returns the x where the next group starts.
+    static float Divider(RectTransform root, float x)
+    {
+        x += GroupGapMm;
+        var line = HudUi.Box(root, "Group Divider", HudTheme.Divider);
+        float h = HeightMm * DividerHeightRatio;
+        HudUi.Place(line.rectTransform, x, (HeightMm - h) / 2f, DividerMm, h);
+        return x + DividerMm + GroupGapMm;
+    }
+
+    // BODY: HEAD box with a crosshair (the dot is where the head looks, x = pan, left to the left; y = tilt,
+    // up is up) with tiny L / R ticks and the angles beside it, then the LIFT bar (fill from the bottom) and its
+    // height. Returns the right end.
+    float BuildBody(RectTransform root, float x, float font, float cw)
+    {
         float small = font;   // secondary texts: same size as the body font
-        float x = 730f + Pad;
         var headLabel = Text(root, "Head Label", x, HeadBoxW, small, TextAlignmentOptions.Center);
         headLabel.text = "HEAD";
         headLabel.color = HudTheme.Muted;
@@ -159,17 +190,18 @@ public class StatusStrip : MonoBehaviour
             tick.rectTransform.sizeDelta = new Vector2(small * 1.4f, small * 1.4f);
             tick.rectTransform.anchoredPosition = new Vector2(leftTick ? 4f : -4f, 0f);
         }
-        _headText = Text(root, "Head Values", x + HeadBoxW + 8f, 115f, small);
+        float valuesW = 8f * cw;
+        _headText = Text(root, "Head Values", x + HeadBoxW + 8f, valuesW, small);
         _headText.color = HudTheme.Muted;
         _headText.textWrappingMode = TextWrappingModes.Normal;   // "pan 29°" over "tilt 17°"
         _headText.verticalAlignment = VerticalAlignmentOptions.Middle;
+        x += HeadBoxW + 8f + valuesW + GapMm;
 
-        // LIFT: labelled vertical bar, fill from the bottom, height beside it.
-        float lx = x + HeadBoxW + 8f + 125f;
+        float lx = x;
         var liftLabel = Text(root, "Lift Label", lx, 60f, small, TextAlignmentOptions.Left);
         liftLabel.text = "LIFT";
         liftLabel.color = HudTheme.Muted;
-        HudUi.Place(liftLabel.rectTransform, lx, 2f, 80f, small * 1.2f);
+        HudUi.Place(liftLabel.rectTransform, lx, 2f, 4f * cw + 10f, small * 1.2f);
         var liftTrack = HudUi.Round(HudUi.Box(root, "Lift Track", HudTheme.Control), TrackRadiusMm);
         HudUi.Place(liftTrack.rectTransform, lx + 4f, HeightMm - LiftBarMm - 4f, 10f, LiftBarMm);
         var fill = HudUi.Round(HudUi.Box(liftTrack.transform, "Lift Fill", HudTheme.Accent), TrackRadiusMm);
@@ -179,7 +211,8 @@ public class StatusStrip : MonoBehaviour
         _liftFill.pivot = new Vector2(0.5f, 0f);
         _liftFill.offsetMin = _liftFill.offsetMax = Vector2.zero;
         _liftFill.sizeDelta = new Vector2(0f, 0f);
-        _liftText = Text(root, "Lift Value", lx + 22f, 100f, small);
+        float liftW = 7f * cw;
+        _liftText = Text(root, "Lift Value", lx + 22f, liftW, small);
         _liftText.color = HudTheme.Muted;
 
         bool hasHead = _pan != null || _tilt != null;
@@ -189,8 +222,7 @@ public class StatusStrip : MonoBehaviour
         liftLabel.gameObject.SetActive(_lift != null);
         liftTrack.gameObject.SetActive(_lift != null);
         _liftText.gameObject.SetActive(_lift != null);
-
-        UpdateTexts();
+        return lx + 22f + liftW;
     }
 
     static RectTransform Marker(Transform track, string name, Vector2 size)
@@ -224,6 +256,7 @@ public class StatusStrip : MonoBehaviour
 
     void Update()
     {
+        if (_headDot == null) { Refresh(); return; }   // no model: no gauges
         if (_lift != null && !_liftZeroKnown)
         {
             // No prefab value (should not happen): take the first pose seen as zero.
@@ -236,6 +269,11 @@ public class StatusStrip : MonoBehaviour
             _tilt != null ? Mathf.Clamp(TiltRad / (TiltRad >= 0f ? _tiltMax : _tiltMin), -1f, 1f) * (HeadBoxH / 2f - 12f) : 0f);
         if (_lift != null) _liftFill.sizeDelta = new Vector2(0f, Mathf.Clamp01(LiftM / _liftRange) * LiftBarMm);
 
+        Refresh();
+    }
+
+    void Refresh()
+    {
         if (Time.unscaledTime < _nextText) return;
         _nextText = Time.unscaledTime + TextRefreshSeconds;
         UpdateTexts();
@@ -244,11 +282,12 @@ public class StatusStrip : MonoBehaviour
     void UpdateTexts()
     {
         if (_publisher == null) return;
-        bool connected = !_publisher.HasConnectionError;
-        var c = connected ? HudTheme.Good : HudTheme.Bad;
-        _dot.color = c;
-        _conn.color = c;
-        _conn.text = connected ? "connected" : "not connected";
+        // LINK: the dot always shows the level; the texts are muted unless they are what needs attention.
+        var level = _link.Current;
+        var levelColour = LinkHealth.Colour(level);
+        _dot.color = levelColour;
+        _conn.color = level == LinkHealth.Level.Good ? HudTheme.Muted : levelColour;
+        _conn.text = LinkHealth.Text(level);
 
         bool control = _publisher.controlRobot;
         var pc = control ? HudTheme.Bad : HudTheme.Muted;
@@ -256,6 +295,7 @@ public class StatusStrip : MonoBehaviour
         _pillText.color = pc;
         _pillText.text = control ? "CONTROL ON" : "LAYOUT";
 
+        float age = _link.AgeS;
         double last = _images != null ? _images.LastFrameTime(_cameraIndex) : -1.0;
         if (_cameraIndex < 0) _image.text = "";
         else if (last < 0.0)
@@ -265,18 +305,19 @@ public class StatusStrip : MonoBehaviour
         }
         else
         {
-            float age = (float)(Time.unscaledTime - last);
-            _image.text = $"{_images.Fps(_cameraIndex):F0} fps · {age:F2} s";
-            _image.color = age > 1f ? HudTheme.Warn : Color.white;
+            float shown = (float)(Time.unscaledTime - last);   // also while the camera is off
+            _image.text = $"{_images.Fps(_cameraIndex):F0} fps \u00B7 {shown:F2} s";
+            _image.color = age >= LinkHealth.LostAgeS ? HudTheme.Bad : age > 1f ? HudTheme.Warn : HudTheme.Muted;
         }
 
-        _headText.text = $"pan {PanRad * Mathf.Rad2Deg:F0}\u00B0\ntilt {TiltRad * Mathf.Rad2Deg:F0}\u00B0";
-        _liftText.text = $"{LiftM:F2} m";
-        _tf.text = _model != null ? $"TF {_model.TfHz:F0} Hz" : "TF —";
+        if (_headText != null) _headText.text = $"pan {PanRad * Mathf.Rad2Deg:F0}\u00B0\ntilt {TiltRad * Mathf.Rad2Deg:F0}\u00B0";
+        if (_liftText != null) _liftText.text = $"{LiftM:F2} m";
+        _tf.text = _model != null ? $"TF {_model.TfHz:F0} Hz" : "TF \u2014";
+        _tf.color = HudTheme.Muted;
 
-        var rtt = _rtt != null ? _rtt() : null;
-        bool haveRtt = rtt != null && control && rtt.HasRecent;
-        _rttText.text = haveRtt ? $"RTT {rtt.RttMs:F0} ms" : "RTT —";
-        _rttText.color = haveRtt ? Color.white : HudTheme.Muted;
+        float rttMs = _link.RttMs;
+        bool haveRtt = control && rttMs >= 0f;
+        _rttText.text = haveRtt ? $"RTT {rttMs:F0} ms" : "RTT \u2014";
+        _rttText.color = !haveRtt ? HudTheme.Muted : rttMs >= 400f ? HudTheme.Bad : rttMs >= LinkHealth.GoodRttMs ? HudTheme.Warn : HudTheme.Muted;
     }
 }

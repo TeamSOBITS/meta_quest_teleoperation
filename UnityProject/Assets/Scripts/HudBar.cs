@@ -26,7 +26,7 @@ using UnityEngine.UI;
 /// While Joy is published the bar also gets an amber outline, so it is obvious at a
 /// glance that the controllers are driving the robot.
 /// </summary>
-public class HudBar : MonoBehaviour
+public partial class HudBar : MonoBehaviour
 {
     // Sizes in mm on a canvas at HudTheme.ReferenceDistance.
     const float WidthMm = 5000f, PaddingMm = HudTheme.Padding, GapMm = HudTheme.Gap, OutlineMm = 22f;
@@ -59,6 +59,11 @@ public class HudBar : MonoBehaviour
     TextMeshProUGUI _ip, _pillText, _joyText;
     Image _pill, _joyChip, _outline;
     bool? _shownConnected, _shownJoy;
+    ControlCountdown _countdown;
+
+    // Control on / off from any path: on goes through the countdown, off applies at once.
+    public void RequestControl(bool on) => _countdown?.Request(on);
+    public ControlCountdown Countdown => _countdown;
 
     public static HudBar Create(Transform parent, QuestControllerPublisher publisher, ImageSubscriber images, TeleopHud hud)
     {
@@ -200,7 +205,9 @@ public class HudBar : MonoBehaviour
         float body = HudTheme.BodyFont * HudUi.MmPerMetre;
 
         // Control robot: TF (head/controller poses) + Joy. Off = the robot receives nothing.
-        var joy = HudUi.Toggle(root, "Control robot", body, _publisher.controlRobot, on => _publisher.controlRobot = on);
+        // Turning it on starts a 2 s countdown (see ControlCountdown); off is immediate.
+        var joy = HudUi.Toggle(root, "Control robot", body, _publisher.controlRobot, RequestControl);
+        _countdown = new ControlCountdown(_publisher, joy);
         joy.interactable = !images.InSetup;  // setup mode stays in layout mode
         HudUi.Place((RectTransform)joy.transform, PaddingMm, at.Row(0), at.Half, RowHeightMm);
         var lazy = HudUi.Toggle(root, "Lazy follow", body, hud.LazyFollow, hud.SetLazyFollow);
@@ -242,91 +249,6 @@ public class HudBar : MonoBehaviour
         HudUi.Place((RectTransform)_firstPersonButton.transform, PaddingMm + LayoutLabelMm + 2f * GapMm + segW, at.Row(3), segW, RowHeightMm);
     }
 
-    // Middle columns: one toggle per camera (and, for added robots, Find cameras / Joy namespace); the
-    // first-person hint takes the row below them.
-    void BuildCameraToggles(RectTransform root, Cursor at, ImageSubscriber images)
-    {
-        float body = HudTheme.BodyFont * HudUi.MmPerMetre;
-        for (int i = 0; i < images.Panels.Count; i++)
-        {
-            var cam = images.Panels[i];
-            var t = HudUi.Toggle(root, cam.Label, body, images.IsOn(cam), on => images.SetCameraVisible(cam, on));
-            _cameraToggles.Add((cam, t));
-            at.CameraSlot(i, out float left, out float top);
-            HudUi.Place((RectTransform)t.transform, left, top, at.CameraColW, RowHeightMm);
-        }
-
-        if (images.Profile.isCustom)
-        {
-            at.CameraSlot(images.Panels.Count, out float findLeft, out float findTop);
-            HudUi.Place((RectTransform)BuildFindCameras(root, body, images).transform, findLeft, findTop, at.CameraColW, RowHeightMm);
-            at.CameraSlot(images.Panels.Count + 1, out float nsLeft, out float nsTop);
-            HudUi.Place((RectTransform)BuildNamespaceButton(root, body, images).transform, nsLeft, nsTop, at.CameraColW, RowHeightMm);
-        }
-
-        if (images.Profile.HasModel)
-        {
-            _fpHint = HudUi.Label(root, "First person hint", "You see the robot's arms twice (image + model) \u2014 expected.",
-                                  body * 0.85f, TextAlignmentOptions.Left);
-            _fpHint.color = HudTheme.Muted;
-            HudUi.Place(_fpHint.rectTransform, at.CameraLeft, at.Row(CameraRows(images)), at.CameraWidth, RowHeightMm);
-        }
-    }
-
-    Button BuildFindCameras(RectTransform root, float body, ImageSubscriber images)
-    {
-        var find = HudUi.Button(root, FindCamerasText, body, null);
-        var findLabel = find.GetComponentInChildren<TextMeshProUGUI>();
-        find.onClick.AddListener(() =>
-        {
-            if (findLabel.text != FindCamerasText) return;   // a search is already running
-            findLabel.text = "Searching\u2026";
-            images.FindNewCameras(added =>
-            {
-                // When cameras were added the bar is rebuilt (TeleopHud); otherwise say so briefly.
-                if (this == null || added > 0) return;
-                findLabel.text = "No new cameras";
-                StartCoroutine(ResetLabelLater(findLabel));
-            });
-        });
-        return find;
-    }
-
-    // Joy namespace: typed on the Quest keyboard; confirming it empty means no namespace.
-    Button BuildNamespaceButton(RectTransform root, float body, ImageSubscriber images)
-    {
-        var ns = HudUi.Button(root, NamespaceButtonText(images.Profile), body, null);
-        _namespaceLabel = ns.GetComponentInChildren<TextMeshProUGUI>();
-        ns.onClick.AddListener(() => _namespaceKeyboard.Open(images.Profile.robotNamespace, allowEmpty: true));
-        return ns;
-    }
-
-    // Right column: Reset layout, then Back to robots (setup mode: Save robot and Cancel), then Recenter (models).
-    void BuildActions(RectTransform root, Cursor at, ImageSubscriber images, TeleopHud hud)
-    {
-        float body = HudTheme.BodyFont * HudUi.MmPerMetre;
-        var reset = HudUi.Button(root, "Reset layout", body, images.ResetLayout);
-        HudUi.Place((RectTransform)reset.transform, at.ButtonsLeft, at.Row(0), ButtonColumnMm, RowHeightMm);
-        if (images.InSetup)
-        {
-            var save = HudUi.Button(root, "Save robot", body, hud.SaveSetup);
-            save.GetComponent<Image>().color = HudTheme.WithAlpha(HudTheme.Accent * SaveTint, 1f);
-            HudUi.Place((RectTransform)save.transform, at.ButtonsLeft, at.Row(1), ButtonColumnMm, RowHeightMm);
-            var cancel = HudUi.Button(root, "Cancel", body, hud.CancelSetup);
-            HudUi.Place((RectTransform)cancel.transform, at.ButtonsLeft, at.Row(2), ButtonColumnMm, RowHeightMm);
-        }
-        else
-        {
-            var back = HudUi.Button(root, "\u2190 Robots", body, _publisher.BackToRobotSelection);
-            HudUi.Place((RectTransform)back.transform, at.ButtonsLeft, at.Row(1), ButtonColumnMm, RowHeightMm);
-        }
-        if (images.Profile.HasModel)
-        {
-            _recenter = HudUi.Button(root, "Recenter", body, hud.Recenter);
-            HudUi.Place((RectTransform)_recenter.transform, at.ButtonsLeft, at.Row(2), ButtonColumnMm, RowHeightMm);
-        }
-    }
-
     // The model or the layout changed (or a toggle press was refused): follow it. The layout buttons
     // work with the model on only (off: Blocks shown as selected, greyed); Recenter needs the model;
     // the hint is about the first-person layout.
@@ -350,37 +272,6 @@ public class HudBar : MonoBehaviour
         button.GetComponent<Image>().color = selected ? HudTheme.WithAlpha(HudTheme.Accent, SelectedSegmentAlpha) : HudTheme.Control;
         var text = button.GetComponentInChildren<TextMeshProUGUI>();
         if (text != null) text.color = Color.white;
-    }
-
-    const string FindCamerasText = "Find cameras";
-
-    readonly TextKeyboard _namespaceKeyboard = new TextKeyboard();
-    TextMeshProUGUI _namespaceLabel;
-
-    static string NamespaceButtonText(RobotProfile robot)
-        => string.IsNullOrEmpty(robot.robotNamespace) ? $"Joy: /{RosNames.Joy}" : $"Joy: /{robot.robotNamespace}/{RosNames.Joy}";
-
-    System.Collections.IEnumerator ResetLabelLater(TextMeshProUGUI label)
-    {
-        yield return new WaitForSeconds(3f);
-        if (label != null) label.text = FindCamerasText;
-    }
-
-    // Change the added robot's Joy namespace ("" = none) and keep it.
-    void SetNamespace(string ns)
-    {
-        var robot = _images.Profile;
-        _publisher.SetNamespace(ns);
-        robot.robotNamespace = _publisher.robotNamespace;
-        if (!_images.InSetup) RobotLibrary.Save(robot);
-        _namespaceLabel.text = NamespaceButtonText(robot);
-        if (_images.InSetup) _joyText.text = SetupChipText(_images);
-    }
-
-    static string SetupChipText(ImageSubscriber images)
-    {
-        string ns = images.Profile.robotNamespace;
-        return string.IsNullOrEmpty(ns) ? "SETUP · no namespace" : $"SETUP · /{ns}";
     }
 
     // Reset layout shows every camera again, and cameras can be renamed; keep the toggles in step

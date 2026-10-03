@@ -32,6 +32,9 @@ public class TeleopHud : MonoBehaviour
 
     internal Transform Bar => _bar;
 
+    // Control robot on (after the countdown) / off (at once), the same as pressing the bar's toggle.
+    public void RequestControl(bool on) => _bar?.GetComponent<HudBar>()?.RequestControl(on);
+
     public bool LazyFollow { get; private set; }
 
     // --- View state (see ViewController) ---
@@ -171,6 +174,7 @@ public class TeleopHud : MonoBehaviour
     void Update()
     {
         if (_waitingStatus != null) _waitingStatus.text = images.SetupStatus;
+        _bar?.GetComponent<HudBar>()?.Countdown?.Tick();   // also while the bar is hidden
 
         // Menu shows/hides the HUD bar (see HudInput).
         if (_input.BarTogglePressed(hudParent) && _bar != null)

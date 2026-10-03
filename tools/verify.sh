@@ -3,7 +3,7 @@
 #   Runs the Editor verification harnesses (UnityProject/Assets/Editor/Verify) headlessly on a scratch COPY of the project.
 #   --sync        rsync UnityProject/ -> $VERIFY_DIR and tools/models (minus src/) -> <copy-parent>/tools/models (excludes Library Temp Logs Builds UserSettings obj .utmp *.csproj *.slnx)
 #   --suite NAME  run one suite (repeatable); --all = the default list:
-#                 LayoutVerifier AddRobotTest SelectionShot FirstPersonVerify ExperimentsVerify ExperimentsVerify2 ExperimentsVerify3 ExperimentsVerify4 ProfileValidator SettingsVerify
+#                 LayoutVerifier AddRobotTest SelectionShot FirstPersonVerify ExperimentsVerify ExperimentsVerify2 ExperimentsVerify3 ExperimentsVerify4 ProfileValidator SettingsVerify GuiAVerify
 #   --build       BuildApk.Build on the copy (-nographics -buildTarget Android); APK copied to UnityProject/Builds/
 #   --shots       SceneShots: baseline pictures (4 scene pictures + 3 HUD-only: hud_panels, hud_selection, hud_bar) + scene_stats.json in <copy-parent>/shots/baseline/
 # Env: VERIFY_ROBOT (SOBIT_HOME default, SOBIT_LIGHT: robot the FirstPersonVerify/ExperimentsVerify2-4/ModelShots suites and tools/sim helpers target; switch the sim with tools/sim.sh home|light), SCRATCH (work dir, default ~/.cache/teleop-verify), VERIFY_DIR (default $SCRATCH/verify/UnityProject), UNITY (editor binary),
@@ -15,7 +15,7 @@ SCRATCH=${SCRATCH:-$HOME/.cache/teleop-verify}
 VERIFY_DIR=${VERIFY_DIR:-$SCRATCH/verify/UnityProject}
 UNITY=${UNITY:-$HOME/Unity/Hub/Editor/6000.0.69f1/Editor/Unity}
 PARENT=$(dirname "$VERIFY_DIR")
-DEFAULT="LayoutVerifier AddRobotTest SelectionShot FirstPersonVerify ExperimentsVerify ExperimentsVerify2 ExperimentsVerify3 ExperimentsVerify4 ProfileValidator SettingsVerify"
+DEFAULT="LayoutVerifier AddRobotTest SelectionShot FirstPersonVerify ExperimentsVerify ExperimentsVerify2 ExperimentsVerify3 ExperimentsVerify4 ProfileValidator SettingsVerify GuiAVerify"
 sync=0; build=0; shots=0; suites=()
 while [ $# -gt 0 ]; do
   case "$1" in

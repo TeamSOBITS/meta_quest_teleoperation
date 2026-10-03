@@ -8,6 +8,9 @@ using UnityEngine.UI;
 /// </summary>
 public static class HudTheme
 {
+    // Materials with custom shaders (first-person surround, undistortion); see HudAssets.
+    public static HudAssets Assets => HudAssets.Instance;
+
     // --- Distances and fonts ---
 
     // Distance the camera blocks sit at; sizes below are tuned for it (metres).
@@ -37,6 +40,9 @@ public static class HudTheme
     public static readonly Color Waiting = new Color(0.15f, 0.15f, 0.15f, 1f);   // camera view before the first frame
     public static readonly Color StaleTint = new Color(0.45f, 0.45f, 0.45f, 1f); // camera view while frames stop
     public static readonly Color BadgeBackground = new Color(0f, 0f, 0f, 0.55f);
+
+    // Link health outline (camera cards): alpha of the Warn / Bad colour.
+    public const float LinkRingAlpha = 0.9f;
 
     public static Color WithAlpha(Color c, float alpha) => new Color(c.r, c.g, c.b, alpha);
 

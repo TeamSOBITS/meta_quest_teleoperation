@@ -210,6 +210,7 @@ public class CameraPanel : MonoBehaviour
         _nextBadgeRefresh = now + CameraBadge.RefreshSeconds;
 
         float age = now - _lastFrameTime;
+        _card.SetLink(LinkHealth.Evaluate(age, -1f, LinkHealth.ConnectionError), age, false);
         if (age > StaleAfterSeconds)
         {
             State = FeedState.Stale;

@@ -275,7 +275,7 @@ public static class ExperimentsVerify
             Check(labels.Contains("HEAD") && labels.Contains("LIFT"), $"3: strip has 'HEAD' and 'LIFT' labels");
             var srt = (RectTransform)strip.transform;
             Log($"    strip size {srt.sizeDelta.x:F0} x {srt.sizeDelta.y:F0} mm");
-            Check(Mathf.Abs(srt.sizeDelta.x - 1400f) < 1f && Mathf.Abs(srt.sizeDelta.y - 130f) < 1f, $"3: strip 1400 x 130 mm ({srt.sizeDelta.x:F0} x {srt.sizeDelta.y:F0})");
+            Check(srt.sizeDelta.x > 1000f && srt.sizeDelta.x <= 1500f && Mathf.Abs(srt.sizeDelta.y - 130f) < 1f, $"3: strip 1000..1500 x 130 mm, three groups ({srt.sizeDelta.x:F0} x {srt.sizeDelta.y:F0})");
             // nothing in the strip spills out of it (label clipping)
             var sc = new Vector3[4]; srt.GetWorldCorners(sc);
             var spill = new List<string>();

@@ -62,12 +62,16 @@ public class CameraCard : MonoBehaviour
 
     const float RenameWidthRatio = 4.6f, RenameHeightRatio = 1.6f;   // of the Rename font
     const float CompactNameMinRatio = 0.5f;
+    const float LostFontRatio = 1.6f;   // "LAST FRAME" pill font = the badge's x this
 
     Style _style;
     Image _outline, _card;
     TextMeshProUGUI _name, _topic;
     Button _rename;
     Vector2 _viewMm, _shiftMm;
+    Color _highlight = Color.clear, _linkTint = Color.clear;   // the outline shows the highlight, else the link tint
+    Image _lostBg;
+    TextMeshProUGUI _lostText;
 
     public RectTransform Rect => (RectTransform)transform;
     public RawImage View { get; private set; }
@@ -223,7 +227,42 @@ public class CameraCard : MonoBehaviour
     // Highlight ring colour (blocks); clear = none.
     public void SetHighlight(Color colour)
     {
-        if (_outline != null) _outline.color = colour;
+        _highlight = colour;
+        ApplyOutline();
+    }
+
+    void ApplyOutline()
+    {
+        if (_outline != null) _outline.color = _highlight.a > 0f ? _highlight : _linkTint;
+    }
+
+    public LinkHealth.Level Link { get; private set; }
+    public bool LostLabelShown => _lostBg != null && _lostBg.gameObject.activeSelf;
+    public string LostLabelText => _lostText != null ? _lostText.text : "";
+
+    // Link health of this camera: the outline ring turns Warn (degraded) / Bad (lost) unless a highlight
+    // is showing; with `lostLabel` a centred "LAST FRAME 3.2 s" pill appears over the view while lost.
+    public void SetLink(LinkHealth.Level level, float ageS, bool lostLabel)
+    {
+        Link = level;
+        _linkTint = level == LinkHealth.Level.Good ? Color.clear : HudTheme.WithAlpha(LinkHealth.Colour(level), HudTheme.LinkRingAlpha);
+        ApplyOutline();
+        if (!lostLabel) return;
+        bool lost = level == LinkHealth.Level.Lost;
+        if (_lostBg == null)
+        {
+            if (!lost) return;
+            float font = Badge.FontMm * LostFontRatio;
+            (_lostBg, _lostText) = HudUi.Pill(View.transform, "Lost", "", font, font * 1.7f, HudTheme.BadgeBackground, HudTheme.Bad, bold: true);
+            var rt = _lostBg.rectTransform;
+            rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.anchoredPosition = Vector2.zero;
+        }
+        _lostBg.gameObject.SetActive(lost);
+        if (!lost) return;
+        _lostText.text = ageS >= 0f ? $"LAST FRAME {ageS:F1} s" : "NO CONNECTION";
+        var size = _lostText.GetPreferredValues(_lostText.text);
+        _lostBg.rectTransform.sizeDelta = new Vector2(size.x + _lostText.fontSize * 1.2f, _lostText.fontSize * 1.7f);
     }
 
     // Show a camera frame with the camera's flips; the first one replaces the "Waiting for ..." text.
