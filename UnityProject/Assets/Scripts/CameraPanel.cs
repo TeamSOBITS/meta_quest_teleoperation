@@ -24,8 +24,8 @@ public class CameraPanel : MonoBehaviour
 {
     // Shared look for all camera blocks (metres).
     public const float ViewHeight     = HudTheme.ViewHeight;
-    public const float NameFontSize   = HudTheme.TitleFont;
-    public const float TopicFontSize  = HudTheme.BodyFont;
+    public static float NameFontSize  => HudTheme.TitleFont;
+    public static float TopicFontSize => HudTheme.BodyFont;
     public const float LabelGap       = HudTheme.LabelGap;
 
     const float MmPerMetre = HudUi.MmPerMetre;

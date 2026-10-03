@@ -10,7 +10,7 @@ public partial class HudBar
     // first-person hint takes the row below them.
     void BuildCameraToggles(RectTransform root, Cursor at, ImageSubscriber images)
     {
-        float body = HudTheme.BodyFont * HudUi.MmPerMetre;
+        float body = HudTheme.BodyFontBase * HudUi.MmPerMetre;
         for (int i = 0; i < images.Panels.Count; i++)
         {
             var cam = images.Panels[i];
@@ -40,7 +40,7 @@ public partial class HudBar
     // Right column: Reset layout, then Back to robots (setup mode: Save robot and Cancel), then Recenter (models).
     void BuildActions(RectTransform root, Cursor at, ImageSubscriber images, TeleopHud hud)
     {
-        float body = HudTheme.BodyFont * HudUi.MmPerMetre;
+        float body = HudTheme.BodyFontBase * HudUi.MmPerMetre;
         var reset = HudUi.Button(root, "Reset layout", body, images.ResetLayout);
         HudUi.Place((RectTransform)reset.transform, at.ButtonsLeft, at.Row(0), ButtonColumnMm, RowHeightMm);
         if (images.InSetup)

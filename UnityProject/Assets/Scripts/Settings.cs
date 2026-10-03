@@ -39,6 +39,17 @@ public static class Settings
         set { if (value) SetBool("DebugCapture", true); else PlayerPrefs.DeleteKey(Prefix + "DebugCapture"); }
     }
 
+    // HUD text size factor (0.8 - 1.3, steps of 0.1, default 1) and the high-contrast look (opaque panels, stronger
+    // dividers and muted text). Read through HudTheme (FontScale, CardAlpha), which caches them; change them with
+    // HudTheme.SetTextScale / SetHighContrast so open screens can follow.
+    public const float MinTextScale = 0.8f, MaxTextScale = 1.3f, TextScaleStep = 0.1f;
+    public static float TextScale
+    {
+        get => Mathf.Clamp(PlayerPrefs.GetFloat(Prefix + "TextScale", 1f), MinTextScale, MaxTextScale);
+        set => PlayerPrefs.SetFloat(Prefix + "TextScale", Mathf.Clamp(Mathf.Round(value / TextScaleStep) * TextScaleStep, MinTextScale, MaxTextScale));
+    }
+    public static bool HighContrast { get => GetBool("HighContrast", false); set => SetBool("HighContrast", value); }
+
     // Developer tools (verbose logs, launch extras) in release builds; see DevTools.
     public static bool DevTools { get => GetBool("DevTools", false); set => SetBool("DevTools", value); }
 

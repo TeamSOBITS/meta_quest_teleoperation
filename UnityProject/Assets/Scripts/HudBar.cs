@@ -44,7 +44,10 @@ public partial class HudBar : MonoBehaviour
     // Width of the built bar and the centre of its bottom control row above its bottom edge (metres,
     // after CompactScale): the status strip takes this spot while the bar is hidden in blocks mode.
     public const float CompactWidthMm = WidthMm * CompactScale;
-    public const float BottomRowCentreM = (PaddingMm + RowHeightMm / 2f) * CompactScale / HudUi.MmPerMetre;
+    public static float BottomRowCentreM => (PaddingMm + RowHeightMm / 2f) * BuiltScale / HudUi.MmPerMetre;
+    // The bar is built for the design font sizes and scaled as a whole by the text size, so a larger text
+    // size grows the bar (and its columns) with it instead of wrapping labels.
+    static float BuiltScale => CompactScale * HudTheme.FontScale;
 
     const string JoyOnText = "CONTROL ON", JoyOffText = "LAYOUT MODE";
 
@@ -85,10 +88,10 @@ public partial class HudBar : MonoBehaviour
 
         // Top edge just below the lowest point the camera blocks may reach.
         float topY = images.minBottom - GapBelowCamerasM;
-        var position = new Vector3(0f, topY - heightMm * CompactScale / HudUi.MmPerMetre / 2f, HudTheme.ReferenceDistance);
+        var position = new Vector3(0f, topY - heightMm * BuiltScale / HudUi.MmPerMetre / 2f, HudTheme.ReferenceDistance);
 
         var root = HudUi.CreateCanvas("HUD Bar", parent, position, new Vector2(WidthMm, heightMm), interactive: true);
-        root.localScale *= CompactScale;
+        root.localScale *= BuiltScale;
         var bar = root.gameObject.AddComponent<HudBar>();
         bar._publisher = publisher;
         bar._images = images;
@@ -152,8 +155,8 @@ public partial class HudBar : MonoBehaviour
     // Returns the top of the control rows.
     float BuildHeader(RectTransform root, ImageSubscriber images)
     {
-        float title = HudTheme.TitleFont * HudUi.MmPerMetre;
-        float body  = HudTheme.BodyFont  * HudUi.MmPerMetre;
+        float title = HudTheme.TitleFontBase * HudUi.MmPerMetre;
+        float body  = HudTheme.BodyFontBase  * HudUi.MmPerMetre;
         float top = PaddingMm;
 
         string robotName = images.Profile != null ? images.Profile.displayName : "";
@@ -202,7 +205,7 @@ public partial class HudBar : MonoBehaviour
     // Camera layout row.
     void BuildControls(RectTransform root, Cursor at, ImageSubscriber images, TeleopHud hud)
     {
-        float body = HudTheme.BodyFont * HudUi.MmPerMetre;
+        float body = HudTheme.BodyFontBase * HudUi.MmPerMetre;
 
         // Control robot: TF (head/controller poses) + Joy. Off = the robot receives nothing.
         // Turning it on starts a 2 s countdown (see ControlCountdown); off is immediate.

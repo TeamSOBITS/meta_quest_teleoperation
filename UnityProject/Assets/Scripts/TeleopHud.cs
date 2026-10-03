@@ -28,6 +28,7 @@ public class TeleopHud : MonoBehaviour
     GameObject _waiting;
     TextMeshProUGUI _waitingStatus;
     ViewController _view;
+    bool _startControl;   // control was on at the start and the countdown has not been requested yet
     readonly HudInput _input = new HudInput();
 
     internal Transform Bar => _bar;
@@ -64,8 +65,11 @@ public class TeleopHud : MonoBehaviour
             hudParent = Camera.main.transform;
 
         images.NamespaceChanged += publisher.SetNamespace;   // Joy topic follows discovery
-        if (images.InSetup)
-            publisher.controlRobot = false;  // layout mode: the trigger arranges blocks, nothing reaches a robot
+        // Control on at the start (saved state / default) does not publish at once: the bar runs the same 2 s countdown
+        // as its toggle once it is built. Setup mode stays in layout mode: the trigger arranges blocks, nothing reaches a robot.
+        _startControl = publisher.controlRobot && !images.InSetup;
+        if (_startControl || images.InSetup)
+            publisher.controlRobot = false;
 
         if (images.IsReady)
             BuildHud();
@@ -84,6 +88,7 @@ public class TeleopHud : MonoBehaviour
         _bar = HudBar.Create(hudParent, publisher, images, this).transform;
         _view.CreateRoundTrip();
         images.CamerasAdded += RebuildBar;
+        if (_startControl) { _startControl = false; RequestControl(true); }
 
         var dragger = gameObject.AddComponent<PanelDragger>();
         dragger.publisher = publisher;
@@ -126,9 +131,11 @@ public class TeleopHud : MonoBehaviour
     void RebuildBar()
     {
         var parent = _bar.parent;
+        bool counting = _bar.GetComponent<HudBar>().Countdown?.Counting == true;   // the new bar carries it on
         Destroy(_bar.gameObject);
         _bar = HudBar.Create(hudParent, publisher, images, this).transform;
         _bar.SetParent(parent, false);
+        if (counting) RequestControl(true);
         _view.OnBarRebuilt();
     }
 
@@ -146,7 +153,9 @@ public class TeleopHud : MonoBehaviour
     {
         float title = HudTheme.TitleFont * HudUi.MmPerMetre;
         float body = HudTheme.BodyFont * HudUi.MmPerMetre;
-        const float w = 3300f, h = 760f, pad = 80f, buttonW = 980f, buttonH = 150f, gap = 50f;
+        // The card's own sizes grow with the text size, like the text.
+        float k = HudTheme.FontScale;
+        float w = 3300f * k, h = 760f * k, pad = 80f * k, buttonW = 980f * k, buttonH = 150f * k, gap = 50f * k;
 
         var root = HudUi.CreateCanvas("Setup Status", hudParent, new Vector3(0f, 0.2f, HudTheme.ReferenceDistance),
             new Vector2(w, h), interactive: true);

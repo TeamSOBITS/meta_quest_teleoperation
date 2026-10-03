@@ -89,9 +89,28 @@ public class CameraLayout
     // re-arranging blocks the user placed by hand.
     void PlaceNewPanel(CameraPanel p)
     {
-        float top = _panels.Where(o => o != p && IsOn(o)).Select(o => o.transform.localPosition.y + o.Height / 2f)
+        float top = _panels.Where(o => o != p && IsOn(o)).Select(o => ArcY(o.transform.localPosition) + o.Height / 2f)
                            .DefaultIfEmpty(0f).Max();
-        var pos = new Vector3(0f, top + _owner.rowGap + p.Height / 2f, _owner.distance);
+        Place(p, 0f, top + _owner.rowGap + p.Height / 2f);
+    }
+
+    // The grid's offsets (x, y; metres) are arc lengths on a sphere of radius `distance` around the head: they
+    // become yaw = x / R and pitch = y / R (rad), the block sits at R * dir(yaw, pitch) and faces the eye. Block
+    // sizes and gaps are metres on the tangent plane (angular half extent atan(w / 2R) < w / 2R), so blocks that are
+    // a grid step apart never touch. Row and column steps are therefore the same angles at every radius.
+    Vector3 OnArc(float x, float y)
+    {
+        float yaw = x / _owner.distance, pitch = y / _owner.distance;
+        float cp = Mathf.Cos(pitch);
+        return _owner.distance * new Vector3(Mathf.Sin(yaw) * cp, Mathf.Sin(pitch), Mathf.Cos(yaw) * cp);
+    }
+
+    // Grid height (arc length) of a block position, also for saved positions that are not on the sphere.
+    float ArcY(Vector3 pos) => _owner.distance * Mathf.Asin(Mathf.Clamp(pos.y / pos.magnitude, -1f, 1f));
+
+    void Place(CameraPanel p, float x, float y)
+    {
+        var pos = OnArc(x, y);
         p.transform.localPosition = pos;
         p.transform.localRotation = Quaternion.LookRotation(pos);
     }
@@ -119,7 +138,7 @@ public class CameraLayout
     }
 
     // Remember where the user dragged or resized a block, per robot and camera. Saved as
-    // "x;y;z;size": the block's place relative to the head and its view size.
+    // "x;y;z;size": the block's place relative to the head (on the arc around it) and its view size.
     public void SavePosition(CameraPanel panel)
     {
         var v = panel.transform.localPosition;
@@ -171,7 +190,7 @@ public class CameraLayout
     // Automatic layout of the visible cameras: pick the column count that allows the largest
     // views within the layout area, size the views relative to the all-cameras layout (so with
     // every camera shown the layout is the default one), then place the grid centred in front
-    // of the head, each block facing the eye. Rows are sized from the actual blocks, so blocks
+    // of the head on an arc (see OnArc), each block facing the eye. Rows are sized from the actual blocks, so blocks
     // never overlap; views in a row share a horizontal centre line.
     public void Arrange()
     {
@@ -196,9 +215,7 @@ public class CameraLayout
             {
                 var p = visible[i];
                 float blockCentreY = viewCentreY + p.AboveViewCentre - p.Height / 2f;
-                var pos = new Vector3(x + p.Width / 2f, blockCentreY, _owner.distance);
-                p.transform.localPosition = pos;
-                p.transform.localRotation = Quaternion.LookRotation(pos);
+                Place(p, x + p.Width / 2f, blockCentreY);
                 x += p.Width + columnGap;
             }
             top -= rowAbove[r] + rowBelow[r] + rowGap;

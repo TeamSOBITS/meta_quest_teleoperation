@@ -21,6 +21,8 @@ public static class LayoutVerifier
         EditorSettings.enterPlayModeOptions = EnterPlayModeOptions.DisableDomainReload;
         PlayerPrefs.DeleteAll();
         PlayerPrefs.SetString("RosIPAddress", "127.0.0.2");   // isolated: never reach a live ros_tcp_endpoint
+        var scale = System.Environment.GetEnvironmentVariable("VERIFY_TEXT_SCALE");   // e.g. 1.3: the whole run at that text size
+        if (!string.IsNullOrEmpty(scale)) Settings.TextScale = float.Parse(scale, System.Globalization.CultureInfo.InvariantCulture);
         _run = Main();
         EditorApplication.update += Tick;
     }
@@ -67,6 +69,8 @@ public static class LayoutVerifier
 
             var images = Object.FindFirstObjectByType<ImageSubscriber>();
             var publisher = Object.FindFirstObjectByType<QuestControllerPublisher>();
+            // Control starts with the 2 s countdown (ControlCountdown): wait until it armed.
+            for (double armEnd = EditorApplication.timeSinceStartup + 5; !publisher.controlRobot && EditorApplication.timeSinceStartup < armEnd;) yield return Seconds(0.1);
             var panels = images.Panels.ToList();
             Log($"===== {robot}: {panels.Count} cameras");
             Check(panels.Count == profile.cameras.Length, $"{robot}: one block per camera");
@@ -273,7 +277,8 @@ public static class LayoutVerifier
         return bx;
     }
 
-    static void Inspect(string robot, string state)
+    // Logs the angular layout and checks "no overlap" and "within +/-45 deg"; false if either failed.
+    internal static bool Inspect(string robot, string state)
     {
         var images = Object.FindFirstObjectByType<ImageSubscriber>();
         var head = images.panelParent;
@@ -305,8 +310,10 @@ public static class LayoutVerifier
                 if (gap <= 0f) { overlap = true; Log($"    overlap: {quads[i].Item1} <-> {quads[j].Item1}"); }
             }
         var all = boxes.Concat(new[] { bar }).ToList();
+        bool inView = all.All(x => x.l > -45 && x.r < 45 && x.b > -45 && x.t < 45);
         Check(!overlap, $"{robot} [{state}]: no blocks overlap each other or the HUD bar");
-        Check(all.All(x => x.l > -45 && x.r < 45 && x.b > -45 && x.t < 45), $"{robot} [{state}]: everything within +/-45 deg");
+        Check(inView, $"{robot} [{state}]: everything within +/-45 deg");
+        return !overlap && inView;
     }
 
     static Vector2[] Project(RectTransform rt, Transform head)
