@@ -39,9 +39,13 @@ ROS側は[TeamSOBITS/ros_tcp_endpoint](https://github.com/TeamSOBITS/ros_tcp_end
 <p align="center"><img src="media/readme/overlay_basevel.png" width="640"><br><sub>オーバーレイ: ハンドカメラのカードとベース速度の矢印．</sub></p>
 <p align="center"><img src="media/readme/bar.png" width="640"><br><sub>HUDバーの拡大．</sub></p>
 
-#### 録画ステータス
-HUDにレコーダの状態（IDLE / REC / PAUSED / ERROR），経過時間，タスク，保存・破棄・削除の短い通知を表示します（メニュー非表示時はステータスストリップのRECグループ，メニュー表示時はメニュー上部のRECピル，通知はストリップ（またはメニュー）のすぐ上）．`/<ns>/vla_rosbag_collection/record_status`（`sobits_interfaces/VlaRecordStatus`，sobits_vla_toolsの`sobits_vla_rosbag_collection`が配信）から取得し，このノードの動作中のみ表示されます（3秒間メッセージが来ないと非表示）．ヘッドセットは表示のみで，Quest の A/B/X ボタンはsobits_vla_toolsの`GamepadClient`経由でレコーダを操作します．
-ROSなしでの確認: `tools/verify.sh --suite RecordStatusVerify`，または`tools/device.sh launch --recstatus`（実機で疑似フィードを再生．`tools/device.sh logs`で`REC:`行を表示）．
+#### VLAステータス
+HUDに実行中のsobits_vla_toolsステージの状態を表示します．`sobits_interfaces/VlaStatus`を`/<ns>/vla_rosbag_collection/status`（データ収集，`sobits_vla_rosbag_collection`）と`/<ns>/sobits_vla_deploy/status`（ポリシーのデプロイ，`sobits_vla_deploy`）から取得します．
+- 収集: レコーダの状態（IDLE / REC / PAUSED / ERROR），経過時間，タスク（`task: pick cup`），保存・破棄・削除・タスク設定の短い通知．
+- デプロイ: PLAYとエピソード時間（初めてグリップを握った時点から計測），ワールドのリセット中はRESETTING，タスクとポリシーの短縮名（`pick cup · smolvla_fft`），デッドマン有効かつ実行中のGRIPチップ（`GRIP driving` 緑，`GRIP released` 橙），エピソードのステップ数と推論レート（`240 steps · 8.1 Hz`）．エピソードの結果は表示しません．
+
+メニュー非表示時はステータスストリップのVLAグループ，メニュー表示時はメニュー上部のピル（デプロイ中はドットがGRIPの色），通知はストリップ（またはメニュー）のすぐ上に表示されます．ステージのノードの動作中のみ表示されます（3秒間メッセージが来ないと非表示）．両方のノードが配信している場合，片方のアイドルのハートビートがもう片方の動作中の状態を置き換えることはありません．トピックはプロファイルの`vlaStatusSuffixes`です．ヘッドセットは表示のみで，Quest の A/B/X ボタンはsobits_vla_toolsの`GamepadClient`経由でレコーダまたはデプロイノードを操作します．
+ROSなしでの確認: `tools/verify.sh --suite VlaStatusVerify`，または`tools/device.sh launch --recstatus [deploy]`（実機で収集／デプロイの疑似フィードを再生．`tools/device.sh logs`で`VLA:`行を表示）．
 
 <p align="right">(<a href="#readme-top">上に戻る</a>)</p>
 
@@ -194,7 +198,7 @@ IPはロボット選択画面のEditボタン，またはロボット画面のHU
    ```
    出力は`tools/models/<robot>/meshes_lod/`です．
 3. Unityのメニュー`Robots -> Build <robot> model`でモデルのプレハブを生成します（現在はSOBIT HOME / SOBIT LIGHT）．
-4. `RobotProfile`アセットを埋めます（フレーム: カメラ・パン・チルト，カメラ，アームなど，`odomSuffix`，`recordStatusSuffix`: 名前空間からの相対でレコーダのステータストピック`vla_rosbag_collection/record_status`，空なら録画バッジなし）．
+4. `RobotProfile`アセットを埋めます（フレーム: カメラ・パン・チルト，カメラ，アームなど，`odomSuffix`，`vlaStatusSuffixes`: 名前空間からの相対でVLAステージのノードのステータストピック`vla_rosbag_collection/status`と`sobits_vla_deploy/status`，空ならVLAバッジなし）．
 5. `Robots -> Validate profiles`でプロファイルを検証します．
 
 <p align="right">(<a href="#readme-top">上に戻る</a>)</p>
