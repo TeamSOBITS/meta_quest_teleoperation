@@ -26,6 +26,8 @@ public class TeleopHud : MonoBehaviour
     Transform _bar;
     RecordStatus _recordStatus;   // recorder status feed of this robot screen (display only)
     public RecordStatus RecordStatus => _recordStatus;
+    RecordToast _recordToast;     // event notices (saved, discarded, ...) above the strip / bar
+    public RecordToast RecordToast => _recordToast;
     HeadFollower _follower;
     GameObject _waiting;
     TextMeshProUGUI _waitingStatus;
@@ -90,6 +92,7 @@ public class TeleopHud : MonoBehaviour
         _bar = HudBar.Create(hudParent, publisher, images, this).transform;
         _view.CreateRoundTrip();
         _recordStatus = RecordStatus.Create(images.Profile);
+        _recordToast = RecordToast.Create(this);
         images.CamerasAdded += RebuildBar;
         if (_startControl) { _startControl = false; RequestControl(true); }
 
@@ -134,6 +137,7 @@ public class TeleopHud : MonoBehaviour
         if (Strip != null && !FirstPerson) Strip.transform.SetParent(parent, false);
         images.panelParent = parent;
         hudParent = parent;
+        if (_recordToast != null) _recordToast.Place();   // follows the strip / bar
     }
 
     // "Find cameras" added blocks: rebuild the bar so it lists their toggles too.
@@ -247,5 +251,6 @@ public class TeleopHud : MonoBehaviour
         _bar.SetParent(parent, false);
         if (Strip != null && !FirstPerson) Strip.transform.SetParent(parent, false);
         images.panelParent = parent;
+        if (_recordToast != null) _recordToast.Place();   // follows the strip / bar
     }
 }
