@@ -51,6 +51,7 @@ public static class ProfileValidator
                 var cam = p.FirstPersonCamera;
                 Check(cam != null && !string.IsNullOrEmpty(cam.cameraInfoSuffix), $"{n}: first-person camera has a cameraInfoSuffix ('{cam?.cameraInfoSuffix}')");
                 Check(cam != null && !string.IsNullOrEmpty(cam.mountFrame), $"{n}: first-person camera has a mountFrame");
+                Check(string.IsNullOrEmpty(p.recordStatusSuffix) || p.recordStatusSuffix == RosNames.RecordStatus, $"{n}: recordStatusSuffix empty or '{RosNames.RecordStatus}' ('{p.recordStatusSuffix}')");
                 Check(!string.IsNullOrEmpty(p.baseFrame) && !string.IsNullOrEmpty(p.controllerFrames.hmd)
                       && !string.IsNullOrEmpty(p.controllerFrames.left) && !string.IsNullOrEmpty(p.controllerFrames.right), $"{n}: baseFrame and controllerFrames set");
                 bool head = !string.IsNullOrEmpty(p.head.panFrame) || !string.IsNullOrEmpty(p.head.tiltFrame);

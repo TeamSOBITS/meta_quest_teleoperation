@@ -11,6 +11,9 @@ public static class RosNames
     public const string CompressedSuffix = "/compressed";
     // image_transport: the raw colour image topic's usual last segment (camera name heuristics).
     public const string ImageRaw = "image_raw";
+    // sobits_interfaces/VlaRecordStatus topic of the recorder, relative to the robot namespace (the owner node
+    // is relative-named: sobits_vla_tools publishes ~/record_status in the node vla_rosbag_collection).
+    public const string RecordStatus = "vla_rosbag_collection/record_status";
 }
 
 /// <summary>

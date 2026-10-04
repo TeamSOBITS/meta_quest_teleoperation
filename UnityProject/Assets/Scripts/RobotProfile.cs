@@ -122,6 +122,9 @@ public class RobotProfile : ScriptableObject, ISerializationCallbackReceiver
     // nav_msgs/Odometry topic relative to the robot namespace (BaseVelocity; empty = no velocity arrow).
     public string odomSuffix;
 
+    // sobits_interfaces/VlaRecordStatus topic of the recorder, relative to the robot namespace (RecordStatus; empty = no recording badge).
+    public string recordStatusSuffix;
+
     public ControllerFrames controllerFrames = new ControllerFrames();
 
     public CameraConfig[] cameras = Array.Empty<CameraConfig>();
