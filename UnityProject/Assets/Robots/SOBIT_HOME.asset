@@ -1,0 +1,93 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 1927103ba94d4e0c87f6598558be81b6, type: 3}
+  m_Name: SOBIT_HOME
+  m_EditorClassIdentifier: 
+  displayName: SOBIT HOME
+  picture: {fileID: 2800000, guid: a0bcd272e8f5963e4aa58d656c729c00, type: 3}
+  robotNamespace: sobit_home
+  sceneName: TeleopScene
+  baseFrame: base_footprint
+  odomSuffix: odom
+  controllerFrames:
+    hmd: hmd_odom
+    left: left_controller_odom
+    right: right_controller_odom
+  cameras:
+  - displayName: Left Hand Camera
+    topicSuffix: hand_left_camera/color/image_raw/compressed
+    raw: 0
+    resolution: {x: 640, y: 480}
+    maxFps: 15
+    scale: 1
+    flipVertical: 0
+    flipHorizontal: 0
+    role: 2
+    side: 1
+    firstPerson: 0
+    cameraInfoSuffix: 
+    mountFrame: hand_left_end_effector_link
+  - displayName: Head Camera
+    topicSuffix: head_camera/color/image_raw/compressed
+    raw: 0
+    resolution: {x: 640, y: 480}
+    maxFps: 15
+    scale: 1.5
+    flipVertical: 0
+    flipHorizontal: 0
+    role: 1
+    side: 0
+    firstPerson: 1
+    cameraInfoSuffix: head_camera/camera_info
+    mountFrame: head_camera_color_frame
+  - displayName: Right Hand Camera
+    topicSuffix: hand_right_camera/color/image_raw/compressed
+    raw: 0
+    resolution: {x: 640, y: 480}
+    maxFps: 15
+    scale: 1
+    flipVertical: 0
+    flipHorizontal: 0
+    role: 2
+    side: 2
+    firstPerson: 0
+    cameraInfoSuffix: 
+    mountFrame: hand_right_end_effector_link
+  modelPrefab: {fileID: 1720537149869814926, guid: a6ec5edc0925c44dd94d09dbf52bd149, type: 3}
+  head:
+    panFrame: head_pan_link
+    tiltFrame: head_tilt_link
+    panLimitRad: 0.7853982
+    tiltMinRad: -0.7853982
+    tiltMaxRad: 0.5235988
+  lift:
+    frame: body_lift_link
+    rangeM: 0.69
+  arms:
+  - name: left
+    targetFrame: left_target_link
+    effectorFrame: hand_left_end_effector_link
+    side: 1
+  - name: right
+    targetFrame: right_target_link
+    effectorFrame: hand_right_end_effector_link
+    side: 2
+  firstPersonHiddenLinkPrefixes:
+  - head_
+  - mic_
+  defaultHfov: 1.2113
+  panFrame: 
+  tiltFrame: 
+  liftFrame: 
+  cameraFrame: 
+  firstPersonCameraTopicSuffix: 
+  cameraInfoSuffix: 
