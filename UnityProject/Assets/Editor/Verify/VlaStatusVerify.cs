@@ -1,6 +1,6 @@
-// Verify harness: recorder status feed (RecordStatusRule + RecordStatus data layer) and its HUD (status strip REC group,
-// bar header REC pill, event toast), with pictures in $VERIFY_SHOTS/record. No sim needed (the ROS IP is isolated).
-// Run: tools/verify.sh --suite RecordStatusVerify
+// Verify harness: VLA stage status feed (VlaStatusRule + VlaStatus data layer; recorder and deploy) and its HUD (status
+// strip VLA group, bar header pill, event toast), with pictures in $VERIFY_SHOTS/vla. No sim needed (the ROS IP is isolated).
+// Run: tools/verify.sh --suite VlaStatusVerify
 using System;
 using System.Collections;
 using System.IO;
@@ -15,10 +15,10 @@ using UnityEngine;
 using UnityEngine.UI;
 using Object = UnityEngine.Object;
 
-public static class RecordStatusVerify
+public static class VlaStatusVerify
 {
     static IEnumerator _run; static double _until; static int _fail, _pass;
-    static RecordStatus _rs;
+    static VlaStatus _rs;
     static uint _seq;
 
     public static void Run()
@@ -47,59 +47,59 @@ public static class RecordStatusVerify
     static void Inject(byte state, byte evt, float elapsed, string detail = "", bool taskSet = true, string task = "pick cup")
     {
         if (evt != 0) _seq++;
-        var m = new VlaRecordStatusMsg
+        var m = new VlaStatusMsg
         {
             state = state, @event = evt, event_seq = _seq, task_set = taskSet, task_name = task, episode_name = "episode_test",
             elapsed_sec = elapsed, detail = detail, message = "test",
         };
-        typeof(RecordStatus).GetMethod("OnMessage", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(_rs, new object[] { m });
+        typeof(VlaStatus).GetMethod("OnMessage", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(_rs, new object[] { m });
     }
 
     static void StaticChecks()
     {
-        Check(RecordStatusRule.StaleS == 3f && RecordStatusRule.ToastS == 4f && RecordStatusRule.PulseHz == 1f, "constants StaleS 3, ToastS 4, PulseHz 1");
-        var L = RecordStatusRule.Look.Hidden;
-        Check(RecordStatusRule.Evaluate(false, 0f, 1) == RecordStatusRule.Look.Hidden, "Evaluate: no message -> Hidden");
-        Check(RecordStatusRule.Evaluate(true, 3f, 1) == RecordStatusRule.Look.Hidden && RecordStatusRule.Evaluate(true, 3.1f, 1) == RecordStatusRule.Look.Hidden, "Evaluate: age >= 3 -> Hidden (stale)");
-        Check(RecordStatusRule.Evaluate(true, -1f, 1) == RecordStatusRule.Look.Hidden, "Evaluate: negative age -> Hidden");
-        Check(RecordStatusRule.Evaluate(true, 0.5f, 0) == RecordStatusRule.Look.Idle, "Evaluate: STOPPED -> Idle");
-        Check(RecordStatusRule.Evaluate(true, 0.5f, 1) == RecordStatusRule.Look.Recording, "Evaluate: RECORDING -> Recording");
-        Check(RecordStatusRule.Evaluate(true, 0.5f, 2) == RecordStatusRule.Look.Paused, "Evaluate: PAUSED -> Paused");
-        Check(RecordStatusRule.Evaluate(true, 0.5f, 4) == RecordStatusRule.Look.Error, "Evaluate: ERROR -> Error");
-        Check(RecordStatusRule.Evaluate(true, 2.9f, 1) == RecordStatusRule.Look.Recording, "Evaluate: age 2.9 still alive");
-        Check(RecordStatusRule.IsAlive(2.9f) && !RecordStatusRule.IsAlive(3.1f) && !RecordStatusRule.IsAlive(-1f), "IsAlive: 2.9 true, 3.1 false, -1 false");
-        Check(RecordStatusRule.FormatElapsed(3661f) == "01:01:01" && RecordStatusRule.FormatElapsed(-5f) == "00:00:00" && RecordStatusRule.FormatElapsed(65.9f) == "00:01:05", "FormatElapsed 3661 -> 01:01:01, negative -> 00:00:00, 65.9 -> 00:01:05");
-        Check(RecordStatusRule.Label(RecordStatusRule.Look.Recording, 65f) == "REC 00:01:05", "Label Recording");
-        Check(RecordStatusRule.Label(RecordStatusRule.Look.Paused, 65f) == "PAUSED 00:01:05", "Label Paused");
-        Check(RecordStatusRule.Label(RecordStatusRule.Look.Idle, 0f) == "IDLE" && RecordStatusRule.Label(RecordStatusRule.Look.Error, 0f) == "ERROR" && RecordStatusRule.Label(L, 0f) == "", "Label Idle / Error / Hidden");
-        Check(RecordStatusRule.Colour(RecordStatusRule.Look.Recording) == HudTheme.Record && RecordStatusRule.Colour(RecordStatusRule.Look.Paused) == HudTheme.Warn
-              && RecordStatusRule.Colour(RecordStatusRule.Look.Error) == HudTheme.Bad && RecordStatusRule.Colour(L).a == 0f, "Colour: Record / Warn / Bad / clear");
-        Check(RecordStatusRule.Toast(4, "", 65f) == "Saved · 00:01:05", "Toast SAVED");
-        Check(RecordStatusRule.Toast(5, "too_short", 0f) == "Discarded: too short" && RecordStatusRule.Toast(5, "integrity_failed", 0f) == "Discarded: integrity failed"
-              && RecordStatusRule.Toast(5, "other", 0f) == "Discarded: other", "Toast DISCARDED (too_short / integrity_failed / other)");
-        Check(RecordStatusRule.Toast(6, "", 0f) == "Deleted", "Toast DELETED");
-        Check(RecordStatusRule.Toast(7, "disk full", 0f) == "Error: disk full" && RecordStatusRule.Toast(7, "", 0f) == "Error", "Toast ERROR (detail / none)");
-        Check(RecordStatusRule.Toast(8, "pick cup", 0f) == "Task: pick cup", "Toast TASK_SET");
-        Check(RecordStatusRule.Toast(9, "no task set", 0f) == "no task set" && RecordStatusRule.Toast(9, "", 0f) == "Rejected", "Toast REJECTED (detail / none)");
+        Check(VlaStatusRule.StaleS == 3f && VlaStatusRule.ToastS == 4f && VlaStatusRule.PulseHz == 1f, "constants StaleS 3, ToastS 4, PulseHz 1");
+        var L = VlaStatusRule.Look.Hidden;
+        Check(VlaStatusRule.Evaluate(false, 0f, 1) == VlaStatusRule.Look.Hidden, "Evaluate: no message -> Hidden");
+        Check(VlaStatusRule.Evaluate(true, 3f, 1) == VlaStatusRule.Look.Hidden && VlaStatusRule.Evaluate(true, 3.1f, 1) == VlaStatusRule.Look.Hidden, "Evaluate: age >= 3 -> Hidden (stale)");
+        Check(VlaStatusRule.Evaluate(true, -1f, 1) == VlaStatusRule.Look.Hidden, "Evaluate: negative age -> Hidden");
+        Check(VlaStatusRule.Evaluate(true, 0.5f, 0) == VlaStatusRule.Look.Idle, "Evaluate: STOPPED -> Idle");
+        Check(VlaStatusRule.Evaluate(true, 0.5f, 1) == VlaStatusRule.Look.Recording, "Evaluate: RECORDING -> Recording");
+        Check(VlaStatusRule.Evaluate(true, 0.5f, 2) == VlaStatusRule.Look.Paused, "Evaluate: PAUSED -> Paused");
+        Check(VlaStatusRule.Evaluate(true, 0.5f, 4) == VlaStatusRule.Look.Error, "Evaluate: ERROR -> Error");
+        Check(VlaStatusRule.Evaluate(true, 2.9f, 1) == VlaStatusRule.Look.Recording, "Evaluate: age 2.9 still alive");
+        Check(VlaStatusRule.IsAlive(2.9f) && !VlaStatusRule.IsAlive(3.1f) && !VlaStatusRule.IsAlive(-1f), "IsAlive: 2.9 true, 3.1 false, -1 false");
+        Check(VlaStatusRule.FormatElapsed(3661f) == "01:01:01" && VlaStatusRule.FormatElapsed(-5f) == "00:00:00" && VlaStatusRule.FormatElapsed(65.9f) == "00:01:05", "FormatElapsed 3661 -> 01:01:01, negative -> 00:00:00, 65.9 -> 00:01:05");
+        Check(VlaStatusRule.Label(VlaStatusRule.Look.Recording, 65f) == "REC 00:01:05", "Label Recording");
+        Check(VlaStatusRule.Label(VlaStatusRule.Look.Paused, 65f) == "PAUSED 00:01:05", "Label Paused");
+        Check(VlaStatusRule.Label(VlaStatusRule.Look.Idle, 0f) == "IDLE" && VlaStatusRule.Label(VlaStatusRule.Look.Error, 0f) == "ERROR" && VlaStatusRule.Label(L, 0f) == "", "Label Idle / Error / Hidden");
+        Check(VlaStatusRule.Colour(VlaStatusRule.Look.Recording) == HudTheme.Record && VlaStatusRule.Colour(VlaStatusRule.Look.Paused) == HudTheme.Warn
+              && VlaStatusRule.Colour(VlaStatusRule.Look.Error) == HudTheme.Bad && VlaStatusRule.Colour(L).a == 0f, "Colour: Record / Warn / Bad / clear");
+        Check(VlaStatusRule.Toast(4, "", 65f) == "Saved · 00:01:05", "Toast SAVED");
+        Check(VlaStatusRule.Toast(5, "too_short", 0f) == "Discarded: too short" && VlaStatusRule.Toast(5, "integrity_failed", 0f) == "Discarded: integrity failed"
+              && VlaStatusRule.Toast(5, "other", 0f) == "Discarded: other", "Toast DISCARDED (too_short / integrity_failed / other)");
+        Check(VlaStatusRule.Toast(6, "", 0f) == "Deleted", "Toast DELETED");
+        Check(VlaStatusRule.Toast(7, "disk full", 0f) == "Error: disk full" && VlaStatusRule.Toast(7, "", 0f) == "Error", "Toast ERROR (detail / none)");
+        Check(VlaStatusRule.Toast(8, "pick cup", 0f) == "Task: pick cup", "Toast TASK_SET");
+        Check(VlaStatusRule.Toast(9, "no task set", 0f) == "no task set" && VlaStatusRule.Toast(9, "", 0f) == "Rejected", "Toast REJECTED (detail / none)");
         bool none = true;
-        foreach (byte e in new byte[] { 0, 1, 2, 3 }) none &= RecordStatusRule.Toast(e, "x", 1f) == null;
+        foreach (byte e in new byte[] { 0, 1, 2, 3 }) none &= VlaStatusRule.Toast(e, "x", 1f) == null;
         Check(none, "Toast NONE / STARTED / PAUSED / RESUMED -> null");
-        Check(RecordStatusRule.ToastColour(4) == HudTheme.Good && RecordStatusRule.ToastColour(5) == HudTheme.Bad && RecordStatusRule.ToastColour(7) == HudTheme.Bad
-              && RecordStatusRule.ToastColour(6) == HudTheme.Warn && RecordStatusRule.ToastColour(9) == HudTheme.Warn && RecordStatusRule.ToastColour(8) == HudTheme.Accent,
+        Check(VlaStatusRule.ToastColour(4) == HudTheme.Good && VlaStatusRule.ToastColour(5) == HudTheme.Bad && VlaStatusRule.ToastColour(7) == HudTheme.Bad
+              && VlaStatusRule.ToastColour(6) == HudTheme.Warn && VlaStatusRule.ToastColour(9) == HudTheme.Warn && VlaStatusRule.ToastColour(8) == HudTheme.Accent,
               "ToastColour: saved Good, discarded / error Bad, deleted / rejected Warn, task Accent");
-        Check(Mathf.Abs(RecordStatusRule.PulseAlpha(0f) - 0.775f) < 1e-3f && RecordStatusRule.PulseAlpha(0.25f) > 0.99f && RecordStatusRule.PulseAlpha(0.75f) < 0.56f, "PulseAlpha swings 0.55 .. 1 at 1 Hz");
+        Check(Mathf.Abs(VlaStatusRule.PulseAlpha(0f) - 0.775f) < 1e-3f && VlaStatusRule.PulseAlpha(0.25f) > 0.99f && VlaStatusRule.PulseAlpha(0.75f) < 0.56f, "PulseAlpha swings 0.55 .. 1 at 1 Hz");
     }
 
     static float _baseWidth;
     static string ShotDir => Directory.CreateDirectory(Path.Combine(Environment.GetEnvironmentVariable("VERIFY_SHOTS")
-                                                                     ?? Path.GetFullPath(Path.Combine(Application.dataPath, "../../shots")), "record")).FullName;
+                                                                     ?? Path.GetFullPath(Path.Combine(Application.dataPath, "../../shots")), "vla")).FullName;
     static Transform Find(Transform root, string name) => root.GetComponentsInChildren<Transform>(true).FirstOrDefault(t => t.name == name);
     static int Dividers(StatusStrip s) => s.GetComponentsInChildren<Transform>(true).Count(t => t.name == "Group Divider");
     static float Width(StatusStrip s) => ((RectTransform)s.transform).sizeDelta.x;
     static TextMeshProUGUI Text(Transform root, string name) => Find(root, name)?.GetComponent<TextMeshProUGUI>();
     static bool Near(Color a, Color b, float tol = 0.02f) => Mathf.Abs(a.r - b.r) < tol && Mathf.Abs(a.g - b.g) < tol && Mathf.Abs(a.b - b.b) < tol;
     static Transform BarT(TeleopHud hud) => (Transform)typeof(TeleopHud).GetField("_bar", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(hud);
-    static Transform BarPill(TeleopHud hud) => Find(BarT(hud), "Record Pill");
+    static Transform BarPill(TeleopHud hud) => Find(BarT(hud), "Vla Pill");
     static bool BarPillShown(TeleopHud hud) { var p = BarPill(hud); return p != null && p.gameObject.activeInHierarchy; }
     static object Toggle(TeleopHud hud) { typeof(TeleopHud).GetMethod("ToggleBar", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(hud, null); return Wait(0.2); }
 
@@ -107,26 +107,26 @@ public static class RecordStatusVerify
     static IEnumerable UiChecks(TeleopHud hud)
     {
         var strip = hud.Strip;
-        var toast = hud.RecordToast;
+        var toast = hud.VlaToast;
         var head = FirstPersonView.Head;
 
         // (i) recording
         Inject(1, 1, 65f);
         yield return Wait(0.3);
-        var group = Find(strip.transform, "Record Group");
-        var label = group != null ? Text(group, "Record Label") : null;
-        var task = group != null ? Text(group, "Record Task") : null;
-        Check(group != null && group.gameObject.activeSelf && Find(group, "Record Divider") != null, "(i) RECORDING: Record Group active, with its Record Divider");
+        var group = Find(strip.transform, "Vla Group");
+        var label = group != null ? Text(group, "Vla Label") : null;
+        var task = group != null ? Text(group, "Vla Task") : null;
+        Check(group != null && group.gameObject.activeSelf && Find(group, "Vla Divider") != null, "(i) RECORDING: Vla Group active, with its Vla Divider");
         if (group == null) yield break;
-        Check(label.text == RecordStatusRule.Label(RecordStatusRule.Look.Recording, _rs.ElapsedS) && label.text == "REC 00:01:05" && Near(label.color, HudTheme.Record),
+        Check(label.text == VlaStatusRule.Label(VlaStatusRule.Look.Recording, _rs.ElapsedS) && label.text == "REC 00:01:05" && Near(label.color, HudTheme.Record),
               $"(i) label '{label.text}' in Record colour {label.color}");
         Check(task.text == "task: pick cup" && Near(task.color, HudTheme.Muted), $"(i) task line '{task.text}' muted");
-        float recW = strip.RecordWidthMm, width = Width(strip);
+        float recW = strip.VlaWidthMm, width = Width(strip);
         Check(Dividers(strip) == 2 && Mathf.Abs(width - (_baseWidth + recW)) < 0.5f && width <= 1500f + recW,
               $"(i) strip {width:F0} mm = {_baseWidth:F0} + REC {recW:F0} (<= 1500 + REC); Group Dividers still {Dividers(strip)}");
         var body = Find(strip.transform, "Body Group") as RectTransform;
         Check(body != null && Mathf.Abs(body.anchoredPosition.x - (((RectTransform)group).anchoredPosition.x + recW)) < 0.5f, $"(i) BODY shifted right by the REC group (x {body?.anchoredPosition.x:F0})");
-        var dot = Find(group, "Record Dot").GetComponent<Image>();
+        var dot = Find(group, "Vla Dot").GetComponent<Image>();
         float aMin = 1f, aMax = 0f;
         for (int i = 0; i < 4; i++) { aMin = Mathf.Min(aMin, dot.color.a); aMax = Mathf.Max(aMax, dot.color.a); yield return Wait(0.25); }
         Check(Near(dot.color, HudTheme.Record) && aMax - aMin > 0.1f && aMin >= 0.54f, $"(i) dot pulses (alpha {aMin:F2} .. {aMax:F2} over 1 s)");
@@ -147,7 +147,7 @@ public static class RecordStatusVerify
         Inject(2, 2, 70f);
         yield return Wait(0.3);
         string paused = label.text;
-        Check(paused == "PAUSED 00:01:10" && Near(label.color, HudTheme.Warn) && Near(Find(group, "Record Dot").GetComponent<Image>().color, HudTheme.Warn), $"(j) PAUSED: '{paused}' in Warn");
+        Check(paused == "PAUSED 00:01:10" && Near(label.color, HudTheme.Warn) && Near(Find(group, "Vla Dot").GetComponent<Image>().color, HudTheme.Warn), $"(j) PAUSED: '{paused}' in Warn");
         yield return Wait(1.2);
         Inject(2, 0, 70f);
         yield return Wait(0.3);
@@ -165,7 +165,7 @@ public static class RecordStatusVerify
 
         // (l) feed stopped (stale since 4.8 s): the group goes, the strip shrinks back
         Check(!group.gameObject.activeSelf && Mathf.Abs(Width(strip) - _baseWidth) < 0.5f && Dividers(strip) == 2,
-              $"(l) stale: Record Group inactive, strip {Width(strip):F0} mm (was {_baseWidth:F0}), Group Dividers {Dividers(strip)}");
+              $"(l) stale: Vla Group inactive, strip {Width(strip):F0} mm (was {_baseWidth:F0}), Group Dividers {Dividers(strip)}");
 
         // (m) bar open: header pill with the same label
         yield return Toggle(hud);
@@ -174,9 +174,9 @@ public static class RecordStatusVerify
         var pill = BarPill(hud);
         var pillText = pill != null ? pill.GetComponentInChildren<TextMeshProUGUI>(true) : null;
         var ip = Text(BarT(hud), "IP");
-        Check(BarT(hud).gameObject.activeSelf && !strip.gameObject.activeSelf && BarPillShown(hud) && pillText.text == RecordStatusRule.Label(RecordStatusRule.Look.Recording, _rs.ElapsedS)
+        Check(BarT(hud).gameObject.activeSelf && !strip.gameObject.activeSelf && BarPillShown(hud) && pillText.text == VlaStatusRule.Label(VlaStatusRule.Look.Recording, _rs.ElapsedS)
               && pillText.text.StartsWith("REC 00:01:2") && Near(pillText.color, HudTheme.Record),
-              $"(m) bar shown: Record Pill '{pillText?.text}' in Record colour");
+              $"(m) bar shown: Vla Pill '{pillText?.text}' in Record colour");
         var pr = (RectTransform)pill; var stat = (RectTransform)Find(BarT(hud), "Status");
         Check(ip.rectTransform.anchoredPosition.x + ip.rectTransform.sizeDelta.x < pr.anchoredPosition.x && pr.anchoredPosition.x + pr.sizeDelta.x < stat.anchoredPosition.x,
               $"(m) IP | pill | Status in order (IP {ip.rectTransform.sizeDelta.x:F0} mm wide, text '{ip.text}' truncated {ip.isTextTruncated}; pill {pr.sizeDelta.x:F0} mm)");
@@ -198,10 +198,10 @@ public static class RecordStatusVerify
         strip = hud.Strip;
         Inject(1, 1, 90f);
         yield return Wait(0.3);
-        group = Find(strip.transform, "Record Group");
+        group = Find(strip.transform, "Vla Group");
         Check(!hud.FirstPerson && strip != null && !strip.HasModel && strip.gameObject.activeSelf && Dividers(strip) == 1 && group != null && group.gameObject.activeSelf
-              && Text(group, "Record Label").text == "REC 00:01:30",
-              $"(n) blocks: strip active, {Dividers(strip)} Group Divider, Record Group active '{Text(group, "Record Label")?.text}', {Width(strip):F0} mm x {strip.transform.localScale.x * 1000f:F2}");
+              && Text(group, "Vla Label").text == "REC 00:01:30",
+              $"(n) blocks: strip active, {Dividers(strip)} Group Divider, Vla Group active '{Text(group, "Vla Label")?.text}', {Width(strip):F0} mm x {strip.transform.localScale.x * 1000f:F2}");
         Inject(1, 4, 90f);   // a toast to see where it goes
         yield return Wait(0.3);
         tr = toast.Rect; sr = (RectTransform)strip.transform;
@@ -260,7 +260,8 @@ public static class RecordStatusVerify
         StaticChecks();
 
         var profile = AssetDatabase.LoadAssetAtPath<RobotProfile>("Assets/Robots/SOBIT_HOME.asset");
-        Check(profile != null && profile.recordStatusSuffix == RosNames.RecordStatus, $"SOBIT_HOME recordStatusSuffix '{profile?.recordStatusSuffix}'");
+        Check(profile != null && profile.vlaStatusSuffixes != null && profile.vlaStatusSuffixes.SequenceEqual(RosNames.VlaStatusDefaults),
+              $"SOBIT_HOME vlaStatusSuffixes '{string.Join(", ", profile?.vlaStatusSuffixes ?? new string[0])}'");
         EditorSceneManager.OpenScene("Assets/Scenes/TeleopScene.unity");
         RobotProfile.Selected = profile;
         Object.FindFirstObjectByType<QuestControllerPublisher>().controlRobot = false;
@@ -278,37 +279,37 @@ public static class RecordStatusVerify
         Check(hud.FirstPerson && strip != null && strip.HasModel && strip.gameObject.activeSelf, $"(h) first person: strip with the model, active {strip?.gameObject.activeSelf}");
         if (strip == null) { EditorApplication.ExitPlaymode(); yield break; }
         _baseWidth = Width(strip);
-        Check(Find(strip.transform, "Record Group") == null && Dividers(strip) == 2 && _baseWidth <= 1500f,
+        Check(Find(strip.transform, "Vla Group") == null && Dividers(strip) == 2 && _baseWidth <= 1500f,
               $"(h) no message: no Record Group, {Dividers(strip)} Group Dividers, strip {_baseWidth:F0} mm (<= 1500)");
-        Check(!BarPillShown(hud) && !hud.RecordToast.Shown, "(h) no message: bar Record Pill inactive, toast inactive");
+        Check(!BarPillShown(hud) && !hud.VlaToast.Shown, "(h) no message: bar Vla Pill inactive, toast inactive");
 
         // (a) nothing received yet
-        _rs = RecordStatus.Latest;
-        Check(_rs != null && _rs.name == "Record Status", "RecordStatus.Latest created by the HUD");
+        _rs = VlaStatus.Latest;
+        Check(_rs != null && _rs.name == "Vla Status", "VlaStatus.Latest created by the HUD");
         if (_rs == null) { EditorApplication.ExitPlaymode(); yield break; }
-        Check(!_rs.HasMessage && _rs.Look == RecordStatusRule.Look.Hidden && !_rs.Available && _rs.AgeS < 0f && !_rs.ToastShown, "no message: HasMessage false, Look Hidden, AgeS -1, no toast");
+        Check(!_rs.HasMessage && _rs.Look == VlaStatusRule.Look.Hidden && !_rs.Available && _rs.AgeS < 0f && !_rs.ToastShown, "no message: HasMessage false, Look Hidden, AgeS -1, no toast");
         int changed = 0; _rs.Changed += () => changed++;
 
         // (b) recording
         Inject(1, 1, 5f);
-        Check(changed == 1 && _rs.HasMessage && _rs.Available && _rs.Look == RecordStatusRule.Look.Recording, "RECORDING/STARTED: Changed raised, Look Recording");
-        Check(RecordStatusRule.Label(_rs.Look, _rs.ElapsedS) == "REC 00:00:05" && _rs.TaskSet && _rs.TaskName == "pick cup" && _rs.EpisodeName == "episode_test", $"label '{RecordStatusRule.Label(_rs.Look, _rs.ElapsedS)}', task '{_rs.TaskName}'");
+        Check(changed == 1 && _rs.HasMessage && _rs.Available && _rs.Look == VlaStatusRule.Look.Recording, "RECORDING/STARTED: Changed raised, Look Recording");
+        Check(VlaStatusRule.Label(_rs.Look, _rs.ElapsedS) == "REC 00:00:05" && _rs.TaskSet && _rs.TaskName == "pick cup" && _rs.EpisodeName == "episode_test", $"label '{VlaStatusRule.Label(_rs.Look, _rs.ElapsedS)}', task '{_rs.TaskName}'");
         Check(!_rs.ToastShown, "STARTED shows no toast");
 
         // (c) elapsed keeps counting between heartbeats
         yield return Wait(1.2);
-        Check(_rs.ElapsedS >= 6.1f && RecordStatusRule.Label(_rs.Look, _rs.ElapsedS) == "REC 00:00:06", $"after 1.2 s: ElapsedS {_rs.ElapsedS:F2}, '{RecordStatusRule.Label(_rs.Look, _rs.ElapsedS)}'");
+        Check(_rs.ElapsedS >= 6.1f && VlaStatusRule.Label(_rs.Look, _rs.ElapsedS) == "REC 00:00:06", $"after 1.2 s: ElapsedS {_rs.ElapsedS:F2}, '{VlaStatusRule.Label(_rs.Look, _rs.ElapsedS)}'");
 
         // (d) paused: frozen
         Inject(2, 2, 6f);
         yield return Wait(1.5);
         Inject(2, 0, 6f);   // heartbeat keeps it alive
         yield return Wait(0.2);
-        Check(_rs.ElapsedS == 6f && _rs.Look == RecordStatusRule.Look.Paused, $"PAUSED: ElapsedS frozen at {_rs.ElapsedS:F2}, Look {_rs.Look}");
+        Check(_rs.ElapsedS == 6f && _rs.Look == VlaStatusRule.Look.Paused, $"PAUSED: ElapsedS frozen at {_rs.ElapsedS:F2}, Look {_rs.Look}");
 
         // (e) toasts
         Inject(0, 4, 6f);
-        Check(_rs.ToastShown && _rs.ToastText == "Saved · 00:00:06" && _rs.Look == RecordStatusRule.Look.Idle, $"SAVED: toast '{_rs.ToastText}', Look {_rs.Look}");
+        Check(_rs.ToastShown && _rs.ToastText == "Saved · 00:00:06" && _rs.Look == VlaStatusRule.Look.Idle, $"SAVED: toast '{_rs.ToastText}', Look {_rs.Look}");
         uint seqSaved = _rs.EventSeq;
         Inject(0, 0, 6f);   // heartbeat with the same seq must not re-toast later
         yield return Wait(4.5);
@@ -317,11 +318,11 @@ public static class RecordStatusVerify
         Inject(0, 5, 2f, "too_short");
         Check(_rs.ToastShown && _rs.ToastText == "Discarded: too short", $"DISCARDED: '{_rs.ToastText}'");
         Inject(4, 7, 2f, "demo error");
-        Check(_rs.Look == RecordStatusRule.Look.Error && _rs.ToastText == "Error: demo error", $"ERROR: Look {_rs.Look}, toast '{_rs.ToastText}'");
+        Check(_rs.Look == VlaStatusRule.Look.Error && _rs.ToastText == "Error: demo error", $"ERROR: Look {_rs.Look}, toast '{_rs.ToastText}'");
 
         // (f) feed stops: badge vanishes
         yield return Wait(3.5);
-        Check(_rs.Look == RecordStatusRule.Look.Hidden && !_rs.Available && _rs.HasMessage, $"stale: Look {_rs.Look}, Available {_rs.Available}");
+        Check(_rs.Look == VlaStatusRule.Look.Hidden && !_rs.Available && _rs.HasMessage, $"stale: Look {_rs.Look}, Available {_rs.Available}");
 
         // (g) one connection
         Check(Object.FindObjectsByType<ROSConnection>(FindObjectsSortMode.None).Length == 1, "exactly one ROSConnection in the scene");

@@ -1,28 +1,41 @@
 using UnityEngine;
 
 /// <summary>
-/// Pure rules for the recorder status badge (the data layer is <see cref="RecordStatus"/>).
-/// The feed: sobits_vla_tools' sobits_vla_rosbag_collection publishes sobits_interfaces/VlaRecordStatus on
-/// /&lt;ns&gt;/vla_rosbag_collection/record_status: a 1 Hz heartbeat (event NONE) plus one message at once per event
-/// (started, paused, resumed, saved, discarded, deleted, error, task set, rejected).
-///   Hidden     no message yet, or the newest one is 3 s old or older (the node is not running)
+/// Pure rules for the VLA stage status badge (the data layer is <see cref="VlaStatus"/>).
+/// The feed: sobits_vla_tools' stage nodes publish sobits_interfaces/VlaStatus on ~/status, the recorder on
+/// /&lt;ns&gt;/vla_rosbag_collection/status (stage COLLECTION), the policy runner on /&lt;ns&gt;/sobits_vla_deploy/status
+/// (stage DEPLOY): a 1 Hz heartbeat (event NONE) plus one message at once per event.
+///   Hidden     no message yet, or the newest one is 3 s old or older (no stage node is running)
 ///   Idle       alive, state STOPPED
 ///   Recording  alive, state RECORDING (elapsed time keeps counting between heartbeats)
 ///   Paused     alive, state PAUSED
 ///   Error      alive, state ERROR (or any state this app does not know)
 /// Events show a short toast for <see cref="ToastS"/> seconds (see <see cref="Toast"/>).
+/// Both nodes may publish at once (they never run an episode at the same time): see <see cref="Supersedes"/>.
 /// </summary>
-public static class RecordStatusRule
+public static class VlaStatusRule
 {
     public const float StaleS = 3f, ToastS = 4f, PulseHz = 1f;
 
     public enum Look { Hidden, Idle, Recording, Paused, Error }
 
-    // Message state / event numbers (VlaRecordStatus.msg).
+    // Message stage / state / event numbers (VlaStatus.msg).
+    public const byte StageCollection = 0, StageDeploy = 1;
     const byte StateStopped = 0, StateRecording = 1, StatePaused = 2;
+    const byte EventNone = 0;
     const byte EventSaved = 4, EventDiscarded = 5, EventDeleted = 6, EventError = 7, EventTaskSet = 8, EventRejected = 9;
 
     public static bool IsAlive(float ageS) => ageS >= 0f && ageS < StaleS;
+
+    // Whether a new message replaces the current one (current: its stage and age in s, < 0 = none). The newest
+    // wins, except that an idle heartbeat (STOPPED, event NONE) of the OTHER stage never displaces a live message: with
+    // both nodes up and idle the badge stays with the stage heard first instead of flipping every heartbeat, and an idle
+    // recorder never hides a running deploy episode (or the other way round). Any event or non-idle state takes over.
+    public static bool Supersedes(byte newStage, byte newState, byte newEvent, byte curStage, float curAgeS)
+    {
+        if (newStage == curStage || !IsAlive(curAgeS)) return true;
+        return !(newState == StateStopped && newEvent == EventNone);
+    }
 
     public static Look Evaluate(bool hasMessage, float ageS, byte state)
     {
@@ -66,7 +79,8 @@ public static class RecordStatusRule
         return $"{t / 3600:00}:{t / 60 % 60:00}:{t % 60:00}";
     }
 
-    // Toast text of an event, null for the ones that show none (heartbeat, started, paused, resumed).
+    // Toast text of an event, null for the ones that show none (heartbeat, started, paused, resumed, and the deploy
+    // events 10-14: stopped, episode done, engaged, released, reset done; the deploy outcome is not toasted).
     public static string Toast(byte evt, string detail, float elapsedS)
     {
         bool has = !string.IsNullOrEmpty(detail);

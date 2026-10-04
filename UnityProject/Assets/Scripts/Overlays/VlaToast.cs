@@ -3,18 +3,18 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// <summary>
-/// Short notice for a recorder event ("Saved · 00:01:05", "Discarded: too short", "Deleted", "Task: pick cup", ...):
-/// <see cref="RecordStatus.ToastText"/> for <see cref="RecordStatusRule.ToastS"/> seconds in the event's colour
-/// (<see cref="RecordStatusRule.ToastColour"/>), a pill with a dot like the status strip's chips, fading in and out.
+/// Short notice for a VLA stage event (recorder: "Saved · 00:01:05", "Discarded: too short", "Deleted", "Task: pick cup", ...):
+/// <see cref="VlaStatus.ToastText"/> for <see cref="VlaStatusRule.ToastS"/> seconds in the event's colour
+/// (<see cref="VlaStatusRule.ToastColour"/>), a pill with a dot like the status strip's chips, fading in and out.
 /// Non-interactive, head-locked, shown whether the bar (menu) is open or not:
 ///   first person   just above the status strip (under the head camera image's centre, never over it)
 ///   blocks, bar hidden   just above the strip, where the bar's bottom row was
 ///   blocks, bar shown    just above the bar's top edge
 /// Same size as the strip's text in both layouts (it takes the strip's scale). One per robot screen, made by TeleopHud;
-/// it lives on TeleopHud's object (so it ticks while its canvas, "Record Toast", is inactive) and follows the strip's /
+/// it lives on TeleopHud's object (so it ticks while its canvas, "Vla Toast", is inactive) and follows the strip's /
 /// the bar's parent, so lazy follow and ReparentHud carry it along (TeleopHud also calls <see cref="Place"/> there).
 /// </summary>
-public class RecordToast : MonoBehaviour
+public class VlaToast : MonoBehaviour
 {
     // mm at the strip's scale (font = the strip's, sized for 1.2 m).
     const float HeightMm = 64f, PadMm = 24f, DotMm = 14f, GapMm = 12f, AboveMm = 14f, StripDistance = 1.2f;
@@ -33,9 +33,9 @@ public class RecordToast : MonoBehaviour
     public TextMeshProUGUI Label => _label;
     public Color Colour => _label != null ? _label.color : Color.clear;
 
-    public static RecordToast Create(TeleopHud hud)
+    public static VlaToast Create(TeleopHud hud)
     {
-        var toast = hud.gameObject.AddComponent<RecordToast>();
+        var toast = hud.gameObject.AddComponent<VlaToast>();
         toast._hud = hud;
         toast.Build();
         return toast;
@@ -44,7 +44,7 @@ public class RecordToast : MonoBehaviour
     void Build()
     {
         float font = HudUi.FontAt(HudTheme.BodyFont, StripDistance);
-        _canvas = HudUi.CreateCanvas("Record Toast", _hud.hudParent, new Vector3(0f, 0f, StripDistance), new Vector2(400f, HeightMm), interactive: false);
+        _canvas = HudUi.CreateCanvas("Vla Toast", _hud.hudParent, new Vector3(0f, 0f, StripDistance), new Vector2(400f, HeightMm), interactive: false);
         _canvas.GetComponent<Canvas>().sortingOrder = HudTheme.SortingOrder + 2;   // above the strip and the bar
         _group = _canvas.gameObject.AddComponent<CanvasGroup>();
         _group.interactable = false;
@@ -64,22 +64,22 @@ public class RecordToast : MonoBehaviour
 
     void LateUpdate()
     {
-        var rs = _hud != null ? _hud.RecordStatus : null;
+        var rs = _hud != null ? _hud.VlaStatus : null;
         bool show = rs != null && rs.ToastShown;
         if (show != _canvas.gameObject.activeSelf) _canvas.gameObject.SetActive(show);
         if (!show) { _shownText = null; return; }
         if (rs.ToastText != _shownText || rs.ToastUntil != _shownUntil) Show(rs);
 
-        float now = Time.unscaledTime, start = rs.ToastUntil - RecordStatusRule.ToastS;
-        _group.alpha = Mathf.Clamp01((now - start) / HudTheme.RecordToastFadeInS) * Mathf.Clamp01((rs.ToastUntil - now) / HudTheme.RecordToastFadeOutS);
+        float now = Time.unscaledTime, start = rs.ToastUntil - VlaStatusRule.ToastS;
+        _group.alpha = Mathf.Clamp01((now - start) / HudTheme.VlaToastFadeInS) * Mathf.Clamp01((rs.ToastUntil - now) / HudTheme.VlaToastFadeOutS);
         Place();
     }
 
-    void Show(RecordStatus rs)
+    void Show(VlaStatus rs)
     {
         _shownText = rs.ToastText;
         _shownUntil = rs.ToastUntil;
-        var c = RecordStatusRule.ToastColour(rs.ToastEvent);
+        var c = VlaStatusRule.ToastColour(rs.ToastEvent);
         _tint.color = HudTheme.PillBackground(c, strong: true);
         _dot.color = c;
         _label.color = c;

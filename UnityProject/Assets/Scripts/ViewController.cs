@@ -153,14 +153,14 @@ public class ViewController : MonoBehaviour
         {
             var profile = Images.Profile;
             Func<RoundTrip> rtt = () => _roundTrip;
-            Func<RecordStatus> record = () => _hud.RecordStatus;   // REC group while a recorder publishes
+            Func<VlaStatus> vla = () => _hud.VlaStatus;   // VLA group while a recorder / deploy node publishes
             if (FirstPerson)
-                _strip = StatusStrip.CreateInFirstPerson(FirstPersonView.Head, Publisher, Images, _fpv.Model, profile, _fpv.CameraIndex, rtt, record);
+                _strip = StatusStrip.CreateInFirstPerson(FirstPersonView.Head, Publisher, Images, _fpv.Model, profile, _fpv.CameraIndex, rtt, vla);
             else
             {
                 // Where the bar sits: same parent, distance and height as its bottom row.
                 var pos = new Vector3(0f, Bar.localPosition.y - BarHeightM() / 2f + HudBar.BottomRowCentreM, Bar.localPosition.z);
-                _strip = StatusStrip.Create(Bar.parent, pos, StatusStrip.BlocksScale, Publisher, Images, null, profile, BlocksStripCamera(), rtt, record);
+                _strip = StatusStrip.Create(Bar.parent, pos, StatusStrip.BlocksScale, Publisher, Images, null, profile, BlocksStripCamera(), rtt, vla);
             }
         }
         else if (!want) DestroyStrip();

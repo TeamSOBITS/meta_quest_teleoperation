@@ -24,10 +24,10 @@ public class TeleopHud : MonoBehaviour
     public Transform hudParent;
 
     Transform _bar;
-    RecordStatus _recordStatus;   // recorder status feed of this robot screen (display only)
-    public RecordStatus RecordStatus => _recordStatus;
-    RecordToast _recordToast;     // event notices (saved, discarded, ...) above the strip / bar
-    public RecordToast RecordToast => _recordToast;
+    VlaStatus _vlaStatus;   // VLA stage (recorder / deploy) status feed of this robot screen (display only)
+    public VlaStatus VlaStatus => _vlaStatus;
+    VlaToast _vlaToast;       // event notices (saved, discarded, ...) above the strip / bar
+    public VlaToast VlaToast => _vlaToast;
     HeadFollower _follower;
     GameObject _waiting;
     TextMeshProUGUI _waitingStatus;
@@ -91,8 +91,8 @@ public class TeleopHud : MonoBehaviour
 
         _bar = HudBar.Create(hudParent, publisher, images, this).transform;
         _view.CreateRoundTrip();
-        _recordStatus = RecordStatus.Create(images.Profile);
-        _recordToast = RecordToast.Create(this);
+        _vlaStatus = VlaStatus.Create(images.Profile);
+        _vlaToast = VlaToast.Create(this);
         images.CamerasAdded += RebuildBar;
         if (_startControl) { _startControl = false; RequestControl(true); }
 
@@ -117,7 +117,7 @@ public class TeleopHud : MonoBehaviour
         if (DebugLaunchOptions.RecStatusDemo)
         {
             DebugLaunchOptions.RecStatusDemo = false;   // this launch only
-            RecordStatusDemo.Start(this, _recordStatus);
+            VlaStatusDemo.Start(this, _vlaStatus);
         }
 
         if (DemoRecorder.Request != null)
@@ -137,7 +137,7 @@ public class TeleopHud : MonoBehaviour
         if (Strip != null && !FirstPerson) Strip.transform.SetParent(parent, false);
         images.panelParent = parent;
         hudParent = parent;
-        if (_recordToast != null) _recordToast.Place();   // follows the strip / bar
+        if (_vlaToast != null) _vlaToast.Place();   // follows the strip / bar
     }
 
     // "Find cameras" added blocks: rebuild the bar so it lists their toggles too.
@@ -251,6 +251,6 @@ public class TeleopHud : MonoBehaviour
         _bar.SetParent(parent, false);
         if (Strip != null && !FirstPerson) Strip.transform.SetParent(parent, false);
         images.panelParent = parent;
-        if (_recordToast != null) _recordToast.Place();   // follows the strip / bar
+        if (_vlaToast != null) _vlaToast.Place();   // follows the strip / bar
     }
 }

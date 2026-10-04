@@ -12,7 +12,8 @@ using UnityEngine.UI;
 /// needs attention is coloured (Warn / Bad), the rest is muted. Created by TeleopHud in both camera layouts
 /// (active only while the bar is hidden) and rebuilt when the layout changes.
 /// In the blocks layout there is no model reading: the BODY group (HEAD, LIFT) and the TF rate are left out ("TF —") and the strip is narrower.
-/// While a recorder publishes its status, a REC group sits after CONTROL (see StatusStrip.Record.cs); the strip grows only then.
+/// While a VLA stage node (recorder or deploy) publishes its status, a VLA group sits after CONTROL (see StatusStrip.Vla.cs);
+/// the strip grows only then.
 ///
 /// Head and lift are read from the model's link local poses, which RobotModel sets straight from
 /// /tf (FLU -> Unity). A ROS rotation of t about z shows up as -t about Unity's up axis, and a
@@ -64,14 +65,14 @@ public partial class StatusStrip : MonoBehaviour
     // First person: under the head at the status distance and drop (model != null).
     public static StatusStrip CreateInFirstPerson(Transform head, QuestControllerPublisher publisher, ImageSubscriber images,
                                                   RobotModel model, RobotProfile profile, int cameraIndex, Func<RoundTrip> rtt,
-                                                  Func<RecordStatus> record = null)
-        => Create(head, new Vector3(0f, DropM, Distance), 1f, publisher, images, model, profile, cameraIndex, rtt, record);
+                                                  Func<VlaStatus> vla = null)
+        => Create(head, new Vector3(0f, DropM, Distance), 1f, publisher, images, model, profile, cameraIndex, rtt, vla);
 
-    // `model` may be null (blocks mode): no HEAD / LIFT, "TF —". `scale` multiplies the canvas size. `record`: the recorder
-    // status feed (null = never a REC group).
+    // `model` may be null (blocks mode): no HEAD / LIFT, "TF —". `scale` multiplies the canvas size. `vla`: the VLA stage
+    // status feed (null = never a VLA group).
     public static StatusStrip Create(Transform parent, Vector3 localPosition, float scale, QuestControllerPublisher publisher,
                                      ImageSubscriber images, RobotModel model, RobotProfile profile, int cameraIndex, Func<RoundTrip> rtt,
-                                     Func<RecordStatus> record = null)
+                                     Func<VlaStatus> vla = null)
     {
         if (parent == null) return null;
         var root = HudUi.CreateCanvas("Status Strip", parent, localPosition, new Vector2(1000f, HeightMm), interactive: false);   // width set by Build
@@ -82,7 +83,7 @@ public partial class StatusStrip : MonoBehaviour
         strip._images = images;
         strip._model = model;
         strip._rtt = rtt;
-        strip._record = record;
+        strip._vla = vla;
         strip._cameraIndex = cameraIndex;
         strip._link = new LinkHealth(images, cameraIndex, rtt);
         strip.FindFrames(profile);
@@ -119,7 +120,7 @@ public partial class StatusStrip : MonoBehaviour
 
     // Three groups with thin dividers: LINK (connection level, image fps / age, TF rate, round trip),
     // CONTROL (state pill) and, with a model, BODY (HEAD box, LIFT bar). Only the item that needs attention is coloured.
-    // BODY is built in its own "Body Group" so the REC group can be slotted in before it (Layout).
+    // BODY is built in its own "Body Group" so the VLA group can be slotted in before it (Layout).
     void Build(RectTransform root)
     {
         _root = root;
@@ -168,11 +169,11 @@ public partial class StatusStrip : MonoBehaviour
         return rt;
     }
 
-    // Groups after CONTROL from left to right: REC (while shown), BODY; the strip is as wide as they need.
+    // Groups after CONTROL from left to right: VLA (while shown), BODY; the strip is as wide as they need.
     void Layout()
     {
         float x = _controlEnd;
-        if (RecordShown) { HudUi.Place(_recGroup, x, 0f, _recWidth, HeightMm); x += _recWidth; }
+        if (VlaShown) { HudUi.Place(_vlaGroup, x, 0f, _vlaWidth, HeightMm); x += _vlaWidth; }
         if (_bodyGroup != null) { HudUi.Place(_bodyGroup, x, 0f, _bodyWidth, HeightMm); x += _bodyWidth; }
         _root.sizeDelta = new Vector2(x + EdgeMm, HeightMm);
     }
@@ -283,7 +284,7 @@ public partial class StatusStrip : MonoBehaviour
 
     void Update()
     {
-        UpdateRecord();
+        UpdateVla();
         if (_headDot == null) { Refresh(); return; }   // no model: no gauges
         if (_lift != null && !_liftZeroKnown)
         {
@@ -305,7 +306,7 @@ public partial class StatusStrip : MonoBehaviour
         if (Time.unscaledTime < _nextText) return;
         _nextText = Time.unscaledTime + TextRefreshSeconds;
         UpdateTexts();
-        UpdateRecordTexts();
+        UpdateVlaTexts();
     }
 
     void UpdateTexts()

@@ -10,7 +10,7 @@ using UnityEngine;
 public static class RosMessageGen
 {
     const string Package = "sobits_interfaces";
-    static readonly string[] Messages = { "VlaRecordStatus" };
+    static readonly string[] Messages = { "VlaStatus" };
 
     static string InputDir()
     {

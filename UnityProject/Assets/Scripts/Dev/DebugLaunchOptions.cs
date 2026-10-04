@@ -9,7 +9,7 @@ using UnityEngine;
 /// model (model + blocks layout) | blocks (no model), this robot screen only, not saved;
 /// capture = 1 (save a screenshot of the robot screen, see <see cref="DebugCapture"/>);
 /// record = seconds, fps, switchat = seconds (see <see cref="DemoRecorder"/>);
-/// recstatus = 1 (fake recorder status feed, see <see cref="RecordStatusDemo"/>; not `record`, that is screen recording).
+/// recstatus = 1 (fake recorder status feed, see <see cref="VlaStatusDemo"/>; not `record`, that is screen recording).
 /// Read once per app run, so "Back to robots" does not open the robot again. Android only.
 /// </summary>
 public static class DebugLaunchOptions

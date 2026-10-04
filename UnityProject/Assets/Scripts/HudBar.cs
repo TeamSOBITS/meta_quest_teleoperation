@@ -23,7 +23,7 @@ using UnityEngine.UI;
 /// Passthrough swaps the dark studio background for the real room (see PassthroughMode);
 /// the choice is saved and also applies to the robot selection screen.
 ///
-/// The REC pill shows only while a recorder publishes its status (HudBar.Record.cs).
+/// The VLA pill (REC / PLAY ...) shows only while a recorder or deploy node publishes its status (HudBar.Vla.cs).
 ///
 /// While Joy is published the bar also gets an amber outline, so it is obvious at a
 /// glance that the controllers are driving the robot.
@@ -196,7 +196,7 @@ public partial class HudBar : MonoBehaviour
         _ip.textWrappingMode = TextWrappingModes.NoWrap;
         _ip.overflowMode = TextOverflowModes.Ellipsis;
         HudUi.Place(_ip.rectTransform, ipLeft, top, pillLeft - GapMm - ipLeft, HeaderHeightMm);
-        BuildRecordPill(root, top + (HeaderHeightMm - chipH) / 2f, chipH, pillLeft - GapMm, pillLeft - GapMm - ipLeft);
+        BuildVlaPill(root, top + (HeaderHeightMm - chipH) / 2f, chipH, pillLeft - GapMm, pillLeft - GapMm - ipLeft);
         top += HeaderHeightMm + GapMm;
 
         var divider = HudUi.Box(root, "Divider", HudTheme.Divider);
@@ -305,7 +305,7 @@ public partial class HudBar : MonoBehaviour
     void Update()
     {
         _ip.text = _publisher.DisplayedIp;
-        UpdateRecordPill();
+        UpdateVlaPill();
 
         if (_namespaceLabel != null)
         {

@@ -18,7 +18,9 @@ MonoBehaviour:
   sceneName: TeleopScene
   baseFrame: base_footprint
   odomSuffix: wheel_controller/odom
-  recordStatusSuffix: vla_rosbag_collection/record_status
+  vlaStatusSuffixes:
+  - vla_rosbag_collection/status
+  - sobits_vla_deploy/status
   controllerFrames:
     hmd: hmd_odom
     left: left_controller_odom

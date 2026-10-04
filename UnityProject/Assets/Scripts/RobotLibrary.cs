@@ -42,7 +42,8 @@ public static class RobotLibrary
         public string robotNamespace;
         public List<CameraData> cameras = new List<CameraData>();
         // v2 schema (absent in older files: empty values).
-        public string baseFrame, odomSuffix, recordStatusSuffix;
+        public string baseFrame, odomSuffix;
+        public string[] vlaStatusSuffixes;   // absent (older files): RosNames.VlaStatusDefaults
         public RobotProfile.ControllerFrames controllerFrames = new RobotProfile.ControllerFrames();
         public RobotProfile.HeadConfig head = new RobotProfile.HeadConfig();
         public RobotProfile.LiftConfig lift = new RobotProfile.LiftConfig();
@@ -77,7 +78,7 @@ public static class RobotLibrary
         {
             displayName = displayName.Trim(),
             baseFrame = TeleopConventions.BaseFrame,
-            recordStatusSuffix = RosNames.RecordStatus,
+            vlaStatusSuffixes = (string[])RosNames.VlaStatusDefaults.Clone(),
             controllerFrames = new RobotProfile.ControllerFrames
             {
                 hmd = TeleopConventions.Hmd,
@@ -110,7 +111,7 @@ public static class RobotLibrary
             }).ToList(),
             baseFrame = robot.baseFrame,
             odomSuffix = robot.odomSuffix,
-            recordStatusSuffix = robot.recordStatusSuffix,
+            vlaStatusSuffixes = robot.vlaStatusSuffixes ?? new string[0],
             controllerFrames = robot.controllerFrames,
             head = robot.head,
             lift = robot.lift,
@@ -166,7 +167,7 @@ public static class RobotLibrary
         }).ToArray();
         robot.baseFrame = data.baseFrame ?? "";
         robot.odomSuffix = data.odomSuffix ?? "";
-        robot.recordStatusSuffix = data.recordStatusSuffix ?? "";
+        robot.vlaStatusSuffixes = data.vlaStatusSuffixes ?? (string[])RosNames.VlaStatusDefaults.Clone();
         robot.controllerFrames = data.controllerFrames ?? new RobotProfile.ControllerFrames();
         robot.head = data.head ?? new RobotProfile.HeadConfig();
         robot.lift = data.lift ?? new RobotProfile.LiftConfig();

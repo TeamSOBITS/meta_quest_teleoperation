@@ -122,8 +122,9 @@ public class RobotProfile : ScriptableObject, ISerializationCallbackReceiver
     // nav_msgs/Odometry topic relative to the robot namespace (BaseVelocity; empty = no velocity arrow).
     public string odomSuffix;
 
-    // sobits_interfaces/VlaRecordStatus topic of the recorder, relative to the robot namespace (RecordStatus; empty = no recording badge).
-    public string recordStatusSuffix;
+    // sobits_interfaces/VlaStatus topics of the VLA stage nodes (recorder, deploy), relative to the robot namespace
+    // (VlaStatus; RosNames.VlaStatusDefaults; empty = no VLA badge).
+    public string[] vlaStatusSuffixes = Array.Empty<string>();
 
     public ControllerFrames controllerFrames = new ControllerFrames();
 

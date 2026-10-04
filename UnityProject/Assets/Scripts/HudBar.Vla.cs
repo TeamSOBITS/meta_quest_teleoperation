@@ -2,9 +2,9 @@ using TMPro;
 using UnityEngine;
 using UnityEngine.UI;
 
-// The header's REC pill (recorder status, see RecordStatus / RecordStatusRule): between the ROS IP and the connection
+// The header's VLA pill (VLA stage status, see VlaStatus / VlaStatusRule): between the ROS IP and the connection
 // pill, the same label and colour as the status strip's REC group ("REC 00:01:05" with a pulsing dot, "PAUSED ...",
-// "IDLE", "ERROR"). Inactive unless a recorder publishes; while shown the IP label gives it room (its text shrinks to
+// "IDLE", "ERROR"). Inactive unless a stage node publishes; while shown the IP label gives it room (its text shrinks to
 // fit, then the ellipsis cuts it).
 // Polled in Update like the rest of the header, so a rebuilt bar holds no state. The rest is in HudBar.cs.
 public partial class HudBar
@@ -16,13 +16,13 @@ public partial class HudBar
     Image _recPill, _recPillDot;
     TextMeshProUGUI _recPillText;
     float _ipFullWidth, _recRight, _recTop, _recHeight, _recPad;
-    RecordStatusRule.Look? _shownRecLook;
+    VlaStatusRule.Look? _shownRecLook;
 
     // `right`: the pill's right edge (mm); `ipWidth`: the IP label's width without the pill.
-    void BuildRecordPill(RectTransform root, float top, float height, float right, float ipWidth)
+    void BuildVlaPill(RectTransform root, float top, float height, float right, float ipWidth)
     {
         float font = HudTheme.BodyFontBase * HudUi.MmPerMetre * RecordPillFontRatio;
-        (_recPill, _recPillText) = HudUi.Pill(root, "Record Pill", "", font, height, Color.clear, Color.white, bold: true);
+        (_recPill, _recPillText) = HudUi.Pill(root, "Vla Pill", "", font, height, Color.clear, Color.white, bold: true);
         _recPad = height * 0.35f;
         float dot = height * RecordDotRatio;
         _recPillDot = HudUi.Round(HudUi.Box(_recPill.transform, "Dot", HudTheme.Record), dot / 2f);
@@ -40,14 +40,14 @@ public partial class HudBar
         _recPill.gameObject.SetActive(false);
     }
 
-    public bool RecordPillShown => _recPill != null && _recPill.gameObject.activeSelf;
+    public bool VlaPillShown => _recPill != null && _recPill.gameObject.activeSelf;
 
-    void UpdateRecordPill()
+    void UpdateVlaPill()
     {
         if (_recPill == null) return;
-        var rs = RecordStatus.Latest;
-        var look = rs != null ? rs.Look : RecordStatusRule.Look.Hidden;
-        bool show = look != RecordStatusRule.Look.Hidden;
+        var rs = VlaStatus.Latest;
+        var look = rs != null ? rs.Look : VlaStatusRule.Look.Hidden;
+        bool show = look != VlaStatusRule.Look.Hidden;
         if (_shownRecLook != look)
         {
             _shownRecLook = look;
@@ -55,19 +55,19 @@ public partial class HudBar
             float ipWidth = _ipFullWidth;
             if (show)
             {
-                var c = RecordStatusRule.Colour(look);
-                _recPill.color = HudTheme.PillBackground(c, strong: look == RecordStatusRule.Look.Recording);
+                var c = VlaStatusRule.Colour(look);
+                _recPill.color = HudTheme.PillBackground(c, strong: look == VlaStatusRule.Look.Recording);
                 _recPillText.color = c;
                 // Digits share one width, so the width only changes with the state (the preferred width includes the margins).
-                float w = Mathf.Ceil(_recPillText.GetPreferredValues(RecordStatusRule.Label(look, 0f)).x) + 4f;
+                float w = Mathf.Ceil(_recPillText.GetPreferredValues(VlaStatusRule.Label(look, 0f)).x) + 4f;
                 HudUi.Place(_recPill.rectTransform, _recRight - w, _recTop, w, _recHeight);
                 ipWidth = Mathf.Max(0f, _ipFullWidth - w - GapMm);
             }
             _ip.rectTransform.sizeDelta = new Vector2(ipWidth, _ip.rectTransform.sizeDelta.y);
         }
         if (!show) return;
-        _recPillText.text = RecordStatusRule.Label(look, rs.ElapsedS);
-        _recPillDot.color = HudTheme.WithAlpha(RecordStatusRule.Colour(look),
-                                               look == RecordStatusRule.Look.Recording ? RecordStatusRule.PulseAlpha(Time.unscaledTime) : 1f);
+        _recPillText.text = VlaStatusRule.Label(look, rs.ElapsedS);
+        _recPillDot.color = HudTheme.WithAlpha(VlaStatusRule.Colour(look),
+                                               look == VlaStatusRule.Look.Recording ? VlaStatusRule.PulseAlpha(Time.unscaledTime) : 1f);
     }
 }
