@@ -40,7 +40,7 @@ On the ROS side it uses [TeamSOBITS/ros_tcp_endpoint](https://github.com/TeamSOB
 <p align="center"><img src="media/readme/bar.png" width="640"><br><sub>HUD bar close-up.</sub></p>
 
 #### Recording status
-The HUD shows the recorder state (IDLE / REC / PAUSED / ERROR), the elapsed time, the task, and short save / discard / delete notices. They come from `/<ns>/vla_rosbag_collection/record_status` (`sobits_interfaces/VlaRecordStatus`, published by sobits_vla_tools `sobits_vla_rosbag_collection`) and appear only while that node is running (the badge hides when no message arrived for 3 s). The headset only displays: Quest A/B/X drive the recorder through sobits_vla_tools' `GamepadClient`.
+The HUD shows the recorder state (IDLE / REC / PAUSED / ERROR), the elapsed time, the task, and short save / discard / delete notices: a REC group in the status strip while the menu is hidden, a REC pill in the menu header while it is open, and the notices just above the strip (or above the menu). They come from `/<ns>/vla_rosbag_collection/record_status` (`sobits_interfaces/VlaRecordStatus`, published by sobits_vla_tools `sobits_vla_rosbag_collection`) and appear only while that node is running (the badge hides when no message arrived for 3 s). The headset only displays: Quest A/B/X drive the recorder through sobits_vla_tools' `GamepadClient`.
 Test it without ROS: `tools/verify.sh --suite RecordStatusVerify`, or `tools/device.sh launch --recstatus` (fake feed on the headset; `tools/device.sh logs` prints the `REC:` lines).
 
 <p align="right">(<a href="#readme-top">Back to top</a>)</p>
