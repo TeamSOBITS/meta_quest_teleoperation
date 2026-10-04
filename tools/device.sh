@@ -1,5 +1,5 @@
 #!/bin/bash
-# device.sh launch [--robot SOBIT_HOME|SOBIT_LIGHT] [--viewmode blocks|model|firstperson] [--capture] [--recstatus] [--record N --fps N --switchat N]
+# device.sh launch [--robot SOBIT_HOME|SOBIT_LIGHT] [--viewmode blocks|model|firstperson] [--capture] [--recstatus [deploy]] [--record N --fps N --switchat N]
 #          capture DEST.png   pull the debug capture (persistentDataPath/fpv_capture.png)
 #          logs [-f]          logcat filtered: FPV: RTT: VLA: Targets: Exception Fatal lowmemorykiller(unity)
 #          awake | release    keep the headset awake (prox_close) / hand back to the proximity sensor (automation_disable)
@@ -20,7 +20,7 @@ case "$cmd" in
         --robot) extra+=(--es robot "$2"); shift 2;;
         --viewmode) extra+=(--es viewmode "$2"); shift 2;;
         --capture) extra+=(--es capture 1); shift;;
-        --recstatus) extra+=(--es recstatus 1); shift;;
+        --recstatus) if [ "${2:-}" = deploy ]; then extra+=(--es recstatus deploy); shift 2; else extra+=(--es recstatus 1); shift; fi;;
         --record) extra+=(--ei record "$2"); shift 2;;
         --fps) extra+=(--ei fps "$2"); shift 2;;
         --switchat) extra+=(--ei switchat "$2"); shift 2;;

@@ -114,10 +114,11 @@ public class TeleopHud : MonoBehaviour
         if (Settings.DebugCapture)
             StartCoroutine(DebugCapture.Run());
 
-        if (DebugLaunchOptions.RecStatusDemo)
+        if (DebugLaunchOptions.VlaStatusDemoMode != null)
         {
-            DebugLaunchOptions.RecStatusDemo = false;   // this launch only
-            VlaStatusDemo.Start(this, _vlaStatus);
+            string mode = DebugLaunchOptions.VlaStatusDemoMode;
+            DebugLaunchOptions.VlaStatusDemoMode = null;   // this launch only
+            VlaStatusDemo.Start(this, _vlaStatus, mode);
         }
 
         if (DemoRecorder.Request != null)
