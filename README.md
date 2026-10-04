@@ -39,6 +39,10 @@ On the ROS side it uses [TeamSOBITS/ros_tcp_endpoint](https://github.com/TeamSOB
 <p align="center"><img src="media/readme/overlay_basevel.png" width="640"><br><sub>Overlays: hand-camera cards and the base velocity arrow.</sub></p>
 <p align="center"><img src="media/readme/bar.png" width="640"><br><sub>HUD bar close-up.</sub></p>
 
+#### Recording status
+The HUD shows the recorder state (IDLE / REC / PAUSED / ERROR), the elapsed time, the task, and short save / discard / delete notices. They come from `/<ns>/vla_rosbag_collection/record_status` (`sobits_interfaces/VlaRecordStatus`, published by sobits_vla_tools `sobits_vla_rosbag_collection`) and appear only while that node is running (the badge hides when no message arrived for 3 s). The headset only displays: Quest A/B/X drive the recorder through sobits_vla_tools' `GamepadClient`.
+Test it without ROS: `tools/verify.sh --suite RecordStatusVerify`, or `tools/device.sh launch --recstatus` (fake feed on the headset; `tools/device.sh logs` prints the `REC:` lines).
+
 <p align="right">(<a href="#readme-top">Back to top</a>)</p>
 
 
@@ -159,6 +163,8 @@ $ adb install -r UnityProject/Builds/SOBITS-Quest-Teleoperation-<version>.apk
 ```
 (`File -> Build Profiles -> Android -> Build and Run` also deploys directly to the headset.)
 
+The C# classes of the `sobits_interfaces` messages the app uses live in `UnityProject/Assets/RosMessages/` (generated). After the `.msg` changes, regenerate them with `tools/gen_msgs.sh [SOBITS_INTERFACES_DIR]` (the Unity Editor must not have the project open; or the menu `Robots -> Generate sobits_interfaces messages`).
+
 <p align="right">(<a href="#readme-top">Back to top</a>)</p>
 
 ### Meta Quest-ROS Connection
@@ -187,7 +193,7 @@ Steps to add a robot model.
    ```
    Output goes to `tools/models/<robot>/meshes_lod/`.
 3. In Unity, run the menu `Robots -> Build <robot> model` to generate the model prefab (currently SOBIT HOME / SOBIT LIGHT).
-4. Fill in the `RobotProfile` asset (frames: camera, pan, tilt; cameras; arms).
+4. Fill in the `RobotProfile` asset (frames: camera, pan, tilt; cameras; arms; `odomSuffix`; `recordStatusSuffix`: topic of the recorder status relative to the namespace, `vla_rosbag_collection/record_status`, empty = no recording badge).
 5. Run `Robots -> Validate profiles`.
 
 <p align="right">(<a href="#readme-top">Back to top</a>)</p>

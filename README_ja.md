@@ -39,6 +39,10 @@ ROS側は[TeamSOBITS/ros_tcp_endpoint](https://github.com/TeamSOBITS/ros_tcp_end
 <p align="center"><img src="media/readme/overlay_basevel.png" width="640"><br><sub>オーバーレイ: ハンドカメラのカードとベース速度の矢印．</sub></p>
 <p align="center"><img src="media/readme/bar.png" width="640"><br><sub>HUDバーの拡大．</sub></p>
 
+#### 録画ステータス
+HUDにレコーダの状態（IDLE / REC / PAUSED / ERROR），経過時間，タスク，保存・破棄・削除の短い通知を表示します．`/<ns>/vla_rosbag_collection/record_status`（`sobits_interfaces/VlaRecordStatus`，sobits_vla_toolsの`sobits_vla_rosbag_collection`が配信）から取得し，このノードの動作中のみ表示されます（3秒間メッセージが来ないと非表示）．ヘッドセットは表示のみで，Quest の A/B/X ボタンはsobits_vla_toolsの`GamepadClient`経由でレコーダを操作します．
+ROSなしでの確認: `tools/verify.sh --suite RecordStatusVerify`，または`tools/device.sh launch --recstatus`（実機で疑似フィードを再生．`tools/device.sh logs`で`REC:`行を表示）．
+
 <p align="right">(<a href="#readme-top">上に戻る</a>)</p>
 
 
@@ -160,6 +164,8 @@ $ adb install -r UnityProject/Builds/SOBITS-Quest-Teleoperation-<version>.apk
 ```
 （Unityの`File -> Build Profiles -> Android -> Build and Run`でも直接実機へ転送できます．）
 
+アプリが使う`sobits_interfaces`メッセージのC#クラスは`UnityProject/Assets/RosMessages/`にあります（自動生成）．`.msg`が変わったら`tools/gen_msgs.sh [SOBITS_INTERFACES_DIR]`で再生成します（Unity Editorでプロジェクトを開いていない状態で実行．メニュー`Robots -> Generate sobits_interfaces messages`でも可）．
+
 <p align="right">(<a href="#readme-top">上に戻る</a>)</p>
 
 ### Meta QuestとROS通信
@@ -188,7 +194,7 @@ IPはロボット選択画面のEditボタン，またはロボット画面のHU
    ```
    出力は`tools/models/<robot>/meshes_lod/`です．
 3. Unityのメニュー`Robots -> Build <robot> model`でモデルのプレハブを生成します（現在はSOBIT HOME / SOBIT LIGHT）．
-4. `RobotProfile`アセットを埋めます（フレーム: カメラ・パン・チルト，カメラ，アームなど）．
+4. `RobotProfile`アセットを埋めます（フレーム: カメラ・パン・チルト，カメラ，アームなど，`odomSuffix`，`recordStatusSuffix`: 名前空間からの相対でレコーダのステータストピック`vla_rosbag_collection/record_status`，空なら録画バッジなし）．
 5. `Robots -> Validate profiles`でプロファイルを検証します．
 
 <p align="right">(<a href="#readme-top">上に戻る</a>)</p>
