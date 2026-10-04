@@ -229,3 +229,9 @@ IPはロボット選択画面のEditボタン，またはロボット画面のHU
 [license-shield]: https://img.shields.io/github/license/TeamSOBITS/meta_quest_teleoperation.svg?style=for-the-badge
 [license-url]: LICENSE
 
+
+
+<!-- ライセンス -->
+## ライセンス
+
+BSD-3-Clause（[LICENSE](LICENSE) を参照）．本プロジェクトは [PickNikRobotics/meta_quest_teleoperation](https://github.com/PickNikRobotics/meta_quest_teleoperation) のフォークです．

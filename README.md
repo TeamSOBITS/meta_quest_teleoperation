@@ -228,3 +228,9 @@ Check the [Issues page][issues-url] for current bugs and feature requests.
 [license-shield]: https://img.shields.io/github/license/TeamSOBITS/meta_quest_teleoperation.svg?style=for-the-badge
 [license-url]: LICENSE
 
+
+
+<!-- LICENSE -->
+## License
+
+BSD-3-Clause, see [LICENSE](LICENSE). This project is a fork of [PickNikRobotics/meta_quest_teleoperation](https://github.com/PickNikRobotics/meta_quest_teleoperation).
