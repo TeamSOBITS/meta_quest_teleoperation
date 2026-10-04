@@ -20,7 +20,8 @@ public partial class StatusStrip
     const float VlaChipRatio = 1.3f;    // GRIP chip height / font (CONTROL is 1.5: the chip shares its column with a line)
     const float VlaChipGapMm = 4f;      // between the chip and the stats line
     const int VlaMinPolicyChars = 6;    // the task line cuts the policy's head down to this before the end is cut
-    static readonly string VlaTaskSample = VlaStatusRule.TaskLine(VlaStatusRule.StageDeploy, true, "pick cup", "smolvla_fft");
+    // A typical deploy task line with a cut policy: the column shows "…" plus a policy type like smolvla_fft in full.
+    static readonly string VlaTaskSample = VlaStatusRule.TaskLine(VlaStatusRule.StageDeploy, true, "pick cup", "\u2026smolvla_fft");
     const string VlaStatsSample = "9999 steps · 99.9 Hz";
 
     Func<VlaStatus> _vla;
