@@ -42,6 +42,30 @@ public class QuestControllerPublisher : MonoBehaviour
     private string _joyTopicName;
     private string _confirmedIp;  // IP that was last explicitly connected to
 
+    // Registration gate: ros_tcp_endpoint has no registration ACK, so the queued RegisterPublisher
+    // syscommands race against Publish calls. After every (re)connect, hold publishing for this long.
+    public const float RegistrationDelaySeconds = 2f;
+    float _registrationOpenAt;
+    bool _gateLogged;
+
+    public bool RegistrationReady => !ros.HasConnectionError && Time.unscaledTime >= _registrationOpenAt;
+
+    void RestartRegistrationGate()
+    {
+        _registrationOpenAt = Time.unscaledTime + RegistrationDelaySeconds;
+        _gateLogged = false;
+    }
+
+    // Message instances allocated once at Start() and mutated in place by Update(); the ROS-TCP-Connector
+    // serialises synchronously inside Publish(), so reuse is safe and nothing is allocated per frame.
+    HeaderMsg _header;
+    TimeMsg _stamp;
+    TransformStampedMsg _tfHmd, _tfRight, _tfLeft;
+    TransformStampedMsg[] _tfAll;
+    JoyMsg _joyMsg;
+    TransformStampedMsg[][] _tfBySize;
+    static readonly DateTime UnixEpoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
     private readonly IpKeyboard _keyboard = new IpKeyboard();
 
     // Name of the scene to return to when the user wants to pick a different robot.
@@ -79,6 +103,8 @@ public class QuestControllerPublisher : MonoBehaviour
         SetNamespace(robotNamespace);
 
         _confirmedIp = ros.RosIPAddress;  // record what we are already connected to
+        RestartRegistrationGate();
+        AllocateMessages();
     }
 
     // IP to show in the HUD: what is being typed while the keyboard is open, else the connected one.
@@ -128,13 +154,15 @@ public class QuestControllerPublisher : MonoBehaviour
             _confirmedIp = newIp;
             ros.Disconnect();
             ros.Connect(_confirmedIp, RosIpSettings.Port);
+            RestartRegistrationGate();
             RosIpSettings.Save(_confirmedIp);
         }
 
 
         // Stop publishing when disconnected (avoids injecting stale TFs into a freshly-started
         // ROS session) and when robot control is off (layout mode: the robot must not move).
-        if (ros.HasConnectionError || !controlRobot) return;
+        if (!RegistrationReady || !controlRobot) return;
+        if (!_gateLogged) { _gateLogged = true; Debug.Log("[Publisher] registration gate open"); }
 
         _timeElapsed += Time.deltaTime;
         if (_timeElapsed > publishFrequency)
@@ -144,17 +172,56 @@ public class QuestControllerPublisher : MonoBehaviour
         }
     }
 
-    private TimeMsg GetRosTime()
+    void AllocateMessages()
     {
-        // Always stamp with wall-clock (UTC). sobits_teleop uses a wall-clock TF
-        // buffer so this works correctly in both sim and real-robot scenarios.
-        DateTime unixEpoch = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc);
-        long totalNanoseconds = (DateTime.UtcNow - unixEpoch).Ticks * 100;
-        return new TimeMsg
+        _stamp = new TimeMsg();
+        _header = new HeaderMsg { frame_id = parent_frame_id, stamp = _stamp };
+        _tfHmd = NewStamped(headChildFrame);
+        _tfRight = NewStamped(rightChildFrame);
+        _tfLeft = NewStamped(leftChildFrame);
+        _tfAll = new[] { _tfHmd, _tfRight, _tfLeft };
+        // TFMessageMsg holds an array whose length is the message length, so keep one prebuilt
+        // array (and message) per possible tracked-count/subset combination.
+        _tfBySize = new TransformStampedMsg[8][];
+        _tfMsgBySubset = new TFMessageMsg[8];
+        for (int m = 1; m < 8; m++)
         {
-            sec     = (int)(totalNanoseconds / 1_000_000_000),
-            nanosec = (uint)(totalNanoseconds % 1_000_000_000)
+            var list = new System.Collections.Generic.List<TransformStampedMsg>(3);
+            for (int b = 0; b < 3; b++) if ((m & (1 << b)) != 0) list.Add(_tfAll[b]);
+            _tfBySize[m] = list.ToArray();
+            _tfMsgBySubset[m] = new TFMessageMsg(_tfBySize[m]);
+        }
+        _joyMsg = new JoyMsg
+        {
+            header = _header,
+            axes = new float[8],
+            buttons = new int[7]
         };
+    }
+    TFMessageMsg[] _tfMsgBySubset;
+
+    TransformStampedMsg NewStamped(string child) => new TransformStampedMsg
+    {
+        header = _header,
+        child_frame_id = child,
+        transform = new TransformMsg { translation = new Vector3Msg(), rotation = new QuaternionMsg() }
+    };
+
+    // Always stamp with wall-clock (UTC). sobits_teleop uses a wall-clock TF buffer so this works
+    // correctly in both sim and real-robot scenarios. Mutates the shared stamp in place.
+    void UpdateRosTime()
+    {
+        long totalNanoseconds = (DateTime.UtcNow - UnixEpoch).Ticks * 100;
+        _stamp.sec = (int)(totalNanoseconds / 1_000_000_000);
+        _stamp.nanosec = (uint)(totalNanoseconds % 1_000_000_000);
+    }
+
+    static void Fill(TransformStampedMsg m, Vector3 pos, Quaternion rot)
+    {
+        var t = m.transform.translation; var r = m.transform.rotation;
+        Vector3<FLU> p = pos.To<FLU>(); Quaternion<FLU> q = rot.To<FLU>();
+        t.x = p.x; t.y = p.y; t.z = p.z;
+        r.x = q.x; r.y = q.y; r.z = q.z; r.w = q.w;
     }
 
     private void PublishTfJoy()
@@ -198,71 +265,21 @@ public class QuestControllerPublisher : MonoBehaviour
         leftTracked = true;
     }
 
-    // Convert to ROS coordinate system (FLU)
-    Vector3<FLU> rosHeadPos = tmpHead.position.To<FLU>();
-    Quaternion<FLU> rosHeadRot = tmpHead.rotation.To<FLU>();
-
-    Vector3<FLU> rosPositionRight = tmpRight.position.To<FLU>();
-    Quaternion<FLU> rosRotationRight = tmpRight.rotation.To<FLU>();
-
-    Vector3<FLU> rosPositionLeft = tmpLeft.position.To<FLU>();
-    Quaternion<FLU> rosRotationLeft = tmpLeft.rotation.To<FLU>();
-
-    HeaderMsg header = new HeaderMsg
-    {
-        frame_id = parent_frame_id,
-        stamp = GetRosTime()
-    };
-
-    var transformMsgHmd = new TransformMsg
-    {
-        translation = rosHeadPos,
-        rotation = rosHeadRot
-    };
-
-    var transformStampedHmd = new TransformStampedMsg
-    {
-        header = header,
-        child_frame_id = headChildFrame,
-        transform = transformMsgHmd
-    };
-
-    var transformMsgRight = new TransformMsg
-    {
-        translation = rosPositionRight,
-        rotation = rosRotationRight
-    };
-
-    var transformMsgLeft = new TransformMsg
-    {
-        translation = rosPositionLeft,
-        rotation = rosRotationLeft
-    };
-
-    var transformStampedRight = new TransformStampedMsg
-    {
-        header = header,
-        child_frame_id = rightChildFrame,
-        transform = transformMsgRight
-    };
-
-    var transformStampedLeft = new TransformStampedMsg
-    {
-        header = header,
-        child_frame_id = leftChildFrame,
-        transform = transformMsgLeft
-    };
+    UpdateRosTime();
+    _header.frame_id = parent_frame_id;
+    _tfHmd.child_frame_id = headChildFrame;
+    _tfRight.child_frame_id = rightChildFrame;
+    _tfLeft.child_frame_id = leftChildFrame;
+    Fill(_tfHmd, tmpHead.position, tmpHead.rotation);
+    Fill(_tfRight, tmpRight.position, tmpRight.rotation);
+    Fill(_tfLeft, tmpLeft.position, tmpLeft.rotation);
 
     // Only publish transforms for devices that are actively tracked.
     // If no device is tracked at all, skip publishing entirely.
-    var tfList = new System.Collections.Generic.List<TransformStampedMsg>();
-    if (headTracked)  tfList.Add(transformStampedHmd);
-    if (rightTracked) tfList.Add(transformStampedRight);
-    if (leftTracked)  tfList.Add(transformStampedLeft);
+    int mask = (headTracked ? 1 : 0) | (rightTracked ? 2 : 0) | (leftTracked ? 4 : 0);
+    if (mask == 0) return;
 
-    if (tfList.Count == 0) return;
-
-    ros.Publish(tfTopicName, new TFMessageMsg(tfList.ToArray()));
+    ros.Publish(tfTopicName, _tfMsgBySubset[mask]);
 
 
     // --- Publish controller button states as sensor_msgs/Joy on a single /joy topic ---
@@ -286,31 +303,20 @@ public class QuestControllerPublisher : MonoBehaviour
 
     // Build axes and buttons arrays for sensor_msgs/Joy
     // Axes order: left_x, left_y, left_trigger, left_grip, right_x, right_y, right_trigger, right_grip
-    float[] axes = new float[]
-    {
-        leftAxis.x, leftAxis.y, leftTrigger, leftGrip,
-        rightAxis.x, rightAxis.y, rightTrigger, rightGrip
-    };
+    var axes = _joyMsg.axes;
+    axes[0] = leftAxis.x;  axes[1] = leftAxis.y;  axes[2] = leftTrigger;  axes[3] = leftGrip;
+    axes[4] = rightAxis.x; axes[5] = rightAxis.y; axes[6] = rightTrigger; axes[7] = rightGrip;
 
-    // Buttons order: left_primary, left_secondary, left_grip_button, right_primary, right_secondary, right_grip_button
-    int[] buttons = new int[]
-    {
-        leftPrimary ? 1 : 0,
-        leftSecondary ? 1 : 0,
-        leftStickClick ? 1 : 0,
-        leftMenuButton ? 1 : 0,
-        rightPrimary ? 1 : 0,
-        rightSecondary ? 1 : 0,
-        rightStickClick ? 1 : 0,
-    };
+    // Buttons order: left_primary, left_secondary, left_stick_click, left_menu, right_primary, right_secondary, right_stick_click
+    var buttons = _joyMsg.buttons;
+    buttons[0] = leftPrimary ? 1 : 0;
+    buttons[1] = leftSecondary ? 1 : 0;
+    buttons[2] = leftStickClick ? 1 : 0;
+    buttons[3] = leftMenuButton ? 1 : 0;
+    buttons[4] = rightPrimary ? 1 : 0;
+    buttons[5] = rightSecondary ? 1 : 0;
+    buttons[6] = rightStickClick ? 1 : 0;
 
-    var joyMsg = new JoyMsg
-    {
-        header = header,
-        axes = axes,
-        buttons = buttons
-    };
-
-    ros.Publish(_joyTopicName, joyMsg);
+    ros.Publish(_joyTopicName, _joyMsg);
     }
 }
