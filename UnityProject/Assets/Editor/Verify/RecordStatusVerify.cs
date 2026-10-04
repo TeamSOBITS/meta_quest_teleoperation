@@ -1,13 +1,18 @@
-// Verify harness: recorder status feed (RecordStatusRule + RecordStatus data layer). No sim needed (the ROS IP is isolated).
+// Verify harness: recorder status feed (RecordStatusRule + RecordStatus data layer) and its HUD (status strip REC group,
+// bar header REC pill, event toast), with pictures in $VERIFY_SHOTS/record. No sim needed (the ROS IP is isolated).
 // Run: tools/verify.sh --suite RecordStatusVerify
 using System;
 using System.Collections;
+using System.IO;
+using System.Linq;
 using System.Reflection;
 using RosMessageTypes.SobitsInterfaces;
+using TMPro;
 using Unity.Robotics.ROSTCPConnector;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
+using UnityEngine.UI;
 using Object = UnityEngine.Object;
 
 public static class RecordStatusVerify
@@ -79,7 +84,170 @@ public static class RecordStatusVerify
         bool none = true;
         foreach (byte e in new byte[] { 0, 1, 2, 3 }) none &= RecordStatusRule.Toast(e, "x", 1f) == null;
         Check(none, "Toast NONE / STARTED / PAUSED / RESUMED -> null");
+        Check(RecordStatusRule.ToastColour(4) == HudTheme.Good && RecordStatusRule.ToastColour(5) == HudTheme.Bad && RecordStatusRule.ToastColour(7) == HudTheme.Bad
+              && RecordStatusRule.ToastColour(6) == HudTheme.Warn && RecordStatusRule.ToastColour(9) == HudTheme.Warn && RecordStatusRule.ToastColour(8) == HudTheme.Accent,
+              "ToastColour: saved Good, discarded / error Bad, deleted / rejected Warn, task Accent");
         Check(Mathf.Abs(RecordStatusRule.PulseAlpha(0f) - 0.775f) < 1e-3f && RecordStatusRule.PulseAlpha(0.25f) > 0.99f && RecordStatusRule.PulseAlpha(0.75f) < 0.56f, "PulseAlpha swings 0.55 .. 1 at 1 Hz");
+    }
+
+    static float _baseWidth;
+    static string ShotDir => Directory.CreateDirectory(Path.Combine(Environment.GetEnvironmentVariable("VERIFY_SHOTS")
+                                                                     ?? Path.GetFullPath(Path.Combine(Application.dataPath, "../../shots")), "record")).FullName;
+    static Transform Find(Transform root, string name) => root.GetComponentsInChildren<Transform>(true).FirstOrDefault(t => t.name == name);
+    static int Dividers(StatusStrip s) => s.GetComponentsInChildren<Transform>(true).Count(t => t.name == "Group Divider");
+    static float Width(StatusStrip s) => ((RectTransform)s.transform).sizeDelta.x;
+    static TextMeshProUGUI Text(Transform root, string name) => Find(root, name)?.GetComponent<TextMeshProUGUI>();
+    static bool Near(Color a, Color b, float tol = 0.02f) => Mathf.Abs(a.r - b.r) < tol && Mathf.Abs(a.g - b.g) < tol && Mathf.Abs(a.b - b.b) < tol;
+    static Transform BarT(TeleopHud hud) => (Transform)typeof(TeleopHud).GetField("_bar", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(hud);
+    static Transform BarPill(TeleopHud hud) => Find(BarT(hud), "Record Pill");
+    static bool BarPillShown(TeleopHud hud) { var p = BarPill(hud); return p != null && p.gameObject.activeInHierarchy; }
+    static object Toggle(TeleopHud hud) { typeof(TeleopHud).GetMethod("ToggleBar", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(hud, null); return Wait(0.2); }
+
+    // (i)..(p): the REC group, the toast and the bar pill, fed by injected messages.
+    static IEnumerable UiChecks(TeleopHud hud)
+    {
+        var strip = hud.Strip;
+        var toast = hud.RecordToast;
+        var head = FirstPersonView.Head;
+
+        // (i) recording
+        Inject(1, 1, 65f);
+        yield return Wait(0.3);
+        var group = Find(strip.transform, "Record Group");
+        var label = group != null ? Text(group, "Record Label") : null;
+        var task = group != null ? Text(group, "Record Task") : null;
+        Check(group != null && group.gameObject.activeSelf && Find(group, "Record Divider") != null, "(i) RECORDING: Record Group active, with its Record Divider");
+        if (group == null) yield break;
+        Check(label.text == RecordStatusRule.Label(RecordStatusRule.Look.Recording, _rs.ElapsedS) && label.text == "REC 00:01:05" && Near(label.color, HudTheme.Record),
+              $"(i) label '{label.text}' in Record colour {label.color}");
+        Check(task.text == "task: pick cup" && Near(task.color, HudTheme.Muted), $"(i) task line '{task.text}' muted");
+        float recW = strip.RecordWidthMm, width = Width(strip);
+        Check(Dividers(strip) == 2 && Mathf.Abs(width - (_baseWidth + recW)) < 0.5f && width <= 1500f + recW,
+              $"(i) strip {width:F0} mm = {_baseWidth:F0} + REC {recW:F0} (<= 1500 + REC); Group Dividers still {Dividers(strip)}");
+        var body = Find(strip.transform, "Body Group") as RectTransform;
+        Check(body != null && Mathf.Abs(body.anchoredPosition.x - (((RectTransform)group).anchoredPosition.x + recW)) < 0.5f, $"(i) BODY shifted right by the REC group (x {body?.anchoredPosition.x:F0})");
+        var dot = Find(group, "Record Dot").GetComponent<Image>();
+        float aMin = 1f, aMax = 0f;
+        for (int i = 0; i < 4; i++) { aMin = Mathf.Min(aMin, dot.color.a); aMax = Mathf.Max(aMax, dot.color.a); yield return Wait(0.25); }
+        Check(Near(dot.color, HudTheme.Record) && aMax - aMin > 0.1f && aMin >= 0.54f, $"(i) dot pulses (alpha {aMin:F2} .. {aMax:F2} over 1 s)");
+        Inject(1, 0, 66f, taskSet: false, task: "");
+        yield return Wait(0.3);
+        Check(task.text == "no task" && Near(task.color, HudTheme.Warn), $"(i) task not set: '{task.text}' in Warn");
+        Inject(1, 8, 66f, "pick cup");   // task set while recording: Accent toast
+        yield return Wait(0.3);
+        Check(toast.Shown && toast.Label.text == "Task: pick cup" && Near(toast.Colour, HudTheme.Accent), $"(i) TASK_SET toast '{toast.Label.text}' in Accent");
+        var tr = toast.Rect; var sr = (RectTransform)strip.transform;
+        float toastBottom = tr.localPosition.y - tr.sizeDelta.y * tr.localScale.y / 2f, stripTop = sr.localPosition.y + sr.sizeDelta.y * sr.localScale.y / 2f;
+        Check(tr.parent == head && toastBottom > stripTop && toastBottom - stripTop < 0.03f,
+              $"(i) toast head-locked just above the strip (gap {(toastBottom - stripTop) * 1000f:F0} mm; toast centre {-Mathf.Atan2(tr.localPosition.y, tr.localPosition.z) * Mathf.Rad2Deg:F1} deg below the view centre, strip {-Mathf.Atan2(sr.localPosition.y, sr.localPosition.z) * Mathf.Rad2Deg:F1} deg; toast {tr.sizeDelta.x:F0} x {tr.sizeDelta.y:F0} mm)");
+        Shot("rec_fp_strip_toast", head.position, Quaternion.LookRotation(Vector3.Lerp(sr.position, tr.position, 0.5f) - head.position, Vector3.up), 40f);
+        Shot("rec_fp_view", head.position, head.rotation, 90f);
+
+        // (j) paused: Warn, frozen
+        Inject(2, 2, 70f);
+        yield return Wait(0.3);
+        string paused = label.text;
+        Check(paused == "PAUSED 00:01:10" && Near(label.color, HudTheme.Warn) && Near(Find(group, "Record Dot").GetComponent<Image>().color, HudTheme.Warn), $"(j) PAUSED: '{paused}' in Warn");
+        yield return Wait(1.2);
+        Inject(2, 0, 70f);
+        yield return Wait(0.3);
+        Check(label.text == paused, $"(j) still '{label.text}' 1.5 s later (frozen)");
+
+        // (k) saved: Good toast for 4 s
+        Inject(0, 4, 70f);
+        yield return Wait(0.3);
+        Check(toast.Shown && toast.Label.text == _rs.ToastText && toast.Label.text == "Saved · 00:01:10" && Near(toast.Colour, HudTheme.Good),
+              $"(k) SAVED toast '{toast.Label.text}' in Good");
+        Check(label.text == "IDLE" && Near(label.color, HudTheme.Muted), $"(k) strip back to '{label.text}' (muted)");
+        Shot("rec_fp_saved_toast", head.position, Quaternion.LookRotation(Vector3.Lerp(sr.position, tr.position, 0.5f) - head.position, Vector3.up), 40f);
+        yield return Wait(4.5);
+        Check(!toast.Shown && !toast.Rect.gameObject.activeSelf, "(k) toast inactive 4.5 s later");
+
+        // (l) feed stopped (stale since 4.8 s): the group goes, the strip shrinks back
+        Check(!group.gameObject.activeSelf && Mathf.Abs(Width(strip) - _baseWidth) < 0.5f && Dividers(strip) == 2,
+              $"(l) stale: Record Group inactive, strip {Width(strip):F0} mm (was {_baseWidth:F0}), Group Dividers {Dividers(strip)}");
+
+        // (m) bar open: header pill with the same label
+        yield return Toggle(hud);
+        Inject(1, 1, 80f);
+        yield return Wait(0.3);
+        var pill = BarPill(hud);
+        var pillText = pill != null ? pill.GetComponentInChildren<TextMeshProUGUI>(true) : null;
+        var ip = Text(BarT(hud), "IP");
+        Check(BarT(hud).gameObject.activeSelf && !strip.gameObject.activeSelf && BarPillShown(hud) && pillText.text == RecordStatusRule.Label(RecordStatusRule.Look.Recording, _rs.ElapsedS)
+              && pillText.text.StartsWith("REC 00:01:2") && Near(pillText.color, HudTheme.Record),
+              $"(m) bar shown: Record Pill '{pillText?.text}' in Record colour");
+        var pr = (RectTransform)pill; var stat = (RectTransform)Find(BarT(hud), "Status");
+        Check(ip.rectTransform.anchoredPosition.x + ip.rectTransform.sizeDelta.x < pr.anchoredPosition.x && pr.anchoredPosition.x + pr.sizeDelta.x < stat.anchoredPosition.x,
+              $"(m) IP | pill | Status in order (IP {ip.rectTransform.sizeDelta.x:F0} mm wide, text '{ip.text}' truncated {ip.isTextTruncated}; pill {pr.sizeDelta.x:F0} mm)");
+        ip.text = "192.168.11.20"; ip.ForceMeshUpdate();   // a typical robot IP (the bar puts the real one back next frame)
+        Check(!ip.isTextTruncated && ip.fontSize >= ip.fontSizeMax * 0.6f - 0.01f, $"(m) '192.168.11.20' still fits beside the pill (font {ip.fontSize:F0} of {ip.fontSizeMax:F0} mm)");
+        Check(toast.Rect.parent == head, "(m) toast stays head-locked above the strip in first person while the bar is open");
+        Shot("rec_bar_pill", head.position, Quaternion.LookRotation(pill.position - head.position, Vector3.up), 30f);
+        yield return Toggle(hud);
+        yield return Wait(3.5);
+        yield return Toggle(hud);
+        Check(!BarPillShown(hud) && Mathf.Abs(ip.rectTransform.sizeDelta.x - (((RectTransform)Find(BarT(hud), "Status")).anchoredPosition.x - 40f - ip.rectTransform.anchoredPosition.x)) < 0.5f,
+              $"(m) bar reopened without a feed: no pill, IP full width {ip.rectTransform.sizeDelta.x:F0} mm");
+        yield return Toggle(hud);
+
+        // (n) blocks layout
+        hud.SetCameraLayout(FirstPersonView.LayoutBlocks, save: false);
+        yield return Wait(0.5);
+        if (BarT(hud).gameObject.activeSelf) yield return Toggle(hud);
+        strip = hud.Strip;
+        Inject(1, 1, 90f);
+        yield return Wait(0.3);
+        group = Find(strip.transform, "Record Group");
+        Check(!hud.FirstPerson && strip != null && !strip.HasModel && strip.gameObject.activeSelf && Dividers(strip) == 1 && group != null && group.gameObject.activeSelf
+              && Text(group, "Record Label").text == "REC 00:01:30",
+              $"(n) blocks: strip active, {Dividers(strip)} Group Divider, Record Group active '{Text(group, "Record Label")?.text}', {Width(strip):F0} mm x {strip.transform.localScale.x * 1000f:F2}");
+        Inject(1, 4, 90f);   // a toast to see where it goes
+        yield return Wait(0.3);
+        tr = toast.Rect; sr = (RectTransform)strip.transform;
+        Check(toast.Shown && tr.parent == sr.parent && tr.localScale == sr.localScale && tr.localPosition.y > sr.localPosition.y, $"(n) blocks, bar hidden: toast above the strip (y {tr.localPosition.y:F2} vs {sr.localPosition.y:F2} m)");
+        var cam = Camera.main.transform;
+        Shot("rec_blocks_strip", cam.position, Quaternion.LookRotation(Vector3.Lerp(sr.position, tr.position, 0.5f) - cam.position, Vector3.up), 45f);
+        yield return Toggle(hud);
+        var bar = (RectTransform)BarT(hud);
+        Check(tr.localPosition.y > bar.localPosition.y + bar.sizeDelta.y * bar.localScale.y / 2f, $"(n) blocks, bar shown: toast above the bar (y {tr.localPosition.y:F2} m)");
+        Shot("rec_blocks_bar", cam.position, Quaternion.LookRotation(bar.position + Vector3.up * 0.4f - cam.position, Vector3.up), 60f);
+        yield return Toggle(hud);
+
+        // (o) lazy follow carries the strip and the toast
+        hud.SetLazyFollow(true);
+        yield return Wait(0.2);
+        var follower = (typeof(TeleopHud).GetField("_follower", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(hud) as Component)?.transform;
+        Check(follower != null && strip.transform.parent == follower && toast.Rect.parent == follower, $"(o) lazy follow on: strip and toast under '{toast.Rect.parent?.name}'");
+        hud.SetLazyFollow(false);
+        yield return Wait(0.2);
+        Check(strip.transform.parent == hud.hudParent && toast.Rect.parent == hud.hudParent, $"(o) lazy follow off: back under '{toast.Rect.parent?.name}'");
+
+        // (p)
+        Check(Object.FindObjectsByType<ROSConnection>(FindObjectsSortMode.None).Length == 1, "(p) still exactly one ROSConnection");
+    }
+
+    static void Shot(string name, Vector3 pos, Quaternion rot, float fov)
+    {
+        var go = new GameObject("VerifyCam");
+        var cam = go.AddComponent<Camera>();
+        go.transform.SetPositionAndRotation(pos, rot);
+        var main = Camera.main;
+        cam.fieldOfView = fov; cam.aspect = 16f / 9f; cam.nearClipPlane = 0.05f; cam.farClipPlane = 200f;
+        cam.stereoTargetEye = StereoTargetEyeMask.None;
+        if (main != null) { cam.clearFlags = main.clearFlags; cam.backgroundColor = main.backgroundColor; }
+        var rt = new RenderTexture(1600, 900, 24);
+        cam.targetTexture = rt;
+        cam.Render();
+        RenderTexture.active = rt;
+        var tex = new Texture2D(rt.width, rt.height, TextureFormat.RGB24, false);
+        tex.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+        tex.Apply();
+        RenderTexture.active = null;
+        string path = Path.Combine(ShotDir, name + ".png");
+        File.WriteAllBytes(path, tex.EncodeToPNG());
+        cam.targetTexture = null; Object.DestroyImmediate(rt); Object.DestroyImmediate(go); Object.DestroyImmediate(tex);
+        Debug.Log($"[Verify]     screenshot {path} (fov {fov:F0})");
     }
 
     static IEnumerator Main()
@@ -100,6 +268,19 @@ public static class RecordStatusVerify
         while (!Application.isPlaying) yield return Wait(0.1);
         Object.FindFirstObjectByType<QuestControllerPublisher>().controlRobot = false;
         yield return Wait(3.0);
+        var hud = Object.FindFirstObjectByType<TeleopHud>();
+
+        // (h) first person, no recorder yet: the HUD looks as it did before the feature
+        hud.SetRobotModel(true, save: false);
+        hud.SetCameraLayout(FirstPersonView.LayoutFirstPerson, save: false);
+        yield return Wait(1.0);
+        var strip = hud.Strip;
+        Check(hud.FirstPerson && strip != null && strip.HasModel && strip.gameObject.activeSelf, $"(h) first person: strip with the model, active {strip?.gameObject.activeSelf}");
+        if (strip == null) { EditorApplication.ExitPlaymode(); yield break; }
+        _baseWidth = Width(strip);
+        Check(Find(strip.transform, "Record Group") == null && Dividers(strip) == 2 && _baseWidth <= 1500f,
+              $"(h) no message: no Record Group, {Dividers(strip)} Group Dividers, strip {_baseWidth:F0} mm (<= 1500)");
+        Check(!BarPillShown(hud) && !hud.RecordToast.Shown, "(h) no message: bar Record Pill inactive, toast inactive");
 
         // (a) nothing received yet
         _rs = RecordStatus.Latest;
@@ -145,7 +326,7 @@ public static class RecordStatusVerify
         // (g) one connection
         Check(Object.FindObjectsByType<ROSConnection>(FindObjectsSortMode.None).Length == 1, "exactly one ROSConnection in the scene");
 
-        // UI checks (strip group, bar pill, toast widget) are added by the HUD step.
+        foreach (var w in UiChecks(hud)) yield return w;
 
         EditorApplication.ExitPlaymode();
         while (Application.isPlaying) yield return Wait(0.1);
