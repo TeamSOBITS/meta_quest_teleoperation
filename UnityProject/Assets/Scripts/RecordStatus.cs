@@ -48,6 +48,8 @@ public class RecordStatus : MonoBehaviour
 
     /// <summary>Text of the newest toast-worthy event (stays after it expires, see <see cref="ToastShown"/>).</summary>
     public string ToastText { get; private set; }
+    /// <summary>Event number of <see cref="ToastText"/> (its colour: <see cref="RecordStatusRule.ToastColour"/>).</summary>
+    public byte ToastEvent { get; private set; }
     public float ToastUntil { get; private set; }
     public bool ToastShown => ToastText != null && Time.unscaledTime < ToastUntil;
 
@@ -84,7 +86,7 @@ public class RecordStatus : MonoBehaviour
         if (_hasSeq && m.event_seq != _lastSeq)
         {
             string toast = RecordStatusRule.Toast(m.@event, m.detail, m.elapsed_sec);
-            if (toast != null) { ToastText = toast; ToastUntil = now + RecordStatusRule.ToastS; }
+            if (toast != null) { ToastText = toast; ToastEvent = m.@event; ToastUntil = now + RecordStatusRule.ToastS; }
         }
         _lastSeq = m.event_seq;
         _hasSeq = true;

@@ -116,6 +116,11 @@ public static class HudTheme
     // Highlight ring around a block while hovered / dragged: alpha of the accent colour.
     public const float HoverRingAlpha = 0.35f, DragRingAlpha = 0.7f;
 
+    // --- Recording status (status strip REC group, bar header pill, event toast; see RecordStatusRule) ---
+
+    // The event toast fades in / out over these times (s) within its RecordStatusRule.ToastS.
+    public const float RecordToastFadeInS = 0.15f, RecordToastFadeOutS = 0.4f;
+
     // fps / stale badge, relative to the view it decorates: font height = FontRatio x the view's
     // height clamped to [MinFontMm, MaxFontMm]; corner radius = font; margin from the top-right
     // corner = MarginRatio x the view's width.

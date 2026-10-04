@@ -85,6 +85,19 @@ public static class RecordStatusRule
         }
     }
 
+    // Colour of an event's toast: saved Good, discarded / error Bad, deleted / rejected Warn, task set Accent.
+    public static Color ToastColour(byte evt)
+    {
+        switch (evt)
+        {
+            case EventSaved: return HudTheme.Good;
+            case EventDiscarded:
+            case EventError: return HudTheme.Bad;
+            case EventTaskSet: return HudTheme.Accent;
+            default: return HudTheme.Warn;   // deleted, rejected
+        }
+    }
+
     // Opacity of the pulsing REC dot at time t (seconds): 0.55 .. 1.
     public static float PulseAlpha(float t) => 0.55f + 0.45f * (0.5f + 0.5f * Mathf.Sin(2f * Mathf.PI * PulseHz * t));
 }
