@@ -72,6 +72,7 @@ public static class HudTheme
     public static readonly Color Good    = new Color(0.38f, 0.88f, 0.50f, 1f);
     public static readonly Color Bad     = new Color(1f, 0.38f, 0.38f, 1f);
     public static readonly Color Warn    = new Color(1f, 0.71f, 0.28f, 1f);
+    public static readonly Color Record  = new Color(0.96f, 0.26f, 0.21f, 1f);   // recording badge (red dot, REC)
     public static Color Divider => new Color(1f, 1f, 1f, HighContrast ? 0.4f : 0.12f);
     public static readonly Color Waiting = new Color(0.15f, 0.15f, 0.15f, 1f);   // camera view before the first frame
     public static readonly Color StaleTint = new Color(0.45f, 0.45f, 0.45f, 1f); // camera view while frames stop

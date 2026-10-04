@@ -24,6 +24,8 @@ public class TeleopHud : MonoBehaviour
     public Transform hudParent;
 
     Transform _bar;
+    RecordStatus _recordStatus;   // recorder status feed of this robot screen (display only)
+    public RecordStatus RecordStatus => _recordStatus;
     HeadFollower _follower;
     GameObject _waiting;
     TextMeshProUGUI _waitingStatus;
@@ -87,6 +89,7 @@ public class TeleopHud : MonoBehaviour
 
         _bar = HudBar.Create(hudParent, publisher, images, this).transform;
         _view.CreateRoundTrip();
+        _recordStatus = RecordStatus.Create(images.Profile);
         images.CamerasAdded += RebuildBar;
         if (_startControl) { _startControl = false; RequestControl(true); }
 
