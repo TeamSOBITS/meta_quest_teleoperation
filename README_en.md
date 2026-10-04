@@ -32,6 +32,8 @@
         <li><a href="#meta-quest-ros-connection">Meta Quest-ROS Connection</a></li>
       </ul>
     </li>
+    <li><a href="#adding-a-robot-model">Adding a Robot Model</a></li>
+    <li><a href="#testing">Testing</a></li>
     <li><a href="#milestones">Milestones</a></li>
     <li><a href="#references">References</a></li>
   </ol>
@@ -44,7 +46,21 @@
 
 <!-- ![META QUEST TELEOPERATION](meta_quest_teleoperation/docs/img/meta_quest_teleoperation.png) -->
 
-This package runs a Unity application on Meta Quest to communicate with ROS.
+This package runs a Unity application (SOBITS Quest Teleoperation) on Meta Quest to communicate with ROS.
+On the ROS side it uses [TeamSOBITS/ros_tcp_endpoint](https://github.com/TeamSOBITS/ros_tcp_endpoint), launched by `sobits_teleop`. The app publishes `/<ns>/joy` (controller buttons and sticks) and TF (`hmd_odom`, `left_controller_odom`, `right_controller_odom` under `base_footprint`), and subscribes to the camera topics and `/tf`.
+
+**Robot selection screen**
+- Edit the ROS IP with the Quest keyboard (Edit button)
+- Robot cards (a green dot after the name when the robot is online, a "Last used" tag on the previous robot); point and pull the trigger to select
+- "Add robot": type a name, then discover and pick its cameras (Find cameras)
+- Robots added on the headset have a "Remove" button on their card (press again within a few seconds to confirm)
+- Display settings: text size and high contrast
+
+**Robot screen**
+- Camera images are shown as blocks on an arc. In layout mode (Control robot off) drag, resize and rename (Rename) them with the controllers or your hands
+- HUD bar: Control robot (starts publishing `/<ns>/joy` and TF after a 2 s countdown), Lazy follow, Passthrough, Compressed, camera toggles, Robot model, Camera layout (Blocks / First person), Reset layout, Recenter, ← Robots (back to selection)
+- The menu button or a palm-facing pinch gesture shows/hides the HUD bar; a status strip is shown while the bar is hidden
+- First-person layout: head camera at its true field of view, hand-camera cards, arm target markers, base velocity arrow, head-lag outline
 
 <p align="right">(<a href="#readme-top">上に戻る</a>)</p>
 
@@ -64,8 +80,8 @@ Prepare the following environments before installation.
 ROS PC (machine running ROS)
 | System  | Version |
 | --- | --- |
-| Ubuntu | 22.04 (Jammy Jellyfish) |
-| ROS    | Humble Hawksbill |
+| Ubuntu | 24.04 (Noble Numbat) |
+| ROS    | Jazzy Jalisco |
 | Python | 3.10+ |
 
 Unity build environment (for building the Meta Quest Unity app)
@@ -107,9 +123,19 @@ Unity Hub is available on all major OSes. Below is how to install it on Linux (U
 
 2. In Unity Hub, go to `Projects -> ADD -> Add project from disk` and select this repository's `UnityProject`. Unity Hub will install the appropriate Unity Editor version. Ensure Android Build Support is selected.
 
-3. Once Unity opens, go to `Edit -> Project Settings -> XR Plugin Management`. Uncheck OpenXR for all platforms and check Oculus.
+   The Unity version is `6000.0.69f1` (`UnityProject/ProjectSettings/ProjectVersion.txt`).
 
-4. Under `XR Plugin Management -> Oculus`, set Target Devices to match your Meta Quest version.
+3. Once Unity opens, go to `Edit -> Project Settings -> XR Plugin Management` and check **OpenXR only** on both the PC and Android tabs (Oculus is not used).
+
+4. Under `XR Plugin Management -> OpenXR` (Android tab), enable the following features (already set in this project):
+   - Meta Quest Support
+   - Oculus Touch Controller Profile / Meta Quest Touch Plus Controller Profile
+   - Hand Interaction Profile
+   - Hand Tracking Subsystem
+
+   Packages used: OpenXR Plugin 1.14, OpenXR: Meta 2.1, AR Foundation (passthrough), XR Hands 1.5, XR Interaction Toolkit 3.1.1, ROS TCP Connector.
+
+5. For the overlay keyboard (IP and name entry), `Assets/Plugins/Android/AndroidManifest.xml` declares the `oculus.software.overlay_keyboard` uses-feature. No change is needed.
 
 <p align="right">(<a href="#readme-top">上に戻る</a>)</p>
 
@@ -139,26 +165,60 @@ After setting up `meta_quest_teleoperation`, verify Unity-ROS Connection and bui
 <p align="right">(<a href="#readme-top">上に戻る</a>)</p>
 
 ### Unity-ROS Connection
-Start the ROS TCP Endpoint on the ROS side. Set `ros_ip` to your PC's IP:
+Start the TCP Endpoint on the ROS side through `sobits_teleop`:
 ```sh
-$ ros2 launch ros_tcp_endpoint endpoint.launch.py ros_ip:=192.168.XXX.XXX
+$ ros2 launch sobits_teleop sobits_teleop.launch.py device:=quest use_sim_time:=true use_moveit:=true use_servo:=true
 ```
-Then, in Unity, open `Assets -> Scenes` and select `TeleopScene`. In the Hierarchy, select `ROSTCPConnector` and in the Inspector's `ROS Connection` script, set `ROS IP Address` to the same IP. Connection is successful when the arrows shown in the scene turn blue.
+For SOBIT LIGHT, add `robot_name:=sobit_light`. `use_sim_time:=true` is for the simulation (Gazebo).
+The ROS IP is set inside the app (robot selection screen), not in the Unity scene, so nothing needs to be configured in Unity.
 
 <p align="right">(<a href="#readme-top">上に戻る</a>)</p>
 
 ### Build the Unity App
-After confirming connection, build the Unity app to Meta Quest.
-Connect Meta Quest to your PC via USB and allow the sharing prompt on the headset.
-In Unity, go to `File -> Build Profiles -> Android -> Run Device`, select your Meta Quest, and click `Build and Run`.
+Build with the Unity menu `Robots -> Build APK`, or with `tools/verify.sh --build` (headless, on a scratch copy). The APK is written to `UnityProject/Builds/SOBITS-Quest-Teleoperation-<version>.apk`.
+Connect Meta Quest to your PC via USB, allow the prompt on the headset, then install:
+```sh
+$ adb install -r UnityProject/Builds/SOBITS-Quest-Teleoperation-<version>.apk
+```
+(`File -> Build Profiles -> Android -> Build and Run` also deploys directly to the headset.)
 
 <p align="right">(<a href="#readme-top">上に戻る</a>)</p>
 
 ### Meta Quest-ROS Connection
-On Meta Quest, open the Unity app under "Unknown Sources" and start the ROS TCP Endpoint at the same time.
-You can now send the controller button states (`sensor_msgs/Joy`) and pose information (`tf2_msgs/TFMessage`) to ROS.
-To change the IP after launching, press the Meta Quest controller's menu button and enter the IP.
+On Meta Quest, open "SOBITS Quest Teleoperation" under "Unknown Sources" while the ROS TCP Endpoint is running.
 
+- USB: run `adb reverse tcp:10000 tcp:10000` on the PC and set the app's ROS IP to `127.0.0.1`.
+- Wi-Fi: enter the ROS PC's IP as the app's ROS IP (port 10000).
+
+Change the IP with the Edit button on the robot selection screen or on the robot screen's HUD bar.
+The app then sends the controller states (`/<ns>/joy`, `sensor_msgs/Joy`) and pose information (`/tf`, `tf2_msgs/TFMessage`) to ROS and receives the camera images.
+
+<p align="right">(<a href="#readme-top">上に戻る</a>)</p>
+
+## Adding a Robot Model
+Steps to add a robot model.
+
+1. Put the following in `tools/models/<robot>/`:
+   - `<robot>.urdf`: URDF generated from xacro
+   - `src/`: only the meshes the URDF references (git-ignored). Own package under `src/meshes/<rel>`, other packages under `src/ext/<pkg>/<rel>`
+   - `budget.json`: per-mesh triangle targets
+2. Decimate the meshes (a venv with `numpy trimesh fast-simplification pycollada` is required):
+   ```sh
+   $ python3 tools/decimate_meshes.py --robot <robot>
+   ```
+   Output goes to `tools/models/<robot>/meshes_lod/`.
+3. In Unity, run the menu `Robots -> Build <robot> model` to generate the model prefab (currently SOBIT HOME / SOBIT LIGHT).
+4. Fill in the `RobotProfile` asset (frames: camera, pan, tilt; cameras; arms).
+5. Run `Robots -> Validate profiles`.
+
+<p align="right">(<a href="#readme-top">上に戻る</a>)</p>
+
+## Testing
+Tests run against the Gazebo simulations in the ROS container.
+
+- `tools/sim.sh home|light|status`: start the simulation and `sobits_teleop` (SOBIT HOME / SOBIT LIGHT) and check its status
+- `tools/verify.sh --sync --all`: sync to a scratch copy and run all Editor verification suites headlessly (the Unity Editor must not have the project open)
+- `tools/device.sh launch [--robot SOBIT_HOME|SOBIT_LIGHT] [--viewmode blocks|model|firstperson] ...`: launch the app on the headset (`logs`, `stop`, etc. are also available)
 
 <p align="right">(<a href="#readme-top">上に戻る</a>)</p>
 
