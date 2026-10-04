@@ -12,6 +12,7 @@ using UnityEngine.UI;
 /// needs attention is coloured (Warn / Bad), the rest is muted. Created by TeleopHud in both camera layouts
 /// (active only while the bar is hidden) and rebuilt when the layout changes.
 /// In the blocks layout there is no model reading: the BODY group (HEAD, LIFT) and the TF rate are left out ("TF —") and the strip is narrower.
+/// While a recorder publishes its status, a REC group sits after CONTROL (see StatusStrip.Record.cs); the strip grows only then.
 ///
 /// Head and lift are read from the model's link local poses, which RobotModel sets straight from
 /// /tf (FLU -> Unity). A ROS rotation of t about z shows up as -t about Unity's up axis, and a
@@ -20,7 +21,7 @@ using UnityEngine.UI;
 /// the FPV log's head_pan_local_yaw (Unity yaw, i.e. -pan). Lift = link local y minus its zero
 /// (the model prefab's local y), shown against the profile's lift range (lift.rangeM). The head gauge ranges are the profile's head limits.
 /// </summary>
-public class StatusStrip : MonoBehaviour
+public partial class StatusStrip : MonoBehaviour
 {
     // Placement relative to the head (metres) and size (mm, canvas units).
     const float Distance = 1.2f, DropM = -0.45f;
@@ -57,15 +58,20 @@ public class StatusStrip : MonoBehaviour
     // HEAD box 160 x 100 mm (dot x = pan, y = tilt), LIFT bar 10 x 72 mm.
     const float HeadBoxW = 160f, HeadBoxH = 100f, LiftBarMm = 72f;
     float _nextText;
+    float _font, _controlEnd, _bodyWidth;   // the strip's font; where CONTROL ends and how wide BODY is (mm)
+    RectTransform _root, _bodyGroup;
 
     // First person: under the head at the status distance and drop (model != null).
     public static StatusStrip CreateInFirstPerson(Transform head, QuestControllerPublisher publisher, ImageSubscriber images,
-                                                  RobotModel model, RobotProfile profile, int cameraIndex, Func<RoundTrip> rtt)
-        => Create(head, new Vector3(0f, DropM, Distance), 1f, publisher, images, model, profile, cameraIndex, rtt);
+                                                  RobotModel model, RobotProfile profile, int cameraIndex, Func<RoundTrip> rtt,
+                                                  Func<RecordStatus> record = null)
+        => Create(head, new Vector3(0f, DropM, Distance), 1f, publisher, images, model, profile, cameraIndex, rtt, record);
 
-    // `model` may be null (blocks mode): no HEAD / LIFT, "TF —". `scale` multiplies the canvas size.
+    // `model` may be null (blocks mode): no HEAD / LIFT, "TF —". `scale` multiplies the canvas size. `record`: the recorder
+    // status feed (null = never a REC group).
     public static StatusStrip Create(Transform parent, Vector3 localPosition, float scale, QuestControllerPublisher publisher,
-                                     ImageSubscriber images, RobotModel model, RobotProfile profile, int cameraIndex, Func<RoundTrip> rtt)
+                                     ImageSubscriber images, RobotModel model, RobotProfile profile, int cameraIndex, Func<RoundTrip> rtt,
+                                     Func<RecordStatus> record = null)
     {
         if (parent == null) return null;
         var root = HudUi.CreateCanvas("Status Strip", parent, localPosition, new Vector2(1000f, HeightMm), interactive: false);   // width set by Build
@@ -76,6 +82,7 @@ public class StatusStrip : MonoBehaviour
         strip._images = images;
         strip._model = model;
         strip._rtt = rtt;
+        strip._record = record;
         strip._cameraIndex = cameraIndex;
         strip._link = new LinkHealth(images, cameraIndex, rtt);
         strip.FindFrames(profile);
@@ -112,9 +119,11 @@ public class StatusStrip : MonoBehaviour
 
     // Three groups with thin dividers: LINK (connection level, image fps / age, TF rate, round trip),
     // CONTROL (state pill) and, with a model, BODY (HEAD box, LIFT bar). Only the item that needs attention is coloured.
+    // BODY is built in its own "Body Group" so the REC group can be slotted in before it (Layout).
     void Build(RectTransform root)
     {
-        float font = HudUi.FontAt(HudTheme.BodyFont * FontScale, Distance);
+        _root = root;
+        float font = _font = HudUi.FontAt(HudTheme.BodyFont * FontScale, Distance);
         float cw = font * CharWidth;
         var bg = HudUi.Round(HudUi.Box(root, "Background", HudTheme.WithAlpha(HudTheme.Panel, BackgroundAlpha)), RadiusMm);
         HudUi.Stretch(bg.rectTransform);
@@ -140,21 +149,39 @@ public class StatusStrip : MonoBehaviour
         _pillText.fontSizeMin = font * 0.5f;
         _pillText.margin = new Vector4(8f, 0f, 8f, 0f);
         x += pillW;
+        _controlEnd = x;
 
         if (_model != null)
         {
-            x = Divider(root, x);
-            x = BuildBody(root, x, font, cw);
+            _bodyGroup = Group(root, "Body Group");
+            _bodyWidth = BuildBody(_bodyGroup, Divider(_bodyGroup, 0f), font, cw);
         }
-        root.sizeDelta = new Vector2(x + EdgeMm, HeightMm);
+        Layout();
         UpdateTexts();
     }
 
+    // An empty full-height container for a group; Layout places it.
+    static RectTransform Group(RectTransform root, string name)
+    {
+        var rt = (RectTransform)new GameObject(name, typeof(RectTransform)).transform;
+        rt.SetParent(root, false);
+        return rt;
+    }
+
+    // Groups after CONTROL from left to right: REC (while shown), BODY; the strip is as wide as they need.
+    void Layout()
+    {
+        float x = _controlEnd;
+        if (RecordShown) { HudUi.Place(_recGroup, x, 0f, _recWidth, HeightMm); x += _recWidth; }
+        if (_bodyGroup != null) { HudUi.Place(_bodyGroup, x, 0f, _bodyWidth, HeightMm); x += _bodyWidth; }
+        _root.sizeDelta = new Vector2(x + EdgeMm, HeightMm);
+    }
+
     // Thin vertical divider between groups; returns the x where the next group starts.
-    static float Divider(RectTransform root, float x)
+    static float Divider(RectTransform root, float x, string name = "Group Divider")
     {
         x += GroupGapMm;
-        var line = HudUi.Box(root, "Group Divider", HudTheme.Divider);
+        var line = HudUi.Box(root, name, HudTheme.Divider);
         float h = HeightMm * DividerHeightRatio;
         HudUi.Place(line.rectTransform, x, (HeightMm - h) / 2f, DividerMm, h);
         return x + DividerMm + GroupGapMm;
@@ -256,6 +283,7 @@ public class StatusStrip : MonoBehaviour
 
     void Update()
     {
+        UpdateRecord();
         if (_headDot == null) { Refresh(); return; }   // no model: no gauges
         if (_lift != null && !_liftZeroKnown)
         {
@@ -277,6 +305,7 @@ public class StatusStrip : MonoBehaviour
         if (Time.unscaledTime < _nextText) return;
         _nextText = Time.unscaledTime + TextRefreshSeconds;
         UpdateTexts();
+        UpdateRecordTexts();
     }
 
     void UpdateTexts()
