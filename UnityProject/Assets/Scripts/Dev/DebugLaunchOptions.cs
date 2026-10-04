@@ -8,12 +8,16 @@ using UnityEngine;
 /// robot = profile asset name (opens it); viewmode = firstperson (model + first-person layout) |
 /// model (model + blocks layout) | blocks (no model), this robot screen only, not saved;
 /// capture = 1 (save a screenshot of the robot screen, see <see cref="DebugCapture"/>);
-/// record = seconds, fps, switchat = seconds (see <see cref="DemoRecorder"/>).
+/// record = seconds, fps, switchat = seconds (see <see cref="DemoRecorder"/>);
+/// recstatus = 1 (fake recorder status feed, see <see cref="RecordStatusDemo"/>; not `record`, that is screen recording).
 /// Read once per app run, so "Back to robots" does not open the robot again. Android only.
 /// </summary>
 public static class DebugLaunchOptions
 {
     static bool _handled;
+
+    /// <summary>Set by the `recstatus` extra: the next robot screen plays the fake recorder feed once.</summary>
+    public static bool RecStatusDemo;
 
     /// <summary>Applies the launch extras (session only, nothing is saved except the cleared capture flag)
     /// and returns the robot the intent asks to open, or null.</summary>
@@ -22,7 +26,7 @@ public static class DebugLaunchOptions
 #if UNITY_ANDROID && !UNITY_EDITOR
         if (_handled) return null;
         _handled = true;
-        string robot = null, viewMode = null, capture = null, dev = null;
+        string robot = null, viewMode = null, capture = null, dev = null, recStatus = null;
         int record = 0, fps = 15, switchAt = -1;
         try
         {
@@ -36,6 +40,7 @@ public static class DebugLaunchOptions
                     robot = intent.Call<string>("getStringExtra", "robot");
                     viewMode = intent.Call<string>("getStringExtra", "viewmode");
                     capture = intent.Call<string>("getStringExtra", "capture");
+                    recStatus = intent.Call<string>("getStringExtra", "recstatus");
                     record = intent.Call<int>("getIntExtra", "record", 0);          // --ei record 60
                     fps = intent.Call<int>("getIntExtra", "fps", 15);
                     switchAt = intent.Call<int>("getIntExtra", "switchat", -1);
@@ -49,6 +54,8 @@ public static class DebugLaunchOptions
         }
         if (dev == "1") DevTools.Session = true;
         DevLog.Log("FPV", $"intent robot={robot} viewmode={viewMode} capture={capture} record={record} fps={fps} switchat={switchAt} dev={DevTools.Enabled}");
+
+        RecStatusDemo = DevTools.Enabled && recStatus == "1";
 
         // DebugCapture must not linger: set only by this launch, cleared when no extra is present.
         Settings.DebugCapture = DevTools.Enabled && capture == "1";

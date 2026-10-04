@@ -111,6 +111,12 @@ public class TeleopHud : MonoBehaviour
         if (Settings.DebugCapture)
             StartCoroutine(DebugCapture.Run());
 
+        if (DebugLaunchOptions.RecStatusDemo)
+        {
+            DebugLaunchOptions.RecStatusDemo = false;   // this launch only
+            RecordStatusDemo.Start(this, _recordStatus);
+        }
+
         if (DemoRecorder.Request != null)
         {
             var request = DemoRecorder.Request.Value;
