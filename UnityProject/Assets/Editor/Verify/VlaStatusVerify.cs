@@ -19,7 +19,8 @@ public static class VlaStatusVerify
 {
     static IEnumerator _run; static double _until; static int _fail, _pass;
     static VlaStatus _rs;
-    static uint _seq;
+    static uint _seq, _seqDeploy;
+    const string ShortPolicy = "team-sobits/smolvla_fft";
 
     public static void Run()
     {
@@ -52,7 +53,56 @@ public static class VlaStatusVerify
             state = state, @event = evt, event_seq = _seq, task_set = taskSet, task_name = task, episode_name = "episode_test",
             elapsed_sec = elapsed, detail = detail, message = "test",
         };
-        typeof(VlaStatus).GetMethod("OnMessage", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(_rs, new object[] { m });
+        Feed(m);
+    }
+
+    static void Feed(VlaStatusMsg m) => typeof(VlaStatus).GetMethod("OnMessage", BindingFlags.Instance | BindingFlags.NonPublic).Invoke(_rs, new object[] { m });
+
+    // A deploy-stage message (sobits_vla_deploy/status); its own event sequence, like the real node.
+    static void InjectDeploy(byte state, byte evt, float elapsed, bool engaged = true, bool enabled = true, uint steps = 240, float hz = 8.1f,
+                             string policy = ShortPolicy, string outcome = "", bool taskSet = true, string task = "pick cup")
+    {
+        if (evt != 0) _seqDeploy++;
+        Feed(new VlaStatusMsg
+        {
+            stage = VlaStatusMsg.STAGE_DEPLOY, state = state, @event = evt, event_seq = _seqDeploy, task_set = taskSet, task_name = task,
+            episode_name = "episode_1", elapsed_sec = elapsed, detail = outcome, message = "test", policy = policy,
+            deadman_enabled = enabled, deadman_engaged = engaged, steps = steps, inference_hz = hz, outcome = outcome,
+        });
+    }
+
+    static void DeployStaticChecks()
+    {
+        Check(VlaStatusRule.Evaluate(true, 0.5f, 3) == VlaStatusRule.Look.Playing && VlaStatusRule.Evaluate(true, 0.5f, 5) == VlaStatusRule.Look.Resetting,
+              "Evaluate: PLAYING -> Playing, RESETTING -> Resetting");
+        Check(VlaStatusRule.Label(VlaStatusRule.Look.Playing, 12.7f) == "PLAY 00:00:12" && VlaStatusRule.Label(VlaStatusRule.Look.Resetting, 30f) == "RESETTING",
+              "Label Playing 'PLAY 00:00:12', Resetting 'RESETTING'");
+        Check(VlaStatusRule.Colour(VlaStatusRule.Look.Playing) == HudTheme.Accent && VlaStatusRule.Colour(VlaStatusRule.Look.Resetting) == HudTheme.Warn,
+              "Colour: Playing Accent, Resetting Warn");
+        Check(VlaStatusRule.Pulses(VlaStatusRule.Look.Recording, false) && VlaStatusRule.Pulses(VlaStatusRule.Look.Playing, true)
+              && !VlaStatusRule.Pulses(VlaStatusRule.Look.Playing, false) && !VlaStatusRule.Pulses(VlaStatusRule.Look.Paused, true)
+              && !VlaStatusRule.Pulses(VlaStatusRule.Look.Resetting, true), "Pulses: Recording, Playing while driving; not released / paused / resetting");
+        string p24 = "abcdefghijklmnopqrstuvwx", longP = VlaStatusDemo.DemoPolicy, shortLong = VlaStatusRule.PolicyShort(longP);
+        Check(VlaStatusRule.PolicyShort(ShortPolicy) == "smolvla_fft" && VlaStatusRule.PolicyShort("smolvla_fft") == "smolvla_fft" && VlaStatusRule.PolicyShort("") == ""
+              && VlaStatusRule.PolicyShort("org/" + p24) == p24 && shortLong.Length == 24 && shortLong[0] == '\u2026' && longP.EndsWith(shortLong.Substring(1)),
+              $"PolicyShort: last segment, 24 chars kept, longer -> '{shortLong}'");
+        Check(VlaStatusRule.TaskLine(0, true, "pick cup", "x") == "task: pick cup" && VlaStatusRule.TaskLine(0, false, "", "") == "no task"
+              && VlaStatusRule.TaskLine(1, true, "pick cup", ShortPolicy) == "pick cup \u00B7 smolvla_fft"
+              && VlaStatusRule.TaskLine(1, false, "", ShortPolicy) == "no task \u00B7 smolvla_fft" && VlaStatusRule.TaskLine(1, true, "pick cup", "") == "pick cup",
+              "TaskLine: collection 'task: pick cup' / 'no task'; deploy 'pick cup · smolvla_fft' / 'no task · …' / no policy");
+        var off = VlaStatusRule.Deadman(false, true, 3); var rel = VlaStatusRule.Deadman(true, false, 3); var eng = VlaStatusRule.Deadman(true, true, 3);
+        Check(!off.HasValue && !VlaStatusRule.Deadman(true, true, 0).HasValue && !VlaStatusRule.Deadman(true, true, 5).HasValue
+              && rel.HasValue && rel.Value.text == "GRIP released" && rel.Value.colour == HudTheme.Warn && !rel.Value.pulse
+              && eng.HasValue && eng.Value.text == "GRIP driving" && eng.Value.colour == HudTheme.Good && eng.Value.pulse,
+              "Deadman: off / not playing -> none; released Warn steady; engaged Good pulsing");
+        Check(VlaStatusRule.Stats(240, 8.1f) == "240 steps \u00B7 8.1 Hz" && VlaStatusRule.Stats(0, 0f) == "0 steps \u00B7 0.0 Hz", $"Stats '{VlaStatusRule.Stats(240, 8.1f)}'");
+        Check(VlaStatusRule.Supersedes(1, 0, 0, 1, 0.5f) && !VlaStatusRule.Supersedes(0, 0, 0, 1, 0.5f) && VlaStatusRule.Supersedes(0, 0, 0, 1, 3.5f),
+              "Supersedes: same stage always; idle heartbeat of the other stage not over a live message, over a stale one yes");
+        Check(VlaStatusRule.Supersedes(0, 0, 8, 1, 0.5f) && VlaStatusRule.Supersedes(0, 1, 0, 1, 0.5f) && VlaStatusRule.Supersedes(1, 0, 0, 0, -1f),
+              "Supersedes: other stage's event / non-idle state takes over; anything over no message");
+        bool none = true;
+        foreach (byte e in new byte[] { 10, 11, 12, 13, 14 }) none &= VlaStatusRule.Toast(e, "success_lift", 1f) == null;
+        Check(none, "Toast STOPPED / EPISODE_DONE / ENGAGED / RELEASED / RESET_DONE -> null (no outcome toast)");
     }
 
     static void StaticChecks()
@@ -90,7 +140,7 @@ public static class VlaStatusVerify
         Check(Mathf.Abs(VlaStatusRule.PulseAlpha(0f) - 0.775f) < 1e-3f && VlaStatusRule.PulseAlpha(0.25f) > 0.99f && VlaStatusRule.PulseAlpha(0.75f) < 0.56f, "PulseAlpha swings 0.55 .. 1 at 1 Hz");
     }
 
-    static float _baseWidth;
+    static float _baseWidth, _collectionVlaW;
     static string ShotDir => Directory.CreateDirectory(Path.Combine(Environment.GetEnvironmentVariable("VERIFY_SHOTS")
                                                                      ?? Path.GetFullPath(Path.Combine(Application.dataPath, "../../shots")), "vla")).FullName;
     static Transform Find(Transform root, string name) => root.GetComponentsInChildren<Transform>(true).FirstOrDefault(t => t.name == name);
@@ -122,6 +172,7 @@ public static class VlaStatusVerify
               $"(i) label '{label.text}' in Record colour {label.color}");
         Check(task.text == "task: pick cup" && Near(task.color, HudTheme.Muted), $"(i) task line '{task.text}' muted");
         float recW = strip.VlaWidthMm, width = Width(strip);
+        _collectionVlaW = recW;
         Check(Dividers(strip) == 2 && Mathf.Abs(width - (_baseWidth + recW)) < 0.5f && width <= 1500f + recW,
               $"(i) strip {width:F0} mm = {_baseWidth:F0} + REC {recW:F0} (<= 1500 + REC); Group Dividers still {Dividers(strip)}");
         var body = Find(strip.transform, "Body Group") as RectTransform;
@@ -227,6 +278,136 @@ public static class VlaStatusVerify
         Check(Object.FindObjectsByType<ROSConnection>(FindObjectsSortMode.None).Length == 1, "(p) still exactly one ROSConnection");
     }
 
+    static Vector3 Centre(Transform t) { var r = (RectTransform)t; return r.TransformPoint(r.rect.center); }
+    static float Alpha(Transform t) => t.GetComponent<Image>().color.a;
+
+    // (q)..(x): the deploy stage (sobits_vla_deploy/status): PLAY, GRIP chip, steps · Hz, RESETTING, bar pill, both stages.
+    static IEnumerable DeployChecks(TeleopHud hud)
+    {
+        var topics = (System.Collections.Generic.HashSet<string>)typeof(VlaStatus).GetField("_subscribedTopics", BindingFlags.Static | BindingFlags.NonPublic).GetValue(null);
+        var profile = RobotProfile.Selected;
+        Check(topics.Count == 2 && topics.Contains(profile.FullTopic(RosNames.CollectionStatus)) && topics.Contains(profile.FullTopic(RosNames.DeployStatus)),
+              $"(q) subscribed to both stage topics: {string.Join(", ", topics)}");
+        hud.SetCameraLayout(FirstPersonView.LayoutFirstPerson, save: false);
+        yield return Wait(3.5);   // the collection feed goes stale
+        if (BarT(hud).gameObject.activeSelf) yield return Toggle(hud);
+        var strip = hud.Strip;
+        var head = FirstPersonView.Head;
+        Check(hud.FirstPerson && strip != null && !strip.VlaShown && Mathf.Abs(Width(strip) - _baseWidth) < 0.5f, $"(q) first person again, no feed: strip {Width(strip):F0} mm");
+
+        // (x) started with the grip released: the episode clock waits for the first engagement
+        InjectDeploy(3, 1, 0f, engaged: false, steps: 0, hz: 0f);
+        yield return Wait(1.2);
+        Check(_rs.Stage == 1 && _rs.IsDeploy && _rs.ElapsedS == 0f && _rs.Look == VlaStatusRule.Look.Playing && !_rs.ToastShown,
+              $"(x) PLAYING released at 0 s: clock waits (ElapsedS {_rs.ElapsedS:F2}), no toast");
+        InjectDeploy(3, 12, 0f, steps: 0, hz: 0f);
+        yield return Wait(1.2);
+        Check(_rs.ElapsedS >= 1.1f && !_rs.ToastShown, $"(x) ENGAGED: clock runs (ElapsedS {_rs.ElapsedS:F2}), no toast");
+
+        // (q) playing, grip held
+        InjectDeploy(3, 0, 12f);
+        yield return Wait(0.3);
+        var group = Find(strip.transform, "Vla Group");
+        var label = Text(group, "Vla Label"); var task = Text(group, "Vla Task"); var stats = Text(group, "Vla Stats");
+        var chip = Find(group, "Vla Chip"); var chipText = chip.GetComponentInChildren<TextMeshProUGUI>(true);
+        float wq = Width(strip), vq = strip.VlaWidthMm;
+        Check(strip.VlaShown && strip.VlaDeployShown && label.text == "PLAY 00:00:12" && Near(label.color, HudTheme.Accent),
+              $"(q) PLAYING engaged: label '{label.text}' in Accent, deploy column shown");
+        Check(task.text == "pick cup \u00B7 smolvla_fft" && Near(task.color, HudTheme.Muted) && !task.isTextTruncated, $"(q) task line '{task.text}' muted");
+        Check(chip.gameObject.activeSelf && chipText.text == "GRIP driving" && Near(chipText.color, HudTheme.Good), $"(q) chip '{chipText.text}' in Good");
+        Check(stats.text == "240 steps \u00B7 8.1 Hz" && Near(stats.color, HudTheme.Muted) && !stats.isTextTruncated, $"(q) stats '{stats.text}' muted");
+        var sr = (RectTransform)strip.transform;
+        float stripTop = sr.localPosition.y + sr.sizeDelta.y * sr.localScale.y / 2f;
+        Check(Dividers(strip) == 2 && Mathf.Abs(wq - (_baseWidth + vq)) < 0.5f && stripTop < 0f,
+              $"(q) strip {wq:F0} mm = {_baseWidth:F0} + VLA deploy {vq:F0} (collection was {_collectionVlaW:F0}); top edge {-Mathf.Atan2(stripTop, sr.localPosition.z) * Mathf.Rad2Deg:F1} deg below the view centre, " +
+              $"{2f * Mathf.Atan2(wq * sr.localScale.x / 2f, sr.localPosition.z) * Mathf.Rad2Deg:F0} deg wide");
+        var dot = Find(group, "Vla Dot");
+        float aMin = 1f, aMax = 0f, cMin = 1f, cMax = 0f;
+        for (int i = 0; i < 4; i++)
+        {
+            aMin = Mathf.Min(aMin, Alpha(dot)); aMax = Mathf.Max(aMax, Alpha(dot));
+            cMin = Mathf.Min(cMin, Alpha(chip)); cMax = Mathf.Max(cMax, Alpha(chip));
+            yield return Wait(0.25);
+        }
+        Check(Near(dot.GetComponent<Image>().color, HudTheme.Accent) && aMax - aMin > 0.1f && cMax - cMin > 0.05f,
+              $"(q) Accent dot pulses ({aMin:F2} .. {aMax:F2}), chip background pulses ({cMin:F2} .. {cMax:F2})");
+        InjectDeploy(3, 0, 13f, policy: VlaStatusDemo.DemoPolicy);
+        yield return Wait(0.3);
+        Check(task.text.StartsWith("pick cup \u00B7 \u2026") && task.text.EndsWith("smolvla_fft") && !task.isTextTruncated && Mathf.Abs(Width(strip) - wq) < 0.5f,
+              $"(q) long policy: '{task.text}' (head cut, tail kept), strip width unchanged");
+        Shot("vla_fp_deploy_engaged", head.position, Quaternion.LookRotation(Centre(group) - head.position, Vector3.up), 22f);
+        Shot("vla_fp_deploy_view", head.position, head.rotation, 90f);
+
+        // (r) grip released: Warn chip, steady dot
+        InjectDeploy(3, 13, 14f, engaged: false, hz: 0f);
+        yield return Wait(0.3);
+        aMin = 1f; aMax = 0f;
+        for (int i = 0; i < 3; i++) { aMin = Mathf.Min(aMin, Alpha(dot)); aMax = Mathf.Max(aMax, Alpha(dot)); yield return Wait(0.2); }
+        Check(chip.gameObject.activeSelf && chipText.text == "GRIP released" && Near(chipText.color, HudTheme.Warn) && aMin > 0.99f && Mathf.Abs(Width(strip) - wq) < 0.5f && !_rs.ToastShown,
+              $"(r) RELEASED: chip '{chipText.text}' in Warn, dot steady ({aMin:F2}), width unchanged, no toast");
+        Shot("vla_fp_deploy_released", head.position, Quaternion.LookRotation(Centre(group) - head.position, Vector3.up), 22f);
+
+        // (s) no deadman: no chip, the stats line alone; the column keeps its width (the stats line is the widest)
+        InjectDeploy(3, 0, 15f, engaged: false, enabled: false);
+        yield return Wait(0.3);
+        Check(!chip.gameObject.activeSelf && stats.gameObject.activeInHierarchy && Width(strip) <= wq && _rs.ElapsedS > 15f,
+              $"(s) deadman off: chip inactive, stats '{stats.text}', strip {Width(strip):F0} mm (<= {wq:F0}), clock runs");
+
+        // (t) stopped -> resetting (no outcome toast), then idle
+        InjectDeploy(5, 10, 16f, engaged: false, hz: 0f, outcome: "success_lift");
+        yield return Wait(0.3);
+        Check(label.text == "RESETTING" && Near(label.color, HudTheme.Warn) && !chip.gameObject.activeSelf && !_rs.ToastShown && _rs.Outcome == "success_lift",
+              $"(t) RESETTING: '{label.text}' in Warn, no chip, no toast (outcome '{_rs.Outcome}')");
+        Shot("vla_fp_deploy_resetting", head.position, Quaternion.LookRotation(Centre(group) - head.position, Vector3.up), 22f);
+        InjectDeploy(0, 11, 16f, engaged: false, hz: 0f, outcome: "success_lift");
+        yield return Wait(0.3);
+        Check(label.text == "IDLE" && !_rs.ToastShown && strip.VlaDeployShown && Mathf.Abs(Width(strip) - wq) < 0.5f, $"(t) EPISODE_DONE: '{label.text}', no toast, deploy column kept");
+
+        // (u) bar shown: pill label from the state, dot in the GRIP colour while the policy plays with a deadman
+        yield return Toggle(hud);
+        InjectDeploy(3, 1, 20f);
+        yield return Wait(0.3);
+        var pill = BarPill(hud);
+        var pillText = pill.GetComponentInChildren<TextMeshProUGUI>(true);
+        var pillDot = Find(pill, "Dot").GetComponent<Image>();
+        Check(BarPillShown(hud) && pillText.text.StartsWith("PLAY 00:00:2") && Near(pillText.color, HudTheme.Accent) && Near(pillDot.color, HudTheme.Good),
+              $"(u) bar pill '{pillText.text}' in Accent, dot Good while engaged");
+        Shot("vla_bar_pill_deploy", head.position, Quaternion.LookRotation(pill.position - head.position, Vector3.up), 30f);
+        InjectDeploy(3, 13, 21f, engaged: false);
+        yield return Wait(0.3);
+        Check(Near(pillDot.color, HudTheme.Warn) && pillDot.color.a > 0.99f, "(u) released: pill dot Warn, steady");
+        InjectDeploy(5, 10, 21f, engaged: false, outcome: "timeout");
+        yield return Wait(0.3);
+        Check(pillText.text == "RESETTING" && Near(pillDot.color, HudTheme.Warn) && Near(pillText.color, HudTheme.Warn), $"(u) resetting: pill '{pillText.text}' Warn");
+        yield return Toggle(hud);
+
+        // (v) both stages up: an idle collection heartbeat does not displace a live deploy episode
+        InjectDeploy(3, 0, 25f);
+        Inject(0, 0, 0f);
+        yield return Wait(0.3);
+        Check(_rs.Stage == 1 && _rs.State == 3 && label.text.StartsWith("PLAY") && strip.VlaDeployShown,
+              $"(v) collection idle heartbeat ignored: stage {_rs.Stage}, state {_rs.State}, '{label.text}'");
+        Inject(0, 8, 0f, "pick cup");   // a collection event takes over
+        yield return Wait(0.3);
+        Check(_rs.Stage == 0 && !strip.VlaDeployShown && Mathf.Abs(strip.VlaWidthMm - _collectionVlaW) < 0.5f,
+              $"(v) collection event takes over: stage {_rs.Stage}, deploy column hidden, VLA group {strip.VlaWidthMm:F0} mm");
+
+        // (w) blocks layout: the same group
+        hud.SetCameraLayout(FirstPersonView.LayoutBlocks, save: false);
+        yield return Wait(0.5);
+        if (BarT(hud).gameObject.activeSelf) yield return Toggle(hud);
+        strip = hud.Strip;
+        InjectDeploy(3, 12, 30f);
+        yield return Wait(0.3);
+        group = Find(strip.transform, "Vla Group");
+        Check(strip.VlaDeployShown && Text(group, "Vla Label").text == "PLAY 00:00:30" && Text(group, "Vla Stats").text == "240 steps \u00B7 8.1 Hz"
+              && Find(group, "Vla Chip").gameObject.activeSelf && Dividers(strip) == 1,
+              $"(w) blocks: deploy group '{Text(group, "Vla Label").text}', chip, stats; strip {Width(strip):F0} mm");
+        var cam = Camera.main.transform;
+        Shot("vla_blocks_deploy", cam.position, Quaternion.LookRotation(strip.transform.position - cam.position, Vector3.up), 45f);
+        Check(Object.FindObjectsByType<ROSConnection>(FindObjectsSortMode.None).Length == 1, "(w) still exactly one ROSConnection");
+    }
+
     static void Shot(string name, Vector3 pos, Quaternion rot, float fov)
     {
         var go = new GameObject("VerifyCam");
@@ -258,6 +439,7 @@ public static class VlaStatusVerify
         HudTheme.Reload();
 
         StaticChecks();
+        DeployStaticChecks();
 
         var profile = AssetDatabase.LoadAssetAtPath<RobotProfile>("Assets/Robots/SOBIT_HOME.asset");
         Check(profile != null && profile.vlaStatusSuffixes != null && profile.vlaStatusSuffixes.SequenceEqual(RosNames.VlaStatusDefaults),
@@ -328,6 +510,7 @@ public static class VlaStatusVerify
         Check(Object.FindObjectsByType<ROSConnection>(FindObjectsSortMode.None).Length == 1, "exactly one ROSConnection in the scene");
 
         foreach (var w in UiChecks(hud)) yield return w;
+        foreach (var w in DeployChecks(hud)) yield return w;
 
         EditorApplication.ExitPlaymode();
         while (Application.isPlaying) yield return Wait(0.1);
