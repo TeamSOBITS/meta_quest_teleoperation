@@ -71,6 +71,7 @@ public class TeleopHud : MonoBehaviour
         images.NamespaceChanged += publisher.SetNamespace;   // Joy topic follows discovery
         // Control on at the start (saved state / default) does not publish at once: the bar runs the same 2 s countdown
         // as its toggle once it is built. Setup mode stays in layout mode: the trigger arranges blocks, nothing reaches a robot.
+        if (DebugLaunchOptions.NoControl) { DebugLaunchOptions.NoControl = false; publisher.controlRobot = false; }   // this launch only
         _startControl = publisher.controlRobot && !images.InSetup;
         if (_startControl || images.InSetup)
             publisher.controlRobot = false;

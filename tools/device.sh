@@ -20,6 +20,7 @@ case "$cmd" in
         --robot) extra+=(--es robot "$2"); shift 2;;
         --viewmode) extra+=(--es viewmode "$2"); shift 2;;
         --capture) extra+=(--es capture 1); shift;;
+        --control) extra+=(--es control "$2"); shift 2;;
         --recstatus) if [ "${2:-}" = deploy ]; then extra+=(--es recstatus deploy); shift 2; else extra+=(--es recstatus 1); shift; fi;;
         --record) extra+=(--ei record "$2"); shift 2;;
         --fps) extra+=(--ei fps "$2"); shift 2;;
