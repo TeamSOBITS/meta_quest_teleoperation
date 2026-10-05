@@ -8,12 +8,22 @@ using UnityEngine;
 /// robot = profile asset name (opens it); viewmode = firstperson (model + first-person layout) |
 /// model (model + blocks layout) | blocks (no model), this robot screen only, not saved;
 /// capture = 1 (save a screenshot of the robot screen, see <see cref="DebugCapture"/>);
-/// record = seconds, fps, switchat = seconds (see <see cref="DemoRecorder"/>).
+/// record = seconds, fps, switchat = seconds (see <see cref="DemoRecorder"/>);
+/// recstatus = 1 | deploy (fake VLA status feed of the recorder / the deploy node, see <see cref="VlaStatusDemo"/>;
+/// not `record`, that is screen recording);
+/// control = 0 (open the robot with Control off, so the headset publishes no Joy: tests that drive /joy themselves).
 /// Read once per app run, so "Back to robots" does not open the robot again. Android only.
 /// </summary>
 public static class DebugLaunchOptions
 {
     static bool _handled;
+
+    /// <summary>Set by the `recstatus` extra (VlaStatusDemo.ModeCollection "1" / ModeDeploy "deploy", null = none): the
+    /// next robot screen plays that fake VLA status feed once.</summary>
+    public static string VlaStatusDemoMode;
+
+    /// <summary>Set by `control 0`: the next robot screen starts with Control off (no Joy from the headset).</summary>
+    public static bool NoControl;
 
     /// <summary>Applies the launch extras (session only, nothing is saved except the cleared capture flag)
     /// and returns the robot the intent asks to open, or null.</summary>
@@ -22,7 +32,7 @@ public static class DebugLaunchOptions
 #if UNITY_ANDROID && !UNITY_EDITOR
         if (_handled) return null;
         _handled = true;
-        string robot = null, viewMode = null, capture = null, dev = null;
+        string robot = null, viewMode = null, capture = null, dev = null, recStatus = null, control = null;
         int record = 0, fps = 15, switchAt = -1;
         try
         {
@@ -36,6 +46,8 @@ public static class DebugLaunchOptions
                     robot = intent.Call<string>("getStringExtra", "robot");
                     viewMode = intent.Call<string>("getStringExtra", "viewmode");
                     capture = intent.Call<string>("getStringExtra", "capture");
+                    recStatus = intent.Call<string>("getStringExtra", "recstatus");
+                    control = intent.Call<string>("getStringExtra", "control");
                     record = intent.Call<int>("getIntExtra", "record", 0);          // --ei record 60
                     fps = intent.Call<int>("getIntExtra", "fps", 15);
                     switchAt = intent.Call<int>("getIntExtra", "switchat", -1);
@@ -48,7 +60,10 @@ public static class DebugLaunchOptions
             return null;
         }
         if (dev == "1") DevTools.Session = true;
-        DevLog.Log("FPV", $"intent robot={robot} viewmode={viewMode} capture={capture} record={record} fps={fps} switchat={switchAt} dev={DevTools.Enabled}");
+        DevLog.Log("FPV", $"intent robot={robot} viewmode={viewMode} capture={capture} record={record} fps={fps} switchat={switchAt} dev={DevTools.Enabled} control={control}");
+
+        NoControl = DevTools.Enabled && control == "0";
+        VlaStatusDemoMode = DevTools.Enabled && (recStatus == VlaStatusDemo.ModeCollection || recStatus == VlaStatusDemo.ModeDeploy) ? recStatus : null;
 
         // DebugCapture must not linger: set only by this launch, cleared when no extra is present.
         Settings.DebugCapture = DevTools.Enabled && capture == "1";

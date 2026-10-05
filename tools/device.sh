@@ -1,7 +1,7 @@
 #!/bin/bash
-# device.sh launch [--robot SOBIT_HOME|SOBIT_LIGHT] [--viewmode blocks|model|firstperson] [--capture] [--record N --fps N --switchat N]
+# device.sh launch [--robot SOBIT_HOME|SOBIT_LIGHT] [--viewmode blocks|model|firstperson] [--capture] [--recstatus [deploy]] [--record N --fps N --switchat N]
 #          capture DEST.png   pull the debug capture (persistentDataPath/fpv_capture.png)
-#          logs [-f]          logcat filtered: FPV: RTT: Targets: Exception Fatal lowmemorykiller(unity)
+#          logs [-f]          logcat filtered: FPV: RTT: VLA: Targets: Exception Fatal lowmemorykiller(unity)
 #          awake | release    keep the headset awake (prox_close) / hand back to the proximity sensor (automation_disable)
 #          reverse            adb kill-server/start-server + reverse tcp:10000
 #          stop               force-stop the app
@@ -20,6 +20,8 @@ case "$cmd" in
         --robot) extra+=(--es robot "$2"); shift 2;;
         --viewmode) extra+=(--es viewmode "$2"); shift 2;;
         --capture) extra+=(--es capture 1); shift;;
+        --control) extra+=(--es control "$2"); shift 2;;
+        --recstatus) if [ "${2:-}" = deploy ]; then extra+=(--es recstatus deploy); shift 2; else extra+=(--es recstatus 1); shift; fi;;
         --record) extra+=(--ei record "$2"); shift 2;;
         --fps) extra+=(--ei fps "$2"); shift 2;;
         --switchat) extra+=(--ei switchat "$2"); shift 2;;
@@ -32,7 +34,7 @@ case "$cmd" in
   capture) [ -n "$1" ] || { echo "usage: device.sh capture DEST.png" >&2; exit 2; }; adb pull $FILES/fpv_capture.png "$1";;
   logs)
     f=-d; [ "$1" = -f ] && f=
-    adb logcat $f -v time | grep -E 'FPV:|RTT:|Targets:|Exception|Fatal|lowmemorykiller.*unity';;
+    adb logcat $f -v time | grep -E 'FPV:|RTT:|VLA:|Targets:|Exception|Fatal|lowmemorykiller.*unity';;
   awake) adb shell am broadcast -a com.oculus.vrpowermanager.prox_close;;
   release) adb shell am broadcast -a com.oculus.vrpowermanager.automation_disable;;
   reverse) adb kill-server; adb start-server; adb reverse tcp:10000 tcp:10000;;

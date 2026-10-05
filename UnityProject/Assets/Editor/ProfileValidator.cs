@@ -51,6 +51,9 @@ public static class ProfileValidator
                 var cam = p.FirstPersonCamera;
                 Check(cam != null && !string.IsNullOrEmpty(cam.cameraInfoSuffix), $"{n}: first-person camera has a cameraInfoSuffix ('{cam?.cameraInfoSuffix}')");
                 Check(cam != null && !string.IsNullOrEmpty(cam.mountFrame), $"{n}: first-person camera has a mountFrame");
+                var vla = p.vlaStatusSuffixes ?? new string[0];
+                Check(vla.All(s => RosNames.VlaStatusDefaults.Contains(s)) && vla.Distinct().Count() == vla.Length,
+                      $"{n}: vlaStatusSuffixes each one of {string.Join(", ", RosNames.VlaStatusDefaults)}, no duplicates ({string.Join(", ", vla)})");
                 Check(!string.IsNullOrEmpty(p.baseFrame) && !string.IsNullOrEmpty(p.controllerFrames.hmd)
                       && !string.IsNullOrEmpty(p.controllerFrames.left) && !string.IsNullOrEmpty(p.controllerFrames.right), $"{n}: baseFrame and controllerFrames set");
                 bool head = !string.IsNullOrEmpty(p.head.panFrame) || !string.IsNullOrEmpty(p.head.tiltFrame);

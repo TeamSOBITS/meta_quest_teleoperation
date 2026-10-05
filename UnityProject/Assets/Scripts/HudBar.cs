@@ -6,7 +6,7 @@ using UnityEngine.UI;
 /// Head-locked bar under the camera blocks, the same for every robot:
 ///
 ///   +-----------------------------------------------------------------------------+
-///   | SOBIT LIGHT  (JOY ON)                 ROS IP 192.168.11.20 (connected) [Edit]|
+///   | SOBIT LIGHT (JOY ON)  ROS IP 192.168.11.20 (REC 00:01:05) (connected) [Edit]|
 ///   |-----------------------------------------------------------------------------|
 ///   | [x] Control robot [ ] Lazy follow | [x] Head Camera   [x] Hand Camera | [Reset layout]|
 ///   | [ ] Passthrough [x] Compressed img| [x] Front Camera  [ ] Back Camera | [<- Robots   ]|
@@ -22,6 +22,8 @@ using UnityEngine.UI;
 ///
 /// Passthrough swaps the dark studio background for the real room (see PassthroughMode);
 /// the choice is saved and also applies to the robot selection screen.
+///
+/// The VLA pill (REC / PLAY ...) shows only while a recorder or deploy node publishes its status (HudBar.Vla.cs).
 ///
 /// While Joy is published the bar also gets an amber outline, so it is obvious at a
 /// glance that the controllers are driving the robot.
@@ -194,6 +196,7 @@ public partial class HudBar : MonoBehaviour
         _ip.textWrappingMode = TextWrappingModes.NoWrap;
         _ip.overflowMode = TextOverflowModes.Ellipsis;
         HudUi.Place(_ip.rectTransform, ipLeft, top, pillLeft - GapMm - ipLeft, HeaderHeightMm);
+        BuildVlaPill(root, top + (HeaderHeightMm - chipH) / 2f, chipH, pillLeft - GapMm, pillLeft - GapMm - ipLeft);
         top += HeaderHeightMm + GapMm;
 
         var divider = HudUi.Box(root, "Divider", HudTheme.Divider);
@@ -302,6 +305,7 @@ public partial class HudBar : MonoBehaviour
     void Update()
     {
         _ip.text = _publisher.DisplayedIp;
+        UpdateVlaPill();
 
         if (_namespaceLabel != null)
         {

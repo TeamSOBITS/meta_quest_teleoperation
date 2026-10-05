@@ -72,6 +72,7 @@ public static class HudTheme
     public static readonly Color Good    = new Color(0.38f, 0.88f, 0.50f, 1f);
     public static readonly Color Bad     = new Color(1f, 0.38f, 0.38f, 1f);
     public static readonly Color Warn    = new Color(1f, 0.71f, 0.28f, 1f);
+    public static readonly Color Record  = new Color(0.96f, 0.26f, 0.21f, 1f);   // recording badge (red dot, REC)
     public static Color Divider => new Color(1f, 1f, 1f, HighContrast ? 0.4f : 0.12f);
     public static readonly Color Waiting = new Color(0.15f, 0.15f, 0.15f, 1f);   // camera view before the first frame
     public static readonly Color StaleTint = new Color(0.45f, 0.45f, 0.45f, 1f); // camera view while frames stop
@@ -114,6 +115,11 @@ public static class HudTheme
     public const float ViewHeight = 1.2f, LabelGap = 0.05f;
     // Highlight ring around a block while hovered / dragged: alpha of the accent colour.
     public const float HoverRingAlpha = 0.35f, DragRingAlpha = 0.7f;
+
+    // --- VLA status (status strip VLA group, bar header pill, event toast; see VlaStatusRule) ---
+
+    // The event toast fades in / out over these times (s) within its VlaStatusRule.ToastS.
+    public const float VlaToastFadeInS = 0.15f, VlaToastFadeOutS = 0.4f;
 
     // fps / stale badge, relative to the view it decorates: font height = FontRatio x the view's
     // height clamped to [MinFontMm, MaxFontMm]; corner radius = font; margin from the top-right

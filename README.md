@@ -39,6 +39,14 @@ On the ROS side it uses [TeamSOBITS/ros_tcp_endpoint](https://github.com/TeamSOB
 <p align="center"><img src="media/readme/overlay_basevel.png" width="640"><br><sub>Overlays: hand-camera cards and the base velocity arrow.</sub></p>
 <p align="center"><img src="media/readme/bar.png" width="640"><br><sub>HUD bar close-up.</sub></p>
 
+#### VLA status
+The HUD shows the status of the sobits_vla_tools stage that is running, from `sobits_interfaces/VlaStatus` on `/<ns>/vla_rosbag_collection/status` (data collection, `sobits_vla_rosbag_collection`) and `/<ns>/sobits_vla_deploy/status` (policy deploy, `sobits_vla_deploy`):
+- Collection: the recorder state (IDLE / REC / PAUSED / ERROR), the elapsed time, the task (`task: pick cup`), and short save / discard / delete / task notices.
+- Deploy: PLAY with the episode time (the clock starts at the first grip), RESETTING while the world resets, the task and the policy's short name (`pick cup · smolvla_fft`), a GRIP chip while the deadman is enabled and the policy plays (`GRIP driving` green, `GRIP released` amber), and the episode's steps and inference rate (`240 steps · 8.1 Hz`). The episode outcome is not shown.
+
+It appears as a VLA group in the status strip while the menu is hidden, a pill in the menu header while it is open (its dot takes the GRIP colour during deploy), and the notices just above the strip (or above the menu); only while a stage node is running (the badge hides when no message arrived for 3 s). If both nodes publish, an idle heartbeat of one never replaces the other's live status. The topics are the profile's `vlaStatusSuffixes`. The headset only displays: Quest A/B/X drive the recorder or the deploy node through sobits_vla_tools' `GamepadClient`.
+Test it without ROS: `tools/verify.sh --suite VlaStatusVerify`, or `tools/device.sh launch --recstatus [deploy]` (fake collection / deploy feed on the headset; `tools/device.sh logs` prints the `VLA:` lines).
+
 <p align="right">(<a href="#readme-top">Back to top</a>)</p>
 
 
@@ -159,6 +167,8 @@ $ adb install -r UnityProject/Builds/SOBITS-Quest-Teleoperation-<version>.apk
 ```
 (`File -> Build Profiles -> Android -> Build and Run` also deploys directly to the headset.)
 
+The C# classes of the `sobits_interfaces` messages the app uses live in `UnityProject/Assets/RosMessages/` (generated). After the `.msg` changes, regenerate them with `tools/gen_msgs.sh [SOBITS_INTERFACES_DIR]` (the Unity Editor must not have the project open; or the menu `Robots -> Generate sobits_interfaces messages`).
+
 <p align="right">(<a href="#readme-top">Back to top</a>)</p>
 
 ### Meta Quest-ROS Connection
@@ -187,7 +197,7 @@ Steps to add a robot model.
    ```
    Output goes to `tools/models/<robot>/meshes_lod/`.
 3. In Unity, run the menu `Robots -> Build <robot> model` to generate the model prefab (currently SOBIT HOME / SOBIT LIGHT).
-4. Fill in the `RobotProfile` asset (frames: camera, pan, tilt; cameras; arms).
+4. Fill in the `RobotProfile` asset (frames: camera, pan, tilt; cameras; arms; `odomSuffix`; `vlaStatusSuffixes`: status topics of the VLA stage nodes relative to the namespace, `vla_rosbag_collection/status` and `sobits_vla_deploy/status`, empty = no VLA badge).
 5. Run `Robots -> Validate profiles`.
 
 <p align="right">(<a href="#readme-top">Back to top</a>)</p>

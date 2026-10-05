@@ -24,6 +24,10 @@ public class TeleopHud : MonoBehaviour
     public Transform hudParent;
 
     Transform _bar;
+    VlaStatus _vlaStatus;   // VLA stage (recorder / deploy) status feed of this robot screen (display only)
+    public VlaStatus VlaStatus => _vlaStatus;
+    VlaToast _vlaToast;       // event notices (saved, discarded, ...) above the strip / bar
+    public VlaToast VlaToast => _vlaToast;
     HeadFollower _follower;
     GameObject _waiting;
     TextMeshProUGUI _waitingStatus;
@@ -67,6 +71,7 @@ public class TeleopHud : MonoBehaviour
         images.NamespaceChanged += publisher.SetNamespace;   // Joy topic follows discovery
         // Control on at the start (saved state / default) does not publish at once: the bar runs the same 2 s countdown
         // as its toggle once it is built. Setup mode stays in layout mode: the trigger arranges blocks, nothing reaches a robot.
+        if (DebugLaunchOptions.NoControl) { DebugLaunchOptions.NoControl = false; publisher.controlRobot = false; }   // this launch only
         _startControl = publisher.controlRobot && !images.InSetup;
         if (_startControl || images.InSetup)
             publisher.controlRobot = false;
@@ -87,6 +92,8 @@ public class TeleopHud : MonoBehaviour
 
         _bar = HudBar.Create(hudParent, publisher, images, this).transform;
         _view.CreateRoundTrip();
+        _vlaStatus = VlaStatus.Create(images.Profile);
+        _vlaToast = VlaToast.Create(this);
         images.CamerasAdded += RebuildBar;
         if (_startControl) { _startControl = false; RequestControl(true); }
 
@@ -108,6 +115,13 @@ public class TeleopHud : MonoBehaviour
         if (Settings.DebugCapture)
             StartCoroutine(DebugCapture.Run());
 
+        if (DebugLaunchOptions.VlaStatusDemoMode != null)
+        {
+            string mode = DebugLaunchOptions.VlaStatusDemoMode;
+            DebugLaunchOptions.VlaStatusDemoMode = null;   // this launch only
+            VlaStatusDemo.Start(this, _vlaStatus, mode);
+        }
+
         if (DemoRecorder.Request != null)
         {
             var request = DemoRecorder.Request.Value;
@@ -125,6 +139,7 @@ public class TeleopHud : MonoBehaviour
         if (Strip != null && !FirstPerson) Strip.transform.SetParent(parent, false);
         images.panelParent = parent;
         hudParent = parent;
+        if (_vlaToast != null) _vlaToast.Place();   // follows the strip / bar
     }
 
     // "Find cameras" added blocks: rebuild the bar so it lists their toggles too.
@@ -238,5 +253,6 @@ public class TeleopHud : MonoBehaviour
         _bar.SetParent(parent, false);
         if (Strip != null && !FirstPerson) Strip.transform.SetParent(parent, false);
         images.panelParent = parent;
+        if (_vlaToast != null) _vlaToast.Place();   // follows the strip / bar
     }
 }
