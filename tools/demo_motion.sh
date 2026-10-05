@@ -1,8 +1,8 @@
 #!/bin/bash
 # ~62 s SOBIT HOME choreography for the on-device demo recording (see DemoRecorder.cs).
 # Run inside the container after `docker cp`:
-#   docker cp tools/demo_motion.sh jazzy_sobit_sciurus_kachaka_ws:/tmp/demo_motion.sh
-#   docker exec jazzy_sobit_sciurus_kachaka_ws bash -lc 'source ~/colcon_ws/install/setup.bash; bash /tmp/demo_motion.sh'
+#   C=$(tools/ros_container.sh); docker cp tools/demo_motion.sh $C:/tmp/demo_motion.sh
+#   docker exec $C bash -lc 'source ~/colcon_ws/install/setup.bash; bash /tmp/demo_motion.sh'
 # Start it together with the app (launch extra record=60, switchat=30); first person starts at t=30.
 
 NS=/sobit_home

@@ -1,7 +1,7 @@
 #!/bin/bash
 # targets.sh left|right|both|arm SECONDS -- publish base_footprint -> *_target_link on /tf at 10 Hz
 # (SOBIT LIGHT, env VERIFY_ROBOT=SOBIT_LIGHT: its single arm_target_link, any argument)
-C=${ROS_CONTAINER:-jazzy_sobit_sciurus_kachaka_ws}
+C=$("$(dirname "$0")/../ros_container.sh") || exit 1
 NS=$(echo "${VERIFY_ROBOT:-SOBIT_HOME}" | tr A-Z a-z)
 ENVS=$(grep -v '^#' "$(dirname "$0")/../ros_env.sh" | tr '\n' ';' | sed 's/;$//')
 L="{header: {frame_id: base_footprint}, child_frame_id: left_target_link, transform: {translation: {x: 0.4, y: 0.2, z: 0.9}, rotation: {w: 1.0}}}"

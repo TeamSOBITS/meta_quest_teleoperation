@@ -2,7 +2,7 @@
 # (helper for the live Editor suites; they find it via env TELEOP_TOOLS, default <repo>/tools/sim)
 # pub.sh head PAN TILT | lift Q | arm | armhome | hand open|close  -- one JointTrajectory to the sim controllers
 # Robot: env VERIFY_ROBOT (SOBIT_HOME default, SOBIT_LIGHT). `arm` = a pose away from `armhome` (armleft = alias), no lift on SOBIT LIGHT.
-C=${ROS_CONTAINER:-jazzy_sobit_sciurus_kachaka_ws}
+C=$("$(dirname "$0")/../ros_container.sh") || exit 1
 ENVS=$(grep -v '^#' "$(dirname "$0")/../ros_env.sh" | tr '\n' ';' | sed 's/;$//')
 NS=$(echo "${VERIFY_ROBOT:-SOBIT_HOME}" | tr 'A-Z' 'a-z')
 traj() { echo "{joint_names: [$1], points: [{positions: [$2], time_from_start: {sec: ${3:-2}}}]}"; }

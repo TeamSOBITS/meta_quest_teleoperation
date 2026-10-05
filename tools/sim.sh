@@ -6,9 +6,9 @@
 #           launch sobits_teleop (robot_name:=sobit_home device:=quest ...), wait for port 10000, adb reverse
 #   light   same for SOBIT LIGHT (gz_minimal with enable_tf_prefix:=false headless:=true)
 #   stop    docker restart only (everything gone, nothing relaunched)
-# Never uses `docker compose`. Env: ROS_CONTAINER (default jazzy_sobit_sciurus_kachaka_ws), ROBOT (status override).
-C=${ROS_CONTAINER:-jazzy_sobit_sciurus_kachaka_ws}
+# Never uses `docker compose`. Env: ROS_CONTAINER (default: found by tools/ros_container.sh), ROBOT (status override).
 D=$(cd "$(dirname "$0")" && pwd)
+C=$("$D/ros_container.sh") || exit 1
 ENVS=$(grep -v '^#' "$D/ros_env.sh" | tr '\n' ';' | sed 's/;$//')
 
 rexec() { docker exec "$C" bash -lc "$ENVS; $*"; }
@@ -70,7 +70,9 @@ status() {
 case "$1" in
   status) shift; [ "$1" = --robot ] && ROBOT=${2#sobit_} && ROBOT=sobit_$ROBOT; status;;
   home)   start sobit_home sobit_home_bringup;;
-  light)  start sobit_light sobit_light_bringup enable_tf_prefix:=false headless:=true;;
+  light)  # sobit_light is not built in every workspace
+          rexec "ros2 pkg prefix sobit_light_bringup" >/dev/null 2>&1 || { echo "sobit_light_bringup is not built in $C (set ROS_CONTAINER)" >&2; exit 1; }
+          start sobit_light sobit_light_bringup enable_tf_prefix:=false headless:=true;;
   stop)   docker restart "$C" >/dev/null && echo "container restarted, nothing running";;
   *) sed -n 2,11p "$0"; exit 2;;
 esac

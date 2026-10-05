@@ -1,6 +1,6 @@
 #!/bin/bash
 # cmdvel.sh lin|ang|both|stop SECONDS -- cmd_vel burst at 10 Hz
-C=${ROS_CONTAINER:-jazzy_sobit_sciurus_kachaka_ws}
+C=$("$(dirname "$0")/../ros_container.sh") || exit 1
 NS=$(echo "${VERIFY_ROBOT:-SOBIT_HOME}" | tr A-Z a-z)
 ENVS=$(grep -v '^#' "$(dirname "$0")/../ros_env.sh" | tr '\n' ';' | sed 's/;$//')
 case "$1" in lin) M="{linear: {x: 0.15}}";; ang) M="{angular: {z: 0.5}}";; both) M="{linear: {x: 0.15}, angular: {z: 0.5}}";; stop) M="{}";; *) exit 2;; esac

@@ -1,6 +1,6 @@
 // Generates the C# classes of the sobits_interfaces messages this app uses into Assets/RosMessages/.
 // Menu: Robots > Generate sobits_interfaces messages. Batch: tools/gen_msgs.sh [SOBITS_INTERFACES_DIR]
-// (= -executeMethod RosMessageGen.Run). Input dir: env SOBITS_INTERFACES_DIR, else the sibling docker workspace.
+// (= -executeMethod RosMessageGen.Run). Input dir: env SOBITS_INTERFACES_DIR, else a docker_containers/*/src/sobits_interfaces.
 using System;
 using System.IO;
 using Unity.Robotics.ROSTCPConnector.MessageGeneration;
@@ -17,14 +17,41 @@ public static class RosMessageGen
         string env = Environment.GetEnvironmentVariable("SOBITS_INTERFACES_DIR");
         if (!string.IsNullOrEmpty(env)) return env;
         string repo = Path.GetFullPath(Path.Combine(Application.dataPath, "..", ".."));
-        string rel = Path.Combine("docker_containers", "jazzy_sobit_sciurus_kachaka_ws", "src", "sobits_interfaces");
-        // The workspace sits beside the repo or in the home folder (the repo itself is often in ~/Documents).
+        string src = ContainerSrc(repo);   // the ROS container the tools drive (tools/ros_container.sh)
+        if (src != null && Directory.Exists(Path.Combine(src, Package))) return Path.Combine(src, Package);
+        // No docker: any docker_containers/<workspace>/src/sobits_interfaces beside the repo, one level up or in the
+        // home folder; the most recently changed wins.
+        string best = null;
+        var newest = DateTime.MinValue;
         foreach (var root in new[] { Path.Combine(repo, ".."), Path.Combine(repo, "..", ".."), Environment.GetFolderPath(Environment.SpecialFolder.Personal) })
         {
-            string dir = Path.GetFullPath(Path.Combine(root, rel));
-            if (Directory.Exists(dir)) return dir;
+            string containers = Path.GetFullPath(Path.Combine(root, "docker_containers"));
+            if (!Directory.Exists(containers)) continue;
+            foreach (var ws in Directory.GetDirectories(containers))
+            {
+                string dir = Path.Combine(ws, "src", Package);
+                string msg = Path.Combine(dir, "msg");
+                if (!Directory.Exists(msg)) continue;
+                var t = Directory.GetLastWriteTime(msg);
+                if (t > newest) { newest = t; best = dir; }
+            }
         }
-        return Path.GetFullPath(Path.Combine(repo, "..", rel));
+        return best ?? Path.GetFullPath(Path.Combine(repo, "..", "docker_containers", "<workspace>", "src", Package));
+    }
+
+    static string ContainerSrc(string repo)
+    {
+        try
+        {
+            var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("bash", "tools/ros_container.sh --src")
+            {
+                WorkingDirectory = repo, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false,
+            });
+            string output = p.StandardOutput.ReadToEnd().Trim();
+            p.WaitForExit(10000);
+            return p.ExitCode == 0 && output.Length > 0 ? output : null;
+        }
+        catch (Exception) { return null; }
     }
 
     [MenuItem("Robots/Generate sobits_interfaces messages")]
