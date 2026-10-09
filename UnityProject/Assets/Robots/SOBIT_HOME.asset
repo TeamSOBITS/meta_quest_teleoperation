@@ -50,7 +50,7 @@ MonoBehaviour:
     role: 1
     side: 0
     firstPerson: 1
-    cameraInfoSuffix: head_camera/camera_info
+    cameraInfoSuffix: head_camera/color/camera_info
     mountFrame: head_camera_color_frame
   - displayName: Right Hand Camera
     topicSuffix: hand_right_camera/color/image_raw/compressed
