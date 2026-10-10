@@ -2,9 +2,9 @@
 # sim.sh status [--robot home|light] | home | light | stop   -- manage the Gazebo sim + sobits_teleop in the ROS container.
 #   status  topic rates of the active robot (detected from the running launch arguments, or --robot / env ROBOT)
 #           (/clock, joint_states, head image) + endpoint port
-#   home    docker restart, launch sobit_home_bringup gz_minimal, wait for /clock + head image (180 s),
+#   home    docker restart, launch sobit_home_bringup sim_minimal (Gazebo), wait for /clock + head image (180 s),
 #           launch sobits_teleop (robot_name:=sobit_home device:=quest ...), wait for port 10000, adb reverse
-#   light   same for SOBIT LIGHT (gz_minimal with enable_tf_prefix:=false headless:=true)
+#   light   same for SOBIT LIGHT (sim_minimal with enable_tf_prefix:=false headless:=true)
 #   stop    docker restart only (everything gone, nothing relaunched)
 # Never uses `docker compose`. Env: ROS_CONTAINER (default: found by tools/ros_container.sh), ROBOT (status override).
 D=$(cd "$(dirname "$0")" && pwd)
@@ -38,7 +38,7 @@ start() {  # start ROBOT GZ_PACKAGE EXTRA_GZ_ARGS...
   local robot=$1 pkg=$2; shift 2
   docker restart "$C" >/dev/null || exit 1
   sleep 5
-  rdetach "exec ros2 launch $pkg gz_minimal.launch.py $* > /tmp/sim_gz.log 2>&1"
+  rdetach "exec ros2 launch $pkg sim_minimal.launch.py $* > /tmp/sim_gz.log 2>&1"
   wait_topics "$robot" || { echo "see: docker exec $C tail -40 /tmp/sim_gz.log" >&2; exit 1; }
   rdetach "exec ros2 launch sobits_teleop sobits_teleop.launch.py robot_name:=$robot device:=quest use_sim_time:=true use_moveit:=true use_servo:=true > /tmp/sim_teleop.log 2>&1"
   wait_port || { echo "see: docker exec $C tail -40 /tmp/sim_teleop.log" >&2; exit 1; }
